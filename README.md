@@ -1,9 +1,8 @@
 # 🧙 Wizard Factory
 
-A retro 8-bit dashboard that shows every running Claude Code agent as a pixel wizard
-in a shared tower. Main sessions are wizards; subagents are apprentices. They move
-between stations based on what they're actually doing, and wait for you at the café
-when their turn is done.
+A retro 8-bit dashboard that shows every running Claude Code and Codex agent as a pixel wizard
+in a shared tower. Main sessions are wizards; subagents are apprentices. They move between
+stations based on what they're doing, and wait for you at the café when their turn is done.
 
 ![demo](assets/demo.gif)
 
@@ -16,11 +15,11 @@ python3 server.py --demo           # fake wizards, for kicking the tires
 python3 server.py --port N         # different port
 ```
 
-No dependencies (Python 3 stdlib only), no build step, no agent registration.
+No dependencies (Python 3 stdlib only).
 
 ## How it works
 
-The server tails the transcript files Claude Code already writes to
+The server tails the transcript files Claude Code writes to
 `~/.claude/projects/<project>/<session>.jsonl` (and
 `<session>/subagents/agent-*.jsonl` for subagents), keeping byte offsets per file
 and re-reading the tail if a file is rewritten. OpenAI Codex CLI sessions are
@@ -77,3 +76,4 @@ already-running sessions keep working via polling alone.
   uses file mtime and statuses may lag a little for those.
 - `python3 server.py --debug-scan` prints the inferred agent list as JSON.
 - The cat is named Biggles. He is not configurable.
+  [Editor's note: I didn't ask for a cat, this is 100% Claude Fable.]

@@ -84,7 +84,7 @@
       let w = wizards.get(a.id);
       if (!w) {
         w = { a, sp: SP.makeWizard(a.id, a.kind, a.engine), x: 436 + ((hash(a.id) % 9) - 4), y: 250, dir: -1, path: [], walk: false,
-              station: null, spotI: -1, home: null, order: null, paceAt: 0, leaving: false,
+              station: null, spotI: -1, home: null, order: null, paceAt: 0, castAt: 0, leaving: false,
               alpha: 0, ph: (hash(a.id) % 100) / 16, r: rng(hash(a.id) ^ 0xbeef), emote: null };
         wizards.set(a.id, w);
         sparkleAt(436, 252);
@@ -95,14 +95,14 @@
       w.a = a;
       w.leaving = false;
       if (a.status !== 'waiting') w.order = null;
-      if (changed) retarget(w);
+      if (changed) { w.castAt = 0; retarget(w); }
     }
     for (const [id, w] of wizards) if (!seen.has(id) && !w.leaving) { w.leaving = true; release(w); w.station = null; pathTo(w, 436, 250); w.path.push([436, 266]); }
   }
 
   // ---------- cat & barista ----------
   const catFrames = SP.makeCat();
-  const cat = { x: 446, y: 110, state: 'sit', until: 4, path: [], dir: -1, dest: null, order: null };
+  const cat = { x: 446, y: 110, state: 'sit', until: 4, path: [], dir: -1, dest: null, order: null, castAt: 0 };
   const catR = rng(99);
   function catThink(t) {
     if (cat.state === 'milk') cat.order = null;
@@ -175,11 +175,65 @@
 
   // ---------- particles ----------
   const PARTS = [];
+  const SPELLS = [];
+  const SPELL_TARGETS = {
+    cauldron: [[68, 154], [80, 154]], shelf: [[24, 68], [24, 104], [24, 140]],
+    bench: [[132, 50], [154, 50], [176, 50]], desk: [[108, 204], [152, 204]],
+    crystal: [[223, 102]], circle: [[186, 176]], board: [[314, 28], [300, 28]],
+  };
   function spark(x, y, c, vy, life, kind) {
     if (PARTS.length > 220) return;
     PARTS.push({ x: x + Math.random() * 4 - 2, y, vx: Math.random() * 8 - 4, vy, c, life, t: 0, kind });
   }
   const sparkleAt = (x, y) => { for (let i = 0; i < 6; i++) spark(x, y - 10 - Math.random() * 10, '#ffe89a', -4, .8); };
+  function spellTarget(w) {
+    const spots = SPELL_TARGETS[w.station], p = spots ? spots[w.r() * spots.length | 0] : (w.home || [w.x, w.y]);
+    return [p[0] + ((w.r() * 14 - 7) | 0), p[1] + ((w.r() * 10 - 5) | 0)];
+  }
+  function catSpellTarget() {
+    const cafe = cat.x > 268, x = cafe ? 286 + catR() * 160 : 24 + catR() * 220;
+    return [x | 0, (52 + catR() * 178) | 0];
+  }
+  function castSpell(w, t) {
+    if (SPELLS.length > 36) return;
+    const kinds = ['fireball', 'bolt', 'missile', 'spark', 'rune'], kind = kinds[w.r() * kinds.length | 0];
+    const [tx, ty] = spellTarget(w), sx = w.x + (w.dir > 0 ? 7 : -7), sy = w.y - 17;
+    SPELLS.push({ kind, sx, sy, tx, ty, t: 0, life: kind === 'bolt' ? .24 : .65 + w.r() * .35, seed: w.r() * 99 | 0 });
+    spark(sx, sy, kind === 'fireball' ? '#ffd84a' : kind === 'bolt' ? '#e8f6ff' : '#c8b4ff', -5, .35);
+  }
+  function castCatSpell(t) {
+    if (SPELLS.length > 36) return;
+    const kinds = ['missile', 'spark', 'rune', 'bolt'], kind = kinds[catR() * kinds.length | 0];
+    const [tx, ty] = catSpellTarget(), sx = cat.x + (cat.dir > 0 ? 7 : -7), sy = cat.y - 8;
+    SPELLS.push({ kind, sx, sy, tx, ty, t: 0, life: kind === 'bolt' ? .24 : .55 + catR() * .3, seed: catR() * 99 | 0 });
+    spark(sx, sy, '#d8ff58', -5, .35);
+  }
+  function maybeCast(w, t) {
+    if (w.a.status !== 'working' || w.walk || w.leaving || w.alpha < .8 || !w.home) return;
+    if (!w.castAt) w.castAt = t + .8 + w.r() * 2.8;
+    if (t > w.castAt) {
+      w.castAt = t + 2.4 + w.r() * 4.8;
+      if (w.r() < .7) castSpell(w, t);
+    }
+  }
+  function maybeCatCast(t) {
+    if (cat.state === 'walk' || cat.state === 'sleep' || cat.path.length) return;
+    if (!cat.castAt) cat.castAt = t + 4 + catR() * 8;
+    if (t > cat.castAt) {
+      cat.castAt = t + 7 + catR() * 13;
+      if (catR() < .55) castCatSpell(t);
+    }
+  }
+  function updateSpells(dt) {
+    for (let i = SPELLS.length - 1; i >= 0; i--) {
+      const s = SPELLS[i];
+      s.t += dt;
+      if (s.t <= s.life) continue;
+      if (s.kind === 'fireball') sparkleAt(s.tx, s.ty);
+      else spark(s.tx, s.ty, s.kind === 'bolt' ? '#e8f6ff' : '#c8b4ff', -4, .4);
+      SPELLS.splice(i, 1);
+    }
+  }
 
   // ---------- world ----------
   const WALL = '#3a3144', WALL_D = '#262032', WALL_HI = '#4a3f5c';
@@ -248,7 +302,10 @@
       }
       if (w.a.status === 'idle' && Math.random() < dt * .5) spark(w.x + 6, w.y - 24, '#a8a2c8', -6, 1.4, 'z');
       if (w.a.status === 'attention' && Math.random() < dt * 2) spark(w.x, w.y - 26, '#ff5a5a', -10, .5);
+      maybeCast(w, t);
     }
+    maybeCatCast(t);
+    updateSpells(dt);
     cafeService(t);
     // ambient particles
     if (occupied('cauldron') && Math.random() < dt * 7) spark(70 + Math.random() * 14, 152, '#58d878', -14, .8);
@@ -312,6 +369,51 @@
       g.fillRect(sx + 4 + (tx - sx - 4) * k + wiggle, sy + 4 + (ty - sy - 4) * k, 1, i > 5 ? 2 : 1);
     }
   }
+  function spellPos(s, k) {
+    return [s.sx + (s.tx - s.sx) * k, s.sy + (s.ty - s.sy) * k - Math.sin(k * Math.PI) * 10];
+  }
+  function pixLine(x1, y1, x2, y2, c, step = 3) {
+    const n = Math.max(1, Math.hypot(x2 - x1, y2 - y1) / step | 0);
+    g.fillStyle = c;
+    for (let i = 0; i <= n; i++) {
+      const k = i / n;
+      g.fillRect(Math.round(x1 + (x2 - x1) * k), Math.round(y1 + (y2 - y1) * k), 2, 2);
+    }
+  }
+  function drawSpell(s, t) {
+    const k = Math.min(1, s.t / s.life);
+    if (s.kind === 'bolt') {
+      let px = s.sx, py = s.sy;
+      for (let i = 1; i <= 5; i++) {
+        const q = i / 5, nx = s.sx + (s.tx - s.sx) * q + Math.sin(q * 11 + s.seed + t * 9) * 4, ny = s.sy + (s.ty - s.sy) * q;
+        pixLine(px, py, nx, ny, i % 2 ? '#e8f6ff' : '#8fd0ff', 2);
+        px = nx; py = ny;
+      }
+      return;
+    }
+    if (s.kind === 'missile') {
+      for (let j = 0; j < 3; j++) {
+        const q = Math.max(0, k - j * .06), p = spellPos(s, q), off = (j - 1) * 3;
+        g.fillStyle = j ? '#9a7cf0' : '#e8dcff';
+        g.fillRect(Math.round(p[0]), Math.round(p[1] + off), j ? 2 : 3, 2);
+      }
+      return;
+    }
+    const [x, y] = spellPos(s, k);
+    if (s.kind === 'fireball') {
+      for (let j = 0; j < 4; j++) {
+        const q = Math.max(0, k - j * .05), p = spellPos(s, q);
+        g.fillStyle = ['#ffe89a', '#ffd84a', '#f08a2a', '#d83a3a'][j];
+        g.fillRect(Math.round(p[0]) - 1, Math.round(p[1]) - 1, j ? 2 : 4, j ? 2 : 4);
+      }
+    } else {
+      const c = s.kind === 'rune' ? '#58d878' : '#d8ff58';
+      g.fillStyle = c;
+      g.fillRect(Math.round(x), Math.round(y) - 3, 2, 8);
+      g.fillRect(Math.round(x) - 3, Math.round(y), 8, 2);
+      if (s.kind === 'rune') { g.fillRect(Math.round(x) - 2, Math.round(y) - 2, 2, 2); g.fillRect(Math.round(x) + 3, Math.round(y) + 3, 2, 2); }
+    }
+  }
 
   function draw(t) {
     g.drawImage(bg, 0, 0);
@@ -347,6 +449,7 @@
       }
     }
     if (dragon.task && dragon.task.phase === 'milk') drawMilkPour(t);
+    for (const s of SPELLS) drawSpell(s, t);
     for (const p of PARTS) {
       g.globalAlpha = Math.max(0, 1 - p.t / p.life);
       if (p.kind === 'z') drawText(g, p.x, p.y, 'Z', p.c);
@@ -362,7 +465,7 @@
     if (cat.order && cat.order.stage === 'served') PR.cup(g, cat.x + 5, cat.y - 6, WARM_MILK.key, t);
     if (cat.order && cat.order.stage !== 'served' && ((t + 1.7) % 6) < 2.4) tag(cat.x, cat.y - 25, WARM_MILK.name);
     if (hover === 'cat') tag(cat.x, cat.y - 20, 'BIGGLES, STAFF CAT');
-    if (hover === 'barista') tag(338, barY - 32, 'EARL GREY, DRAGON BARISTA');
+    if (hover === 'barista') tag(338, barY - 32, 'EARL GREY, BARISTA');
     if (!wizards.size) {
       g.fillStyle = 'rgba(12,9,20,.55)'; g.fillRect(90, 110, 300, 44);
       drawText(g, 240 - textW('THE TOWER SLEEPS', 2) / 2, 120, 'THE TOWER SLEEPS', '#cdc6e0', 2);
@@ -555,5 +658,5 @@
   catThink(0);
   poll();
   requestAnimationFrame(frame);
-  window.WF = { wizards, ST, cat, dragon };
+  window.WF = { wizards, ST, cat, dragon, SPELLS };
 })();

@@ -23,7 +23,7 @@
   for (const k in ST) ST[k].occ = ST[k].spots.map(() => null);
 
   // ---------- collision ----------
-  const GRID = 8, WIZ_R = 5, CAT_R = 4;
+  const GRID = 8, WIZ_R = 5, CAT_R = 4, DRAGON_R = 8, TELEPORT_CHANCE = .05;
   const BLOCKERS = [
     { x: 264, y: 34, w: 8, h: 78 }, { x: 264, y: 168, w: 8, h: 92 },
     { x: 58, y: 154, w: 24, h: 18 },
@@ -36,7 +36,7 @@
     { x: 294, y: 194, w: 102, h: 25 },
     { x: 452, y: 40, w: 13, h: 14 },
   ];
-  const bodyR = e => e && e.sp ? WIZ_R : CAT_R;
+  const bodyR = e => e && e.sp ? WIZ_R : e && e.frames ? DRAGON_R : CAT_R;
   const snap = v => Math.round(v / GRID) * GRID;
   const hitRect = (x, y, r, b) => x + r > b.x && x - r < b.x + b.w && y + r > b.y && y - r < b.y + b.h;
   const blocked = (x, y, r) => x < 18 + r || x > 462 - r || y < 42 + r || y > 266 || BLOCKERS.some(b => hitRect(x, y, r, b));
@@ -114,7 +114,13 @@
     return [Math.max(lab ? 18 : 282, Math.min(lab ? 252 : 462, x)), Math.max(46, Math.min(250, y))];
   }
   function pathTo(w, tx, ty) {
-    w.path = route(w.x, w.y, tx, ty, bodyR(w));
+    const path = route(w.x, w.y, tx, ty, bodyR(w)), last = path[path.length - 1], r = w.r || catR;
+    if (last && Math.hypot(last[0] - w.x, last[1] - w.y) > 8 && r() < TELEPORT_CHANCE) {
+      castTeleport(w, last[0], last[1], r);
+      w.path = [];
+      if (Math.abs(last[0] - w.x) > .4) w.dir = last[0] < w.x ? -1 : 1;
+      w.x = last[0]; w.y = last[1];
+    } else w.path = path;
   }
   function release(w) {
     if (w.station && w.spotI >= 0) ST[w.station].occ[w.spotI] = null;
@@ -183,7 +189,7 @@
     cat.dest = null;
     const roll = catR();
     if (roll < .08) sendCatToCafe(t);
-    else if (roll < .38) { cat.state = 'sleep'; cat.until = t + 6 + catR() * 8; cat.path = [[440, 112]]; }
+    else if (roll < .38) { cat.state = 'sleep'; cat.until = t + 6 + catR() * 8; pathTo(cat, 440, 112); }
     else if (roll < .64) { cat.state = 'sit'; cat.until = t + 4 + catR() * 5; }
     else {
       const ws = [...wizards.values()];
@@ -194,7 +200,8 @@
     }
   }
   // Earl Grey roasts the house beans himself.
-  const dragon = { frames: SP.makeDragon(), x: 338, roastAt: 7, roastUntil: -9, flapAt: 13, flapUntil: -9, task: null, game: null };
+  const barY = 196, DRAGON_HOME = [338, barY], dragonR = rng(777);
+  const dragon = { frames: SP.makeDragon(), x: DRAGON_HOME[0], y: DRAGON_HOME[1], dir: -1, path: [], dest: null, mode: null, roastAt: 7, roastUntil: -9, flapAt: 13, flapUntil: -9, task: null, game: null };
   const PAN = [324, 196];
   const CUP = [316, 187], CAT_CAFE = [404, 226];
 
@@ -221,6 +228,22 @@
     const w = wizards.get(task.id);
     return w && cafeReady(w) && w.order === task.order ? { kind: 'wizard', id: w.a.id, order: w.order, drink: w.order.drink, x: w.x, y: w.y } : null;
   }
+  function dragonAtBar() {
+    return !dragon.game && !dragon.dest && !dragon.path.length && Math.hypot(dragon.x - DRAGON_HOME[0], dragon.y - DRAGON_HOME[1]) < 2;
+  }
+  function sendDragonTo(x, y, dest, t) {
+    dragon.mode = dragonR() < .55 ? 'walk' : 'fly';
+    dragon.dest = dest;
+    dragon.roastUntil = -9;
+    dragon.path = dragon.mode === 'fly' ? [[x, y]] : route(dragon.x, dragon.y, x, y, bodyR(dragon));
+    if (dragon.mode === 'fly') dragon.flapUntil = Math.max(dragon.flapUntil, t + 2);
+  }
+  function sendDragonHome(t) {
+    dragon.game = null;
+    if (Math.hypot(dragon.x - DRAGON_HOME[0], dragon.y - DRAGON_HOME[1]) < 2) {
+      dragon.x = DRAGON_HOME[0]; dragon.y = DRAGON_HOME[1]; dragon.dest = dragon.mode = null; dragon.path = [];
+    } else sendDragonTo(DRAGON_HOME[0], DRAGON_HOME[1], 'bar', t);
+  }
   function startDrink(c, t) {
     c.order.stage = 'brewing';
     dragon.roastUntil = dragon.flapUntil = -9;
@@ -242,7 +265,7 @@
         sparkleAt(c.x, c.y - 8);
       }
     }
-    if (!dragon.task) {
+    if (!dragon.task && dragonAtBar()) {
       const next = cafeCustomers().filter(c => c.order.stage === 'queued' && t >= c.order.askAt).sort((a, b) => a.order.askAt - b.order.askAt)[0];
       if (next) startDrink(next, t);
     }
@@ -267,7 +290,7 @@
     } else if (p.kind === 'cat') {
       cat.game = null;
       if (cat.state === 'game' || cat.dest === 'game') { cat.dest = null; catThink(t); }
-    } else dragon.game = null;
+    } else sendDragonHome(t);
   }
   function leaveGameForWizard(w, t) {
     if (!w || !w.game) return;
@@ -279,7 +302,7 @@
     if (!dragon.game) return;
     const table = tableById(dragon.game);
     if (table && table.game) table.game.players = table.game.players.filter(p => p.kind !== 'dragon');
-    dragon.game = null;
+    sendDragonHome(t);
     if (table && table.game && table.game.players.length < 2) endGame(table, t, false);
   }
   function endGame(table, t, burn) {
@@ -298,14 +321,14 @@
       release(w); w.game = table.id; w.station = 'cafe'; w.home = [x, y]; w.emote = null; pathTo(w, x, y);
     } else if (p.kind === 'cat') {
       cat.game = table.id; cat.order = null; cat.dest = 'game'; cat.state = 'walk'; cat.until = t + 120; pathTo(cat, x, y);
-    } else dragon.game = table.id;
+    } else { dragon.game = table.id; sendDragonTo(x, y, 'game', t); }
     return true;
   }
   function canUseCat() {
     return !cat.game && !cat.path.length && cat.state !== 'walk' && cat.state !== 'sleep' && cat.state !== 'cafe';
   }
   function canUseDragon() {
-    return !dragon.game && !dragon.task && !cafeCustomers().some(c => c.order.stage !== 'served');
+    return dragonAtBar() && !dragon.task && !cafeCustomers().some(c => c.order.stage !== 'served');
   }
   function startGame(table, players, t) {
     table.game = { type: GAME_TYPES[tableR() * GAME_TYPES.length | 0], players, until: t + 28 + tableR() * 28 };
@@ -355,6 +378,15 @@
     PARTS.push({ x: x + Math.random() * 4 - 2, y, vx: Math.random() * 8 - 4, vy, c, life, t: 0, kind });
   }
   const sparkleAt = (x, y) => { for (let i = 0; i < 6; i++) spark(x, y - 10 - Math.random() * 10, '#ffe89a', -4, .8); };
+  function teleportBurst(x, y, c) {
+    for (let i = 0; i < 10; i++) spark(x + Math.cos(i) * 5, y - 13 + Math.sin(i * 2) * 5, c, -4 - Math.random() * 7, .55);
+  }
+  function castTeleport(e, tx, ty, r) {
+    const catBlink = !e.sp, c = catBlink ? '#d8ff58' : '#c8b4ff';
+    SPELLS.push({ kind: 'teleport', sx: e.x, sy: e.y - (catBlink ? 8 : 18), tx, ty: ty - (catBlink ? 8 : 18), t: 0, life: .75, seed: r() * 99 | 0, c });
+    teleportBurst(e.x, e.y, c);
+    teleportBurst(tx, ty, c);
+  }
   function spellTarget(w) {
     const spots = SPELL_TARGETS[w.station], p = spots ? spots[w.r() * spots.length | 0] : (w.home || [w.x, w.y]);
     return [p[0] + ((w.r() * 14 - 7) | 0), p[1] + ((w.r() * 10 - 5) | 0)];
@@ -413,7 +445,8 @@
       const s = SPELLS[i];
       s.t += dt;
       if (s.t <= s.life) continue;
-      if (s.kind === 'fireball') sparkleAt(s.tx, s.ty);
+      if (s.kind === 'teleport') spark(s.tx, s.ty, s.c, -4, .4);
+      else if (s.kind === 'fireball') sparkleAt(s.tx, s.ty);
       else if (s.kind !== 'rain') {
         if (s.cat) burnGameAt(s.tx, s.ty, t);
         spark(s.tx, s.ty, s.kind === 'bolt' ? '#e8f6ff' : '#c8b4ff', -4, .4);
@@ -502,7 +535,7 @@
     if (d < .1) { e.x = tx; e.y = ty; e.path.shift(); return true; }
     const done = d <= step, nx = done ? tx : e.x + dx / d * step, ny = done ? ty : e.y + dy / d * step, r = bodyR(e);
     const tryMove = (x, y) => {
-      if (blocked(x, y, r)) return false;
+      if (e.mode !== 'fly' && blocked(x, y, r) && !blocked(e.x, e.y, r)) return false;
       if (Math.abs(x - e.x) > .4) e.dir = x < e.x ? -1 : 1;
       e.x = x; e.y = y;
       return true;
@@ -510,6 +543,30 @@
     if (tryMove(nx, ny)) { if (done) e.path.shift(); }
     else if (!tryMove(nx, e.y)) tryMove(e.x, ny);
     return true;
+  }
+
+  function assignedDragonSeat() {
+    const table = tableById(dragon.game);
+    if (!table || !table.game || dragon.task) return null;
+    const p = table.game.players.find(x => x.kind === 'dragon');
+    return p ? table.seats[p.seat] : null;
+  }
+  function finishDragonTravel(t) {
+    if (dragon.path.length) return;
+    if (dragon.dest === 'game') {
+      const seat = assignedDragonSeat();
+      if (seat) { dragon.x = seat[0]; dragon.y = seat[1]; dragon.dest = dragon.mode = null; }
+      else sendDragonHome(t);
+    } else if (dragon.dest === 'bar') {
+      dragon.x = DRAGON_HOME[0]; dragon.y = DRAGON_HOME[1]; dragon.dest = dragon.mode = null;
+    }
+  }
+  function updateDragon(dt, t) {
+    if (dragon.path.length) {
+      moveAlong(dragon, dt, dragon.mode === 'fly' ? 54 : 28);
+      if (dragon.mode === 'fly') dragon.flapUntil = Math.max(dragon.flapUntil, t + .35);
+    }
+    finishDragonTravel(t);
   }
 
   function shoveActor(a, dx, dy) {
@@ -524,6 +581,7 @@
     a.push({ e: cat, r: CAT_R + 1 });
     const ds = dragonSeat();
     if (ds) a.push({ e: { x: ds[0], y: ds[1] }, r: 9, fixed: true });
+    else if (dragon.dest && dragon.mode === 'walk') a.push({ e: dragon, r: DRAGON_R + 1 });
     return a;
   }
   function separateActors() {
@@ -551,6 +609,7 @@
       if (w.a.status === 'attention' && Math.random() < dt * 2) spark(w.x, w.y - 26, '#ff5a5a', -10, .5);
       maybeCast(w, t);
     }
+    updateDragon(dt, t);
     maybeCatCast(t);
     updateSpells(dt, t);
     cafeService(t);
@@ -560,17 +619,18 @@
     if (occupied('circle') && Math.random() < dt * 6) { const a = Math.random() * 6.28; spark(186 + Math.cos(a) * 22, 178 + Math.sin(a) * 9, '#9a7cf0', -12, .9); }
     if (occupied('crystal') && Math.random() < dt * 3) spark(223, 100, '#cfe8ff', -8, .7);
     if ([...wizards.values()].some(w => w.station === 'cafe') && Math.random() < dt * 4) spark(312, 184, '#d8d4e4', -9, 1);
-    if (!dragon.task && Math.random() < dt * 3) spark(450 + Math.random() * 6, 86, '#f0a83c', -11, .7);
+    const dBar = dragonAtBar();
+    if (dBar && !dragon.task && Math.random() < dt * 3) spark(450 + Math.random() * 6, 86, '#f0a83c', -11, .7);
     // the dragon's roasting and wing-stretching schedules (never both at once)
-    if (!dragon.task && t > dragon.roastAt && t >= dragon.flapUntil) { dragon.roastUntil = t + 1.8; dragon.roastAt = t + 14 + Math.random() * 20; }
-    if (!dragon.task && t > dragon.flapAt && t >= dragon.roastUntil) { dragon.flapUntil = t + 3; dragon.flapAt = t + 18 + Math.random() * 25; }
-    if (!dragon.task && t < dragon.flapUntil && Math.random() < dt * 9) spark(dragon.x - 14 + Math.random() * 28, barY - 4, '#b8b2cc', -3, .5);
-    if ((dragon.task && dragon.task.phase === 'brew') || t < dragon.roastUntil) {
+    if (dBar && !dragon.task && t > dragon.roastAt && t >= dragon.flapUntil) { dragon.roastUntil = t + 1.8; dragon.roastAt = t + 14 + Math.random() * 20; }
+    if (dBar && !dragon.task && t > dragon.flapAt && t >= dragon.roastUntil) { dragon.flapUntil = t + 3; dragon.flapAt = t + 18 + Math.random() * 25; }
+    if (dBar && !dragon.task && t < dragon.flapUntil && Math.random() < dt * 9) spark(dragon.x - 14 + Math.random() * 28, dragon.y - 4, '#b8b2cc', -3, .5);
+    if ((dragon.task && dragon.task.phase === 'brew') || (dBar && t < dragon.roastUntil)) {
       if (Math.random() < dt * 22) spark(PAN[0] + 2 + Math.random() * 5, PAN[1] - 1, Math.random() < .5 ? '#ffd84a' : '#f08a2a', -8 - Math.random() * 8, .45);
-    } else if (!dragon.task && t < dragon.roastUntil + 4 && Math.random() < dt * 6) {
+    } else if (dBar && !dragon.task && t < dragon.roastUntil + 4 && Math.random() < dt * 6) {
       spark(PAN[0] + 4, PAN[1] - 2, '#9a93b0', -8, 1.2);                 // fresh-roast smoke
-    } else if (!dragon.task && Math.random() < dt * .15) {
-      spark(dragon.x - 13, barY - 21, '#9a93b0', -5, .9);                // idle nostril puff
+    } else if (dBar && !dragon.task && Math.random() < dt * .15) {
+      spark(dragon.x - 13, dragon.y - 21, '#9a93b0', -5, .9);            // idle nostril puff
     }
     if (dragon.task && dragon.task.phase === 'milk' && Math.random() < dt * 10) spark(CUP[0] + 5, CUP[1] + 3, '#f7f3e8', -4, .45);
     for (let i = PARTS.length - 1; i >= 0; i--) {
@@ -614,7 +674,7 @@
   }
 
   function drawMilkPour(t) {
-    const sx = dragon.x - 7, sy = barY - 22, tx = CUP[0] + 5, ty = CUP[1] + 5;
+    const sx = dragon.x - 7, sy = dragon.y - 22, tx = CUP[0] + 5, ty = CUP[1] + 5;
     g.fillStyle = '#d8def0'; g.fillRect(sx, sy, 6, 3); g.fillRect(sx + 4, sy + 3, 2, 2);
     g.fillStyle = '#f7f3e8'; g.fillRect(sx + 1, sy + 1, 3, 1);
     for (let i = 0; i < 9; i++) {
@@ -632,6 +692,26 @@
       const k = i / n;
       g.fillRect(Math.round(x1 + (x2 - x1) * k), Math.round(y1 + (y2 - y1) * k), 2, 2);
     }
+  }
+  function drawPortal(cx, cy, t, c, seed, flip) {
+    const fade = Math.max(0, 1 - t), spin = t * 8 + seed + (flip ? 3.14 : 0);
+    g.globalAlpha = fade;
+    for (let i = 0; i < 12; i++) {
+      const a = spin + i / 12 * Math.PI * 2, rr = 4 + (i % 3) * 2 + Math.sin(t * 9 + i) * 1.2;
+      g.fillStyle = i % 2 ? c : '#e8dcff';
+      g.fillRect(Math.round(cx + Math.cos(a) * rr), Math.round(cy + Math.sin(a) * rr), 2, 2);
+    }
+    g.globalAlpha = fade * .6;
+    g.fillStyle = c;
+    g.fillRect(Math.round(cx - 6), Math.round(cy), 12, 1);
+    g.fillRect(Math.round(cx), Math.round(cy - 6), 1, 12);
+    g.globalAlpha = 1;
+  }
+  function drawTeleportSpell(s) {
+    const k = Math.min(1, s.t / s.life);
+    drawPortal(s.sx, s.sy, k, s.c, s.seed, false);
+    drawPortal(s.tx, s.ty, 1 - k, s.c, s.seed, true);
+    if (k < .85) pixLine(s.sx, s.sy, s.tx, s.ty, s.c, 8);
   }
   function rainAnchor(s) {
     if (s.cat) return [cat.x, cat.y - 25];
@@ -655,6 +735,7 @@
     g.globalAlpha = 1;
   }
   function drawSpell(s, t) {
+    if (s.kind === 'teleport') { drawTeleportSpell(s); return; }
     if (s.kind === 'rain') { drawRainSpell(s, t); return; }
     const k = Math.min(1, s.t / s.life);
     if (s.kind === 'bolt') {
@@ -690,10 +771,8 @@
     }
   }
   function dragonSeat() {
-    const table = tableById(dragon.game);
-    if (!table || !table.game || dragon.task) return null;
-    const p = table.game.players.find(x => x.kind === 'dragon');
-    return p ? table.seats[p.seat] : null;
+    const seat = assignedDragonSeat();
+    return seat && !dragon.dest && !dragon.path.length ? seat : null;
   }
 
   function draw(t) {
@@ -703,32 +782,27 @@
     PR.circle(g, 160, 152 + 12, t, occupied('circle'));
     const items = props(t).map(([y, f]) => ({ y, f: () => f(g) }));
     for (const w of wizards.values()) items.push({ y: w.y, f: () => drawWizardSprite(w, t) });
-    const dSeat = dragonSeat();
-    items.push({ y: dSeat ? dSeat[1] : barY, f: () => {
-      if (dSeat) {
-        g.globalAlpha = .3; g.fillStyle = '#0a0810'; g.fillRect(dSeat[0] - 9, dSeat[1] - 1, 18, 2); g.globalAlpha = 1;
-        g.drawImage(dragon.frames[t % 2.6 < 1.3 ? 'idleA' : 'idleB'], dSeat[0] - 15, dSeat[1] - 25);
-        return;
-      }
-      const busy = !!dragon.task, brewing = busy && dragon.task.phase === 'brew', flap = !busy && t < dragon.flapUntil, p = flap ? 1 - (dragon.flapUntil - t) / 3 : 0;
-      const lift = Math.sin(p * Math.PI) * 7;
+    items.push({ y: dragon.y, f: () => {
+      const busy = !!dragon.task, brewing = busy && dragon.task.phase === 'brew', flying = dragon.mode === 'fly';
+      const stretch = !busy && !dragon.mode && t < dragon.flapUntil, flap = flying || stretch, p = stretch ? 1 - (dragon.flapUntil - t) / 3 : 0;
+      const lift = flying ? 10 + Math.sin(t * 9) * 2 : Math.sin(p * Math.PI) * 7, bob = dragon.mode === 'walk' ? Math.sin(t * 10) * 1.5 : 0;
       g.globalAlpha = .3; g.fillStyle = '#0a0810';
-      g.fillRect(dragon.x - 9 + lift / 2, barY - 1, 18 - lift, 2);
+      g.fillRect(dragon.x - 9 + lift / 2, dragon.y - 1, 18 - lift, 2);
       g.globalAlpha = 1;
       if (flap) {
         const sway = Math.sin(t * 2.8) * 3 * Math.sin(p * Math.PI);
-        g.drawImage(dragon.frames[(t * 7 | 0) % 2 ? 'flapA' : 'flapB'], Math.round(dragon.x - 22 + sway), Math.round(barY - 29 - lift));
+        g.drawImage(dragon.frames[(t * 7 | 0) % 2 ? 'flapA' : 'flapB'], Math.round(dragon.x - 22 + sway), Math.round(dragon.y - 29 - lift));
       } else {
-        const fr = brewing || t < dragon.roastUntil ? ((t * 8 | 0) % 2 ? 'roastA' : 'roastB') : (t % 2.6 < 1.3 ? 'idleA' : 'idleB');
-        g.drawImage(dragon.frames[fr], dragon.x - 15, barY - 25);
+        const fr = brewing || t < dragon.roastUntil ? ((t * 8 | 0) % 2 ? 'roastA' : 'roastB') : ((t * (dragon.mode === 'walk' ? 5 : 1) | 0) % 2 ? 'idleA' : 'idleB');
+        g.drawImage(dragon.frames[fr], Math.round(dragon.x - 15), Math.round(dragon.y - 25 + bob));
       }
     } });
     items.push({ y: cat.y, f: () => { const fr = cat.state === 'sleep' ? 'sleep' : cat.state === 'walk' ? ((t * 5 | 0) % 2 ? 'walkA' : 'walkB') : ((t * 1.3 | 0) % 2 ? 'sitA' : 'sitB');
       const img = catFrames[fr]; if (cat.dir < 0) { g.save(); g.translate(cat.x + 7, cat.y - 9); g.scale(-1, 1); g.drawImage(img, 0, 0); g.restore(); } else g.drawImage(img, cat.x - 7, cat.y - 9); } });
     items.sort((a, b) => a.y - b.y).forEach(i => i.f());
-    const fireTarget = dragon.task && dragon.task.phase === 'brew' ? [CUP[0] + 5, CUP[1] + 4] : t < dragon.roastUntil ? [PAN[0] + 4, PAN[1] - 2] : null;
+    const fireTarget = dragon.task && dragon.task.phase === 'brew' ? [CUP[0] + 5, CUP[1] + 4] : dragonAtBar() && t < dragon.roastUntil ? [PAN[0] + 4, PAN[1] - 2] : null;
     if (fireTarget) {  // fire breath, drawn over the counter
-      const mx = dragon.x - 13, my = barY - 15, tx = fireTarget[0], ty2 = fireTarget[1];
+      const mx = dragon.x - 13, my = dragon.y - 15, tx = fireTarget[0], ty2 = fireTarget[1];
       for (let i = 0; i < 16; i++) {
         const k = i / 15, s = k > .45 ? 2 : 1;
         g.fillStyle = ['#ffe89a', '#ffd84a', '#f0a83c', '#f08a2a'][(Math.random() * 4) | 0];
@@ -752,7 +826,7 @@
     if (cat.order && cat.order.stage === 'served') PR.cup(g, cat.x + 5, cat.y - 6, cat.order.drink.key, t);
     if (cat.order && cat.order.stage !== 'served' && ((t + 1.7) % 6) < 2.4) tag(cat.x, cat.y - 25, cat.order.drink.name);
     if (hover === 'cat') tag(cat.x, cat.y - 20, 'BIGGLES, STAFF CAT');
-    if (hover === 'barista') tag(338, barY - 32, 'EARL GREY, BARISTA');
+    if (hover === 'barista') tag(dragon.x, dragon.y - 32, 'EARL GREY, BARISTA');
     if (!wizards.size) {
       g.fillStyle = 'rgba(12,9,20,.55)'; g.fillRect(90, 110, 300, 44);
       drawText(g, 240 - textW('THE TOWER SLEEPS', 2) / 2, 120, 'THE TOWER SLEEPS', '#cdc6e0', 2);
@@ -764,7 +838,6 @@
       drawText(g, 240 - textW('IS SERVER.PY STILL RUNNING?') / 2, 142, 'IS SERVER.PY STILL RUNNING?', '#c8a0a0');
     }
   }
-  const barY = 196;
   function tag(cx, y, txt) {
     const w2 = textW(txt) + 4;
     g.fillStyle = 'rgba(12,9,20,.85)'; g.fillRect(cx - w2 / 2, y - 2, w2, 9);
@@ -787,8 +860,7 @@
     const r = cv.getBoundingClientRect(), mx = (e.clientX - r.left) / S, my = (e.clientY - r.top) / S;
     for (const w of [...wizards.values()].sort((a, b) => b.y - a.y))
       if (Math.abs(mx - w.x) <= 9 && my >= w.y - 26 && my <= w.y + 3) return w.a.id;
-    const ds = dragonSeat();
-    if (ds ? Math.abs(mx - ds[0]) <= 16 && my >= ds[1] - 28 && my <= ds[1] + 3 : mx >= dragon.x - 25 && mx <= dragon.x + 25 && my >= barY - 36 && my <= barY + 3) return 'barista';
+    if (mx >= dragon.x - 25 && mx <= dragon.x + 25 && my >= dragon.y - 40 && my <= dragon.y + 3) return 'barista';
     if (Math.abs(mx - cat.x) <= 8 && Math.abs(my - cat.y + 4) <= 7) return 'cat';
     return null;
   }

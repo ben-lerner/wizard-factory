@@ -79,4 +79,4 @@ already-running sessions keep working via polling alone.
   uses file mtime and statuses may lag a little for those.
 - `python3 server.py --debug-scan` prints the inferred agent list as JSON.
 - The cat is named Biggles. He is not configurable.
-  [Editor's note: I didn't ask for a cat, this is 100% agent folklore.]
+  [Editor's note: I didn't ask for a cat, this is completely agentic humour.]

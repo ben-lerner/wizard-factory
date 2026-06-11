@@ -110,6 +110,10 @@
     const t = ((a && a.tool) || '').toLowerCase();
     return t.startsWith('mcp__') || /^web|fetch|page|click|snapshot|script|console|chrome|browser|devtools|playwright/.test(t);
   }
+  function testingActivity(a) {
+    const t = ((a && a.tool) || '').toLowerCase();
+    return t.startsWith('mcp__') || /^page|click|snapshot|script|console|chrome|browser|devtools|playwright/.test(t);
+  }
   function waitingOnRun(a) {
     const tool = ((a && a.tool) || '').toLowerCase(), detail = ((a && a.detail) || '').toLowerCase();
     if (/\b(monitor|write_stdin|wait|watch|tail)\b/.test(tool)) return true;
@@ -1006,10 +1010,32 @@
       if (w && sel) sparkleAt(w.x, w.y - 16);
       renderSide();
     });
-    const counts = { working: 0, thinking: 0, responding: 0, attention: 0, waiting: 0, idle: 0, done: 0 };
-    ags.forEach(a => counts[a.status] !== undefined && counts[a.status]++);
-    const toil = counts.working + counts.thinking + counts.responding;
-    $('#counts').innerHTML = `<span class="c-work">&#9874; ${toil} TOILING</span><span class="c-attn ${counts.attention ? 'hot' : ''}">&#9995; ${counts.attention} NEED YOU</span><span class="c-wait">&#9749; ${counts.waiting} AWAITING</span><span class="c-doze">&#9790; ${counts.idle + counts.done} RESTING</span>${isDemo ? '<span class="c-demo">DEMO</span>' : ''}`;
+    const counts = { active: 0, git: 0, graphite: 0, jujutsu: 0, test: 0, run: 0, attention: 0, waiting: 0, resting: 0 };
+    ags.forEach(a => {
+      if (a.status === 'attention') counts.attention++;
+      else if (a.status === 'waiting') counts.waiting++;
+      else if (a.status === 'idle' || a.status === 'done') counts.resting++;
+      else if (a.status === 'thinking' || a.status === 'responding') counts.active++;
+      else if (a.status === 'working') {
+        const submit = submitKind(a);
+        if (submit) counts[submit]++;
+        else if (testingActivity(a)) counts.test++;
+        else if (waitingOnRun(a)) counts.run++;
+        else counts.active++;
+      }
+    });
+    const part = (cls, icon, n, label) => n ? `<span class="${cls}">${icon} ${n} ${label}</span>` : '';
+    $('#counts').innerHTML =
+      part('c-active', '&#9874;', counts.active, 'ACTIVE') +
+      part('c-git', 'G', counts.git, 'GIT') +
+      part('c-graphite', 'GT', counts.graphite, 'GRAPHITE') +
+      part('c-jj', 'JJ', counts.jujutsu, 'JUJUTSU') +
+      part('c-test', '&#9671;', counts.test, 'MCP TEST') +
+      part('c-run', '&#8987;', counts.run, 'COMMAND RUNNING') +
+      (counts.attention ? `<span class="c-attn hot">&#9995; ${counts.attention} NEED YOU</span>` : '') +
+      part('c-wait', '&#9749;', counts.waiting, 'AWAITING COUNSEL') +
+      part('c-doze', '&#9790;', counts.resting, 'RESTING') +
+      (isDemo ? '<span class="c-demo">DEMO</span>' : '');
     const attn = counts.attention;
     document.title = (attn ? `(${attn}!) ` : '') + 'Wizard Factory';
     favicon(attn > 0);

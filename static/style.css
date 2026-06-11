@@ -20,7 +20,9 @@ header {
 #logo { image-rendering: pixelated; flex: 0 0 auto; }
 #counts { display: flex; gap: 14px; flex: 1; justify-content: center; flex-wrap: wrap; letter-spacing: 1px; font-size: 11px; }
 #counts span { white-space: nowrap; }
-.c-work { color: var(--green); } .c-wait { color: var(--gold); } .c-doze { color: var(--dim); }
+.c-active, .c-git, .c-graphite, .c-jj { color: var(--green); }
+.c-test { color: var(--blue); } .c-run { color: var(--purple); }
+.c-wait { color: var(--gold); } .c-doze { color: var(--dim); }
 .c-attn { color: #7a7490; }
 .c-attn.hot { color: var(--red); animation: blink 1s steps(2) infinite; }
 .c-demo { color: var(--purple); border: 1px solid var(--purple); padding: 1px 5px; }

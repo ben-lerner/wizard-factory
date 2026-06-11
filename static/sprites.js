@@ -86,11 +86,20 @@ window.SP = (() => {
     if (o.glasses) { P(cx - 2, 8 + b, '#cfe3ff'); P(cx + 1, 8 + b, '#cfe3ff'); P(cx - 3, 8 + b, '#1c1430'); P(cx + 2, 8 + b, '#1c1430'); }
     else { P(cx - 2, 8 + b, '#1c1430'); P(cx + 1, 8 + b, '#1c1430'); }
     // beard
-    const bc = o.beardC;
-    if (o.beardType === 'stache') R(cx - 2, 10 + b, 4, 1, bc);
-    else if (o.beardType === 'short') { R(cx - 3, 10 + b, 6, 2, bc); R(cx - 2, 12 + b, 4, 1, bc); }
-    else if (o.beardType === 'long') { R(cx - 3, 10 + b, 6, 2, bc); R(cx - 2, 12 + b, 4, 3, bc); R(cx - 1, 15 + b, 2, 2, bc); }
-    else if (o.beardType === 'forked') { R(cx - 3, 10 + b, 6, 2, bc); R(cx - 2, 12 + b, 1, 3, bc); R(cx + 1, 12 + b, 1, 3, bc); }
+    const bc = o.beardC, bh = shade(bc, 1.2);
+    if (o.beardType === 'stache') { R(cx - 3, 10 + b, 2, 1, bc); R(cx + 1, 10 + b, 2, 1, bc); P(cx, 11 + b, bc); }
+    else if (o.beardType === 'short') {
+      R(cx - 3, 10 + b, 2, 1, bc); R(cx + 1, 10 + b, 2, 1, bc);
+      R(cx - 3, 11 + b, 6, 1, bc); R(cx - 2, 12 + b, 4, 2, bc); R(cx - 1, 14 + b, 2, 1, bc); P(cx - 1, 12 + b, bh);
+    } else if (o.beardType === 'long') {
+      R(cx - 3, 10 + b, 2, 1, bc); R(cx + 1, 10 + b, 2, 1, bc);
+      R(cx - 3, 11 + b, 6, 1, bc); R(cx - 2, 12 + b, 5, 2, bc); R(cx - 2, 14 + b, 4, 2, bc); R(cx - 1, 16 + b, 2, 2, bc);
+      P(cx - 1, 12 + b, bh); P(cx, 15 + b, bh);
+    } else if (o.beardType === 'forked') {
+      R(cx - 3, 10 + b, 2, 1, bc); R(cx + 1, 10 + b, 2, 1, bc);
+      R(cx - 3, 11 + b, 6, 1, bc); R(cx - 2, 12 + b, 2, 2, bc); R(cx + 1, 12 + b, 2, 2, bc); R(cx - 2, 14 + b, 1, 3, bc); R(cx + 2, 14 + b, 1, 3, bc);
+      P(cx - 1, 12 + b, bh); P(cx + 1, 12 + b, bh);
+    }
     // hat
     const H = o.hat, HD = o.hatD;
     if (o.hatType === 'pointy') {

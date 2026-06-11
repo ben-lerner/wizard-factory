@@ -11,6 +11,8 @@
     cauldron: { spots: [[50, 162], [94, 162]], emote: 'brew' },
     shelf:    { spots: [[40, 78], [40, 114], [40, 148]], emote: 'book' },
     bench:    { spots: [[132, 68], [152, 68], [172, 68]], emote: 'flask' },
+    submit:   { spots: [[98, 108], [124, 108], [76, 132], [148, 132]], emote: 'write' },
+    labwait:  { spots: [[76, 132], [148, 132], [112, 104]], emote: 'think' },
     desk:     { spots: [[109, 198], [153, 198]], emote: 'write' },
     crystal:  { spots: [[223, 128], [204, 120]], emote: 'scry' },
     circle:   { spots: [[186, 162], [164, 178], [208, 178]], emote: 'summon' },
@@ -29,6 +31,7 @@
     { x: 58, y: 154, w: 24, h: 18 },
     { x: 8, y: 58, w: 26, h: 34 }, { x: 8, y: 94, w: 26, h: 34 },
     { x: 118, y: 46, w: 66, h: 16 },
+    { x: 84, y: 116, w: 56, h: 12 },
     { x: 94, y: 205, w: 30, h: 11 }, { x: 138, y: 205, w: 30, h: 11 },
     { x: 216, y: 104, w: 16, h: 18 },
     { x: 299, y: 96, w: 28, h: 14 }, { x: 359, y: 116, w: 28, h: 14 },
@@ -93,10 +96,32 @@
     return path;
   }
 
-  function toolStation(tool) {
-    const t = (tool || '').toLowerCase();
-    if (t.startsWith('mcp__') || /^web|fetch|page|click|snapshot|script|console/.test(t)) return 'crystal';
-    if (/bash|^kill|monitor|exec|shell|stdin/.test(t)) return 'cauldron';
+  const toolText = a => ((a && a.tool) || '') + ' ' + ((a && a.detail) || '');
+  function submitKind(a) {
+    const tool = ((a && a.tool) || '').toLowerCase(), detail = ((a && a.detail) || '').toLowerCase(), t = tool + ' ' + detail;
+    const commandish = /bash|exec|shell|stdin|^git$|^gh$|^gt$|^jj$|graphite|jujutsu/.test(tool) || /(^|\s)(git|gh|gt|jj)\s+/.test(detail);
+    if (!commandish && !/pull request|merge request/.test(t)) return null;
+    if (/\b(graphite|gt\s+(submit|stack|sync|modify|restack|track|create|checkout))\b/.test(t)) return 'graphite';
+    if (/\b(jujutsu|jj\s+(git|describe|new|squash|bookmark|rebase|status|diff|commit))\b/.test(t)) return 'jujutsu';
+    if (/\b(git|gh)\b|pull request|merge request/.test(t)) return 'git';
+    return null;
+  }
+  function testingMcp(a) {
+    const t = ((a && a.tool) || '').toLowerCase();
+    return t.startsWith('mcp__') || /^web|fetch|page|click|snapshot|script|console|chrome|browser|devtools|playwright/.test(t);
+  }
+  function waitingOnRun(a) {
+    const tool = ((a && a.tool) || '').toLowerCase(), detail = ((a && a.detail) || '').toLowerCase();
+    if (/\b(monitor|write_stdin|wait|watch|tail)\b/.test(tool)) return true;
+    if (!/bash|exec|shell|stdin/.test(tool)) return false;
+    return /\b(wait|watch|tail|test|tests|pytest|vitest|jest|playwright|npm|pnpm|yarn|bun|cargo|make|build|compile|lint|typecheck|server|dev server|running)\b/.test(detail);
+  }
+  function toolStation(a) {
+    const t = ((a && a.tool) || '').toLowerCase();
+    if (submitKind(a)) return 'submit';
+    if (testingMcp(a)) return 'crystal';
+    if (waitingOnRun(a)) return 'labwait';
+    if (/bash|^kill|exec|shell|stdin/.test(t)) return 'cauldron';
     if (/^(read|grep|glob|ls$|lsp|toolsearch|notebookread)/.test(t)) return 'shelf';
     if (/^(edit|write|notebookedit|apply)/.test(t)) return 'desk';
     if (/task|agent|workflow|skill/.test(t)) return 'circle';
@@ -121,6 +146,7 @@
       if (Math.abs(last[0] - w.x) > .4) w.dir = last[0] < w.x ? -1 : 1;
       w.x = last[0]; w.y = last[1];
     } else w.path = path;
+    w.stuckAt = 0; w.lastX = w.x; w.lastY = w.y;
   }
   function release(w) {
     if (w.station && w.spotI >= 0) ST[w.station].occ[w.spotI] = null;
@@ -140,7 +166,7 @@
   }
   function placeFor(w) {
     const s = w.a.status;
-    if (s === 'working') return toolStation(w.a.tool);
+    if (s === 'working') return toolStation(w.a);
     if (s === 'attention') return 'board';
     if (s === 'waiting') return 'cafe';
     if (s === 'idle') return 'hearth';
@@ -162,16 +188,19 @@
       if (!w) {
         w = { a, sp: SP.makeWizard(a.id, a.kind, a.engine), x: 436 + ((hash(a.id) % 9) - 4), y: 250, dir: -1, path: [], walk: false,
               station: null, spotI: -1, home: null, order: null, game: null, paceAt: 0, castAt: 0, leaving: false,
-              alpha: 0, ph: (hash(a.id) % 100) / 16, r: rng(hash(a.id) ^ 0xbeef), emote: null };
+              stuckAt: 0, lastX: 436, lastY: 250, alpha: 0, ph: (hash(a.id) % 100) / 16, r: rng(hash(a.id) ^ 0xbeef), emote: null };
         wizards.set(a.id, w);
         sparkleAt(436, 252);
         w.a = a; retarget(w);
         continue;
       }
-      const changed = w.a.status !== a.status || (a.status === 'working' && w.a.tool !== a.tool) || w.leaving;
+      const changed = w.a.status !== a.status || (a.status === 'working' && (w.a.tool !== a.tool || w.a.detail !== a.detail)) || w.leaving;
       w.a = a;
       w.leaving = false;
-      if (a.status !== 'waiting') { w.order = null; leaveGameForWizard(w, 0); }
+      if (a.status !== 'waiting') {
+        w.order = null;
+        if (!(a.status === 'working' && toolStation(a) === 'labwait')) leaveGameForWizard(w, 0);
+      }
       if (changed) { w.castAt = 0; retarget(w); }
     }
     for (const [id, w] of wizards) if (!seen.has(id) && !w.leaving) { leaveGameForWizard(w, 0); w.leaving = true; release(w); w.station = null; pathTo(w, 436, 250); w.path.push([436, 266]); }
@@ -200,8 +229,8 @@
     }
   }
   // Earl Grey roasts the house beans himself.
-  const barY = 196, DRAGON_HOME = [338, barY], dragonR = rng(777);
-  const dragon = { frames: SP.makeDragon(), x: DRAGON_HOME[0], y: DRAGON_HOME[1], dir: -1, path: [], dest: null, mode: null, roastAt: 7, roastUntil: -9, flapAt: 13, flapUntil: -9, task: null, game: null };
+  const barY = 196, DRAGON_HOME = [338, barY], DRAGON_STRETCH = [[304, 66], [420, 54], [448, 126], [286, 148]], dragonR = rng(777);
+  const dragon = { frames: SP.makeDragon(), x: DRAGON_HOME[0], y: DRAGON_HOME[1], dir: -1, path: [], dest: null, mode: null, stretchUntil: -9, roastAt: 7, roastUntil: -9, flapAt: 45 + dragonR() * 60, flapUntil: -9, task: null, game: null };
   const PAN = [324, 196];
   const CUP = [316, 187], CAT_CAFE = [404, 226];
 
@@ -232,17 +261,24 @@
     return !dragon.game && !dragon.dest && !dragon.path.length && Math.hypot(dragon.x - DRAGON_HOME[0], dragon.y - DRAGON_HOME[1]) < 2;
   }
   function sendDragonTo(x, y, dest, t) {
-    dragon.mode = dragonR() < .55 ? 'walk' : 'fly';
+    dragon.mode = 'fly';
     dragon.dest = dest;
     dragon.roastUntil = -9;
-    dragon.path = dragon.mode === 'fly' ? [[x, y]] : route(dragon.x, dragon.y, x, y, bodyR(dragon));
-    if (dragon.mode === 'fly') dragon.flapUntil = Math.max(dragon.flapUntil, t + 2);
+    dragon.path = [[x, y]];
+    dragon.flapUntil = Math.max(dragon.flapUntil, t + 2);
   }
   function sendDragonHome(t) {
     dragon.game = null;
     if (Math.hypot(dragon.x - DRAGON_HOME[0], dragon.y - DRAGON_HOME[1]) < 2) {
       dragon.x = DRAGON_HOME[0]; dragon.y = DRAGON_HOME[1]; dragon.dest = dragon.mode = null; dragon.path = [];
     } else sendDragonTo(DRAGON_HOME[0], DRAGON_HOME[1], 'bar', t);
+  }
+  function maybeDragonStretch(t) {
+    if (!dragonAtBar() || dragon.task || t <= dragon.flapAt || t < dragon.roastUntil) return;
+    if (cafeCustomers().some(c => c.order.stage !== 'served')) { dragon.flapAt = t + 12 + dragonR() * 18; return; }
+    const p = DRAGON_STRETCH[dragonR() * DRAGON_STRETCH.length | 0];
+    sendDragonTo(p[0], p[1], 'stretch', t);
+    dragon.flapAt = t + 75 + dragonR() * 90;
   }
   function startDrink(c, t) {
     c.order.stage = 'brewing';
@@ -273,24 +309,30 @@
 
   // ---------- table games ----------
   const TABLES = [
+    { id: 'lab1', x: 112, y: 120, seats: [[76, 132], [148, 132], [112, 104]], game: null, burnUntil: 0, lab: true },
     { id: 't1', x: 313, y: 101, seats: [[292, 112], [332, 112], [313, 84]], game: null, burnUntil: 0 },
     { id: 't2', x: 373, y: 121, seats: [[352, 132], [392, 132], [373, 104]], game: null, burnUntil: 0 },
   ];
   const GAME_TYPES = ['magic', 'chess', 'go'], tableR = rng(4242);
+  const LAB_TABLE = TABLES.find(t => t.lab), CAFE_TABLES = TABLES.filter(t => !t.lab);
   const tableById = id => TABLES.find(t => t.id === id);
   const gameName = g => g === 'magic' ? 'MAGIC THE GATHERING' : g.toUpperCase();
   const gameHas = (table, kind, id) => !!table.game && table.game.players.some(p => p.kind === kind && (!id || p.id === id));
-  function waitingForGame(w) {
+  function labWaitReady(w) {
+    return w.a.status === 'working' && w.station === 'labwait' && !w.walk && !w.leaving && w.alpha > .8;
+  }
+  function waitingForGame(w, table) {
+    if (table && table.lab) return labWaitReady(w) && !w.game;
     return cafeReady(w) && !w.game && w.order && w.order.stage === 'served';
   }
   function releaseGamePlayer(p, t) {
     if (p.kind === 'wizard') {
       const w = wizards.get(p.id);
-      if (w) { w.game = null; if (w.a.status === 'waiting' && !w.leaving) { w.station = null; w.home = null; retarget(w); } }
+      if (w) { w.game = null; if (!w.leaving && (w.a.status === 'waiting' || placeFor(w) === 'labwait')) { w.station = null; w.home = null; retarget(w); } }
     } else if (p.kind === 'cat') {
       cat.game = null;
       if (cat.state === 'game' || cat.dest === 'game') { cat.dest = null; catThink(t); }
-    } else sendDragonHome(t);
+    } else { dragon.game = null; }
   }
   function leaveGameForWizard(w, t) {
     if (!w || !w.game) return;
@@ -318,17 +360,14 @@
     if (p.kind === 'wizard') {
       const w = wizards.get(p.id);
       if (!w) return false;
-      release(w); w.game = table.id; w.station = 'cafe'; w.home = [x, y]; w.emote = null; pathTo(w, x, y);
+      release(w); w.game = table.id; w.station = table.lab ? 'labwait' : 'cafe'; w.home = [x, y]; w.emote = null; pathTo(w, x, y);
     } else if (p.kind === 'cat') {
       cat.game = table.id; cat.order = null; cat.dest = 'game'; cat.state = 'walk'; cat.until = t + 120; pathTo(cat, x, y);
-    } else { dragon.game = table.id; sendDragonTo(x, y, 'game', t); }
+    } else return false;
     return true;
   }
   function canUseCat() {
     return !cat.game && !cat.path.length && cat.state !== 'walk' && cat.state !== 'sleep' && cat.state !== 'cafe';
-  }
-  function canUseDragon() {
-    return dragonAtBar() && !dragon.task && !cafeCustomers().some(c => c.order.stage !== 'served');
   }
   function startGame(table, players, t) {
     table.game = { type: GAME_TYPES[tableR() * GAME_TYPES.length | 0], players, until: t + 28 + tableR() * 28 };
@@ -339,21 +378,23 @@
     for (const table of TABLES) {
       if (table.game) {
         table.game.players = table.game.players.filter(p => {
-          if (p.kind === 'wizard') { const w = wizards.get(p.id); return w && w.a.status === 'waiting' && !w.leaving; }
-          if (p.kind === 'cat') return cat.game === table.id;
-          return dragon.game === table.id && !dragon.task;
+          if (p.kind === 'wizard') {
+            const w = wizards.get(p.id);
+            return w && !w.leaving && (table.lab ? w.a.status === 'working' && toolStation(w.a) === 'labwait' : w.a.status === 'waiting');
+          }
+          if (p.kind === 'cat') return !table.lab && cat.game === table.id;
+          return false;
         });
         if (table.game.players.length < 2 || t > table.game.until) endGame(table, t, false);
       }
       if (table.game || t < table.burnUntil) continue;
-      const ws = [...wizards.values()].filter(waitingForGame).sort((a, b) => (a.a.started || 0) - (b.a.started || 0));
+      const ws = [...wizards.values()].filter(w => waitingForGame(w, table)).sort((a, b) => (a.a.started || 0) - (b.a.started || 0));
       if (!ws.length) continue;
       const players = [{ kind: 'wizard', id: ws[0].a.id }];
       if (ws[1]) players.push({ kind: 'wizard', id: ws[1].a.id });
+      if (table.lab) { if (players.length > 1) startGame(table, players, t); continue; }
       else if (canUseCat()) players.push({ kind: 'cat' });
-      else if (canUseDragon()) players.push({ kind: 'dragon' });
       if (players.length > 1 && players.length < 3 && !players.some(p => p.kind === 'cat') && canUseCat() && tableR() < .35) players.push({ kind: 'cat' });
-      if (players.length > 1 && players.length < 3 && !players.some(p => p.kind === 'dragon') && canUseDragon() && tableR() < .25) players.push({ kind: 'dragon' });
       if (players.length > 1) startGame(table, players, t);
     }
   }
@@ -370,7 +411,7 @@
   const SPELLS = [];
   const SPELL_TARGETS = {
     cauldron: [[68, 154], [80, 154]], shelf: [[24, 68], [24, 104], [24, 140]],
-    bench: [[132, 50], [154, 50], [176, 50]], desk: [[108, 204], [152, 204]],
+    bench: [[132, 50], [154, 50], [176, 50]], submit: [[112, 118], [84, 126], [140, 126]], labwait: [[112, 118], [92, 130], [132, 130]], desk: [[108, 204], [152, 204]],
     crystal: [[223, 102]], circle: [[186, 176]], board: [[314, 28], [300, 28]],
   };
   function spark(x, y, c, vy, life, kind) {
@@ -507,17 +548,25 @@
       }
     }
   }
+  function drawSubmitChairs(gg) {
+    const overflow = [...wizards.values()].filter(w => w.station === 'submit' && w.spotI >= 2 && !w.leaving).length;
+    if (overflow > 0 || (LAB_TABLE && LAB_TABLE.game)) PR.chair(gg, 68, 124, false);
+    if (overflow > 1 || (LAB_TABLE && LAB_TABLE.game)) PR.chair(gg, 140, 124, true);
+  }
 
   // animated props, y-sorted with sprites: [sortY, drawFn]
   const props = t => [
     [174, gg => PR.cauldron(gg, 56, 150, t, occupied('cauldron'))],
     [91, gg => PR.shelf(gg, 10, 60, 11)], [127, gg => PR.shelf(gg, 10, 96, 23)],
     [62, gg => PR.bench(gg, 120, 42, t)],
+    [126, gg => { PR.desk(gg, 86, 112, t + 4); PR.desk(gg, 112, 112, t + 5); }],
+    [126.2, gg => drawTableGame(gg, LAB_TABLE, t)],
+    [134, gg => drawSubmitChairs(gg)],
     [214, gg => PR.desk(gg, 96, 200, t)], [214.1, gg => PR.desk(gg, 140, 200, t + 3)],
     [120, gg => PR.crystal(gg, 216, 98, occupied('crystal') ? t : 0)],
     [29, gg => PR.board(gg, 300, 8)],
-    [106, gg => PR.desk(gg, 300, 96, t + 1)], [106.2, gg => drawTableGame(gg, TABLES[0], t)],
-    [126, gg => PR.desk(gg, 360, 116, t + 2)], [126.2, gg => drawTableGame(gg, TABLES[1], t)],
+    [106, gg => PR.desk(gg, 300, 96, t + 1)], [106.2, gg => drawTableGame(gg, CAFE_TABLES[0], t)],
+    [126, gg => PR.desk(gg, 360, 116, t + 2)], [126.2, gg => drawTableGame(gg, CAFE_TABLES[1], t)],
     [94, gg => PR.hearth(gg, 440, 70, t)],
     [95, gg => PR.chair(gg, 418, 82, false)], [117, gg => PR.chair(gg, 418, 104, false)],
     [214.5, gg => PR.counter(gg, 296, 196)], [215, gg => PR.espresso(gg, 306, 186, t)],
@@ -544,26 +593,33 @@
     else if (!tryMove(nx, e.y)) tryMove(e.x, ny);
     return true;
   }
-
-  function assignedDragonSeat() {
-    const table = tableById(dragon.game);
-    if (!table || !table.game || dragon.task) return null;
-    const p = table.game.players.find(x => x.kind === 'dragon');
-    return p ? table.seats[p.seat] : null;
+  function unstickWizard(w, t) {
+    if (!w.path.length) { w.stuckAt = 0; w.lastX = w.x; w.lastY = w.y; return; }
+    const moved = Math.hypot(w.x - (w.lastX ?? w.x), w.y - (w.lastY ?? w.y));
+    if (moved > .6) { w.stuckAt = t; w.lastX = w.x; w.lastY = w.y; return; }
+    if (!w.stuckAt) w.stuckAt = t;
+    if (t - w.stuckAt <= 1) return;
+    const [tx, ty] = w.path[w.path.length - 1];
+    if (Math.abs(tx - w.x) > .4) w.dir = tx < w.x ? -1 : 1;
+    castTeleport(w, tx, ty, w.r);
+    w.x = tx; w.y = ty; w.path = [];
+    w.stuckAt = 0; w.lastX = w.x; w.lastY = w.y;
   }
+
   function finishDragonTravel(t) {
     if (dragon.path.length) return;
-    if (dragon.dest === 'game') {
-      const seat = assignedDragonSeat();
-      if (seat) { dragon.x = seat[0]; dragon.y = seat[1]; dragon.dest = dragon.mode = null; }
-      else sendDragonHome(t);
+    if (dragon.dest === 'stretch') {
+      dragon.dest = 'stretching';
+      dragon.stretchUntil = t + 2.2;
+      dragon.flapUntil = Math.max(dragon.flapUntil, t + 2.2);
     } else if (dragon.dest === 'bar') {
       dragon.x = DRAGON_HOME[0]; dragon.y = DRAGON_HOME[1]; dragon.dest = dragon.mode = null;
     }
   }
   function updateDragon(dt, t) {
+    if (dragon.dest === 'stretching' && t >= dragon.stretchUntil) sendDragonHome(t);
     if (dragon.path.length) {
-      moveAlong(dragon, dt, dragon.mode === 'fly' ? 54 : 28);
+      moveAlong(dragon, dt, 54);
       if (dragon.mode === 'fly') dragon.flapUntil = Math.max(dragon.flapUntil, t + .35);
     }
     finishDragonTravel(t);
@@ -579,9 +635,6 @@
   function collisionActors() {
     const a = [...wizards.values()].filter(w => w.alpha > .25).map(w => ({ e: w, r: WIZ_R + 1 }));
     a.push({ e: cat, r: CAT_R + 1 });
-    const ds = dragonSeat();
-    if (ds) a.push({ e: { x: ds[0], y: ds[1] }, r: 9, fixed: true });
-    else if (dragon.dest && dragon.mode === 'walk') a.push({ e: dragon, r: DRAGON_R + 1 });
     return a;
   }
   function separateActors() {
@@ -599,6 +652,7 @@
   function update(dt, t) {
     for (const [id, w] of wizards) {
       w.walk = moveAlong(w, dt, SPEED);
+      unstickWizard(w, t);
       w.alpha = Math.max(0, Math.min(1, w.alpha + (w.leaving && !w.path.length ? -3 : w.leaving && w.y > 252 ? -1.2 : 3) * dt));
       if (w.leaving && w.alpha <= 0) { wizards.delete(id); continue; }
       if (!w.walk && !w.leaving && (w.a.status === 'thinking') && t > w.paceAt) {
@@ -613,6 +667,7 @@
     maybeCatCast(t);
     updateSpells(dt, t);
     cafeService(t);
+    maybeDragonStretch(t);
     updateTableGames(t);
     // ambient particles
     if (occupied('cauldron') && Math.random() < dt * 7) spark(70 + Math.random() * 14, 152, '#58d878', -14, .8);
@@ -621,9 +676,8 @@
     if ([...wizards.values()].some(w => w.station === 'cafe') && Math.random() < dt * 4) spark(312, 184, '#d8d4e4', -9, 1);
     const dBar = dragonAtBar();
     if (dBar && !dragon.task && Math.random() < dt * 3) spark(450 + Math.random() * 6, 86, '#f0a83c', -11, .7);
-    // the dragon's roasting and wing-stretching schedules (never both at once)
+    // the dragon's roasting schedule; rare stretch flights are handled after cafe service.
     if (dBar && !dragon.task && t > dragon.roastAt && t >= dragon.flapUntil) { dragon.roastUntil = t + 1.8; dragon.roastAt = t + 14 + Math.random() * 20; }
-    if (dBar && !dragon.task && t > dragon.flapAt && t >= dragon.roastUntil) { dragon.flapUntil = t + 3; dragon.flapAt = t + 18 + Math.random() * 25; }
     if (dBar && !dragon.task && t < dragon.flapUntil && Math.random() < dt * 9) spark(dragon.x - 14 + Math.random() * 28, dragon.y - 4, '#b8b2cc', -3, .5);
     if ((dragon.task && dragon.task.phase === 'brew') || (dBar && t < dragon.roastUntil)) {
       if (Math.random() < dt * 22) spark(PAN[0] + 2 + Math.random() * 5, PAN[1] - 1, Math.random() < .5 ? '#ffd84a' : '#f08a2a', -8 - Math.random() * 8, .45);
@@ -770,11 +824,6 @@
       if (s.kind === 'rune') { g.fillRect(Math.round(x) - 2, Math.round(y) - 2, 2, 2); g.fillRect(Math.round(x) + 3, Math.round(y) + 3, 2, 2); }
     }
   }
-  function dragonSeat() {
-    const seat = assignedDragonSeat();
-    return seat && !dragon.dest && !dragon.path.length ? seat : null;
-  }
-
   function draw(t) {
     g.drawImage(bg, 0, 0);
     for (let i = 0; i < 5; i++) PR.window(g, [48, 128, 208, 312, 392][i], 8, t, i * 7 + 3);
@@ -785,7 +834,7 @@
     items.push({ y: dragon.y, f: () => {
       const busy = !!dragon.task, brewing = busy && dragon.task.phase === 'brew', flying = dragon.mode === 'fly';
       const stretch = !busy && !dragon.mode && t < dragon.flapUntil, flap = flying || stretch, p = stretch ? 1 - (dragon.flapUntil - t) / 3 : 0;
-      const lift = flying ? 10 + Math.sin(t * 9) * 2 : Math.sin(p * Math.PI) * 7, bob = dragon.mode === 'walk' ? Math.sin(t * 10) * 1.5 : 0;
+      const lift = flying ? 10 + Math.sin(t * 9) * 2 : Math.sin(p * Math.PI) * 7;
       g.globalAlpha = .3; g.fillStyle = '#0a0810';
       g.fillRect(dragon.x - 9 + lift / 2, dragon.y - 1, 18 - lift, 2);
       g.globalAlpha = 1;
@@ -793,8 +842,8 @@
         const sway = Math.sin(t * 2.8) * 3 * Math.sin(p * Math.PI);
         g.drawImage(dragon.frames[(t * 7 | 0) % 2 ? 'flapA' : 'flapB'], Math.round(dragon.x - 22 + sway), Math.round(dragon.y - 29 - lift));
       } else {
-        const fr = brewing || t < dragon.roastUntil ? ((t * 8 | 0) % 2 ? 'roastA' : 'roastB') : ((t * (dragon.mode === 'walk' ? 5 : 1) | 0) % 2 ? 'idleA' : 'idleB');
-        g.drawImage(dragon.frames[fr], Math.round(dragon.x - 15), Math.round(dragon.y - 25 + bob));
+        const fr = brewing || t < dragon.roastUntil ? ((t * 8 | 0) % 2 ? 'roastA' : 'roastB') : (t % 2.6 < 1.3 ? 'idleA' : 'idleB');
+        g.drawImage(dragon.frames[fr], Math.round(dragon.x - 15), Math.round(dragon.y - 25));
       }
     } });
     items.push({ y: cat.y, f: () => { const fr = cat.state === 'sleep' ? 'sleep' : cat.state === 'walk' ? ((t * 5 | 0) % 2 ? 'walkA' : 'walkB') : ((t * 1.3 | 0) % 2 ? 'sitA' : 'sitB');
@@ -885,6 +934,7 @@
     TodoWrite: 'UPDATING THE QUESTBOOK', LSP: 'DIVINING', ToolSearch: 'RUMMAGING FOR', AskUserQuestion: 'PETITIONING YOU',
     EnterPlanMode: 'PLOTTING', ExitPlanMode: 'PRESENTING A PLAN', KillShell: 'DOUSING A POTION', Monitor: 'WATCHING A POTION',
     exec_command: 'BREWING', write_stdin: 'STIRRING', apply_patch: 'INSCRIBING', update_plan: 'UPDATING THE QUESTBOOK', web_search: 'SCRYING' };
+  const SUBMIT_STATUS = { git: 'SUBMITTING WITH GIT', graphite: 'SUBMITTING WITH GRAPHITE', jujutsu: 'SUBMITTING WITH JUJUTSU' };
   const drinkName = d => (d.article === '' ? '' : d.article ? d.article + ' ' : /^(AMERICANO|ESPRESSO)/.test(d.name) ? 'AN ' : 'A ') + d.name;
   function cafeStatus(w) {
     if (!w || w.station !== 'cafe') return 'AWAITING YOUR COUNSEL AT THE CAFE';
@@ -901,8 +951,13 @@
     const d = a.detail ? ': ' + a.detail : '';
     switch (a.status) {
       case 'working': {
+        const table = tableById(w && w.game);
+        if (table && table.game) return 'WAITING OVER ' + gameName(table.game.type);
+        const submit = submitKind(a);
+        if (submit) return SUBMIT_STATUS[submit] + d;
         if ((a.tool || '').startsWith('mcp__')) return 'FAR-SCRYING' + ': ' + a.tool.slice(5).replace('__', ' / ') + (a.detail ? ' — ' + a.detail : '');
-        if (/page|click|snapshot|script|console/.test((a.tool || '').toLowerCase())) return 'FAR-SCRYING: ' + a.tool + (a.detail ? ' — ' + a.detail : '');
+        if (/page|click|snapshot|script|console|chrome|browser|devtools|playwright/.test((a.tool || '').toLowerCase())) return 'FAR-SCRYING: ' + a.tool + (a.detail ? ' — ' + a.detail : '');
+        if (waitingOnRun(a)) return 'WAITING FOR A RUN' + d;
         return (VERB[a.tool] || 'CONJURING ' + (a.tool || '?')) + d;
       }
       case 'thinking': return 'PONDERING…';

@@ -306,7 +306,10 @@ class Demo:
     TOOLS = [('Bash', 'pytest -q tests/spells'), ('Read', 'grimoire.py'), ('Edit', 'spellbook.ts'),
              ('Grep', 'TODO|HACK'), ('WebFetch', 'docs.python.org'), ('Write', 'prophecy.md'),
              ('Task', 'scout the catacombs'), ('TodoWrite', 'quest log'), ('Bash', 'make build && make test'),
-             ('Read', 'tome_of_errors.log'), ('WebSearch', 'ancient rune syntax'), ('Edit', 'cauldron.yaml')]
+             ('Monitor', 'npm test'), ('mcp__chrome_devtools__take_screenshot', 'localhost canvas check'),
+             ('mcp__browser__snapshot', 'app state'), ('Bash', 'git push origin HEAD'),
+             ('Bash', 'gt submit --stack'), ('Bash', 'jj git push'), ('Read', 'tome_of_errors.log'),
+             ('WebSearch', 'ancient rune syntax'), ('Edit', 'cauldron.yaml')]
     QUESTS = ['Slay the flaky test of Auth Keep', 'Refactor the potion pipeline', 'Chart the realm of microservices',
               'Tame the wild memory leak', 'Forge a new login portal', 'Decode the ancient YAML scrolls',
               'Banish the segfault demon', 'Polish the crystal dashboard', 'Mend the broken CI golem',

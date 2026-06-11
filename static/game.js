@@ -84,7 +84,7 @@
       let w = wizards.get(a.id);
       if (!w) {
         w = { a, sp: SP.makeWizard(a.id, a.kind, a.engine), x: 436 + ((hash(a.id) % 9) - 4), y: 250, dir: -1, path: [], walk: false,
-              station: null, spotI: -1, home: null, order: null, paceAt: 0, castAt: 0, leaving: false,
+              station: null, spotI: -1, home: null, order: null, game: null, paceAt: 0, castAt: 0, leaving: false,
               alpha: 0, ph: (hash(a.id) % 100) / 16, r: rng(hash(a.id) ^ 0xbeef), emote: null };
         wizards.set(a.id, w);
         sparkleAt(436, 252);
@@ -94,19 +94,20 @@
       const changed = w.a.status !== a.status || (a.status === 'working' && w.a.tool !== a.tool) || w.leaving;
       w.a = a;
       w.leaving = false;
-      if (a.status !== 'waiting') w.order = null;
+      if (a.status !== 'waiting') { w.order = null; leaveGameForWizard(w, 0); }
       if (changed) { w.castAt = 0; retarget(w); }
     }
-    for (const [id, w] of wizards) if (!seen.has(id) && !w.leaving) { w.leaving = true; release(w); w.station = null; pathTo(w, 436, 250); w.path.push([436, 266]); }
+    for (const [id, w] of wizards) if (!seen.has(id) && !w.leaving) { leaveGameForWizard(w, 0); w.leaving = true; release(w); w.station = null; pathTo(w, 436, 250); w.path.push([436, 266]); }
   }
 
   // ---------- cat & barista ----------
   const catFrames = SP.makeCat();
-  const cat = { x: 446, y: 110, state: 'sit', until: 4, path: [], dir: -1, dest: null, order: null, castAt: 0 };
+  const cat = { x: 446, y: 110, state: 'sit', until: 4, path: [], dir: -1, dest: null, order: null, game: null, castAt: 0 };
   const catR = rng(99);
   const CAT_SPECIALS = DRINKS.filter(d => ['health-potion', 'mana-potion', 'antimatter'].includes(d.key));
   const catDrink = () => catR() < .8 ? WARM_MILK : CAT_SPECIALS[catR() * CAT_SPECIALS.length | 0];
   function catThink(t) {
+    if (cat.game) return;
     if (cat.state === 'cafe') cat.order = null;
     cat.dest = null;
     const roll = catR();
@@ -122,7 +123,7 @@
     }
   }
   // Earl Grey roasts the house beans himself.
-  const dragon = { frames: SP.makeDragon(), x: 338, roastAt: 7, roastUntil: -9, flapAt: 13, flapUntil: -9, task: null };
+  const dragon = { frames: SP.makeDragon(), x: 338, roastAt: 7, roastUntil: -9, flapAt: 13, flapUntil: -9, task: null, game: null };
   const PAN = [324, 196];
   const CUP = [316, 187], CAT_CAFE = [404, 226];
 
@@ -156,6 +157,7 @@
   }
   function cafeService(t) {
     for (const w of wizards.values()) ensureOrder(w, t);
+    if (dragon.game && cafeCustomers().some(c => c.order.stage !== 'served')) leaveGameForDragon(t);
     if (dragon.task && t >= dragon.task.until) {
       const c = taskCustomer(dragon.task);
       if (!c) dragon.task = null;
@@ -173,6 +175,100 @@
       const next = cafeCustomers().filter(c => c.order.stage === 'queued' && t >= c.order.askAt).sort((a, b) => a.order.askAt - b.order.askAt)[0];
       if (next) startDrink(next, t);
     }
+  }
+
+  // ---------- table games ----------
+  const TABLES = [
+    { id: 't1', x: 313, y: 101, seats: [[292, 112], [332, 112], [313, 84]], game: null, burnUntil: 0 },
+    { id: 't2', x: 373, y: 121, seats: [[352, 132], [392, 132], [373, 104]], game: null, burnUntil: 0 },
+  ];
+  const GAME_TYPES = ['magic', 'chess', 'go'], tableR = rng(4242);
+  const tableById = id => TABLES.find(t => t.id === id);
+  const gameName = g => g === 'magic' ? 'MAGIC THE GATHERING' : g.toUpperCase();
+  const gameHas = (table, kind, id) => !!table.game && table.game.players.some(p => p.kind === kind && (!id || p.id === id));
+  function waitingForGame(w) {
+    return cafeReady(w) && !w.game && w.order && w.order.stage === 'served';
+  }
+  function releaseGamePlayer(p, t) {
+    if (p.kind === 'wizard') {
+      const w = wizards.get(p.id);
+      if (w) { w.game = null; if (w.a.status === 'waiting' && !w.leaving) { w.station = null; w.home = null; retarget(w); } }
+    } else if (p.kind === 'cat') {
+      cat.game = null;
+      if (cat.state === 'game' || cat.dest === 'game') { cat.dest = null; catThink(t); }
+    } else dragon.game = null;
+  }
+  function leaveGameForWizard(w, t) {
+    if (!w || !w.game) return;
+    const table = tableById(w.game);
+    if (table && table.game) table.game.players = table.game.players.filter(p => !(p.kind === 'wizard' && p.id === w.a.id));
+    w.game = null;
+  }
+  function leaveGameForDragon(t) {
+    if (!dragon.game) return;
+    const table = tableById(dragon.game);
+    if (table && table.game) table.game.players = table.game.players.filter(p => p.kind !== 'dragon');
+    dragon.game = null;
+    if (table && table.game && table.game.players.length < 2) endGame(table, t, false);
+  }
+  function endGame(table, t, burn) {
+    if (!table.game) return;
+    const players = table.game.players.slice();
+    table.game = null;
+    if (burn) table.burnUntil = t + 2;
+    players.forEach(p => releaseGamePlayer(p, t));
+  }
+  function seatPlayer(table, p, i, t) {
+    p.seat = i;
+    const [x, y] = table.seats[i];
+    if (p.kind === 'wizard') {
+      const w = wizards.get(p.id);
+      if (!w) return false;
+      release(w); w.game = table.id; w.station = 'cafe'; w.home = [x, y]; w.emote = null; pathTo(w, x, y);
+    } else if (p.kind === 'cat') {
+      cat.game = table.id; cat.order = null; cat.dest = 'game'; cat.state = 'walk'; cat.until = t + 120; pathTo(cat, x, y);
+    } else dragon.game = table.id;
+    return true;
+  }
+  function canUseCat() {
+    return !cat.game && !cat.path.length && cat.state !== 'walk' && cat.state !== 'sleep' && cat.state !== 'cafe';
+  }
+  function canUseDragon() {
+    return !dragon.game && !dragon.task && !cafeCustomers().some(c => c.order.stage !== 'served');
+  }
+  function startGame(table, players, t) {
+    table.game = { type: GAME_TYPES[tableR() * GAME_TYPES.length | 0], players, until: t + 28 + tableR() * 28 };
+    table.game.players = players.filter((p, i) => seatPlayer(table, p, i, t));
+    if (table.game.players.length < 2) endGame(table, t, false);
+  }
+  function updateTableGames(t) {
+    for (const table of TABLES) {
+      if (table.game) {
+        table.game.players = table.game.players.filter(p => {
+          if (p.kind === 'wizard') { const w = wizards.get(p.id); return w && w.a.status === 'waiting' && !w.leaving; }
+          if (p.kind === 'cat') return cat.game === table.id;
+          return dragon.game === table.id && !dragon.task;
+        });
+        if (table.game.players.length < 2 || t > table.game.until) endGame(table, t, false);
+      }
+      if (table.game || t < table.burnUntil) continue;
+      const ws = [...wizards.values()].filter(waitingForGame).sort((a, b) => (a.a.started || 0) - (b.a.started || 0));
+      if (!ws.length) continue;
+      const players = [{ kind: 'wizard', id: ws[0].a.id }];
+      if (ws[1]) players.push({ kind: 'wizard', id: ws[1].a.id });
+      else if (canUseCat()) players.push({ kind: 'cat' });
+      else if (canUseDragon()) players.push({ kind: 'dragon' });
+      if (players.length > 1 && players.length < 3 && !players.some(p => p.kind === 'cat') && canUseCat() && tableR() < .35) players.push({ kind: 'cat' });
+      if (players.length > 1 && players.length < 3 && !players.some(p => p.kind === 'dragon') && canUseDragon() && tableR() < .25) players.push({ kind: 'dragon' });
+      if (players.length > 1) startGame(table, players, t);
+    }
+  }
+  function burnGameAt(x, y, t) {
+    const table = TABLES.find(tb => tb.game && !gameHas(tb, 'cat') && Math.abs(x - tb.x) < 20 && Math.abs(y - tb.y) < 16);
+    if (!table) return false;
+    endGame(table, t, true);
+    for (let i = 0; i < 12; i++) spark(table.x + (Math.random() * 20 - 10), table.y + (Math.random() * 10 - 5), Math.random() < .5 ? '#ffd84a' : '#f08a2a', -10, .7);
+    return true;
   }
 
   // ---------- particles ----------
@@ -193,6 +289,11 @@
     return [p[0] + ((w.r() * 14 - 7) | 0), p[1] + ((w.r() * 10 - 5) | 0)];
   }
   function catSpellTarget() {
+    const games = TABLES.filter(t => t.game && !gameHas(t, 'cat'));
+    if (games.length && catR() < .35) {
+      const table = games[catR() * games.length | 0];
+      return [table.x + ((catR() * 14 - 7) | 0), table.y + ((catR() * 10 - 5) | 0)];
+    }
     const cafe = cat.x > 268, x = cafe ? 286 + catR() * 160 : 24 + catR() * 220;
     return [x | 0, (52 + catR() * 178) | 0];
   }
@@ -236,13 +337,16 @@
       if (catR() < .55) castCatSpell(t);
     }
   }
-  function updateSpells(dt) {
+  function updateSpells(dt, t) {
     for (let i = SPELLS.length - 1; i >= 0; i--) {
       const s = SPELLS[i];
       s.t += dt;
       if (s.t <= s.life) continue;
       if (s.kind === 'fireball') sparkleAt(s.tx, s.ty);
-      else if (s.kind !== 'rain') spark(s.tx, s.ty, s.kind === 'bolt' ? '#e8f6ff' : '#c8b4ff', -4, .4);
+      else if (s.kind !== 'rain') {
+        if (s.cat) burnGameAt(s.tx, s.ty, t);
+        spark(s.tx, s.ty, s.kind === 'bolt' ? '#e8f6ff' : '#c8b4ff', -4, .4);
+      }
       SPELLS.splice(i, 1);
     }
   }
@@ -275,6 +379,31 @@
     drawText(b, 60, 240, 'LABORATORIVM', '#8a84a0');
   })();
 
+  function drawTableGame(gg, table, t) {
+    const x = table.x - 10, y = table.y - 6;
+    if (table.game) {
+      if (table.game.type === 'magic') {
+        ['#4878a8', '#a84848', '#48a868', '#e8dfc0', '#30364a'].forEach((c, i) => { gg.fillStyle = c; gg.fillRect(x + i * 4, y + (i % 2), 3, 5); });
+        gg.fillStyle = '#6b4226'; gg.fillRect(x + 4, y + 7, 12, 2);
+      } else if (table.game.type === 'chess') {
+        for (let cy = 0; cy < 4; cy++) for (let cx = 0; cx < 4; cx++) { gg.fillStyle = (cx + cy) % 2 ? '#30364a' : '#f4f0e0'; gg.fillRect(x + cx * 4, y + cy * 3, 4, 3); }
+        gg.fillStyle = '#1c1430'; gg.fillRect(x + 2, y + 1, 2, 2); gg.fillRect(x + 10, y + 7, 2, 2);
+        gg.fillStyle = '#f7f3e8'; gg.fillRect(x + 6, y + 4, 2, 2); gg.fillRect(x + 14, y + 10, 2, 2);
+      } else {
+        gg.fillStyle = '#d8b878'; gg.fillRect(x, y, 17, 13);
+        gg.fillStyle = '#8a6242'; for (let i = 2; i < 16; i += 4) { gg.fillRect(x + i, y + 1, 1, 11); gg.fillRect(x + 1, y + i - 1, 15, 1); }
+        gg.fillStyle = '#1c1430'; gg.fillRect(x + 4, y + 3, 2, 2); gg.fillRect(x + 12, y + 7, 2, 2);
+        gg.fillStyle = '#f7f3e8'; gg.fillRect(x + 8, y + 3, 2, 2); gg.fillRect(x + 4, y + 9, 2, 2);
+      }
+    }
+    if (t < table.burnUntil) {
+      for (let i = 0; i < 9; i++) {
+        gg.fillStyle = i % 2 ? '#ffd84a' : '#f08a2a';
+        gg.fillRect(table.x - 10 + i * 3, table.y - 7 + ((t * 9 + i) | 0) % 3, 2, 8 - (i % 3));
+      }
+    }
+  }
+
   // animated props, y-sorted with sprites: [sortY, drawFn]
   const props = t => [
     [174, gg => PR.cauldron(gg, 56, 150, t, occupied('cauldron'))],
@@ -283,7 +412,8 @@
     [214, gg => PR.desk(gg, 96, 200, t)], [214.1, gg => PR.desk(gg, 140, 200, t + 3)],
     [120, gg => PR.crystal(gg, 216, 98, occupied('crystal') ? t : 0)],
     [29, gg => PR.board(gg, 300, 8)],
-    [106, gg => PR.desk(gg, 300, 96, t + 1)], [126, gg => PR.desk(gg, 360, 116, t + 2)],
+    [106, gg => PR.desk(gg, 300, 96, t + 1)], [106.2, gg => drawTableGame(gg, TABLES[0], t)],
+    [126, gg => PR.desk(gg, 360, 116, t + 2)], [126.2, gg => drawTableGame(gg, TABLES[1], t)],
     [94, gg => PR.hearth(gg, 440, 70, t)],
     [95, gg => PR.chair(gg, 418, 82, false)], [117, gg => PR.chair(gg, 418, 104, false)],
     [214.5, gg => PR.counter(gg, 296, 196)], [215, gg => PR.espresso(gg, 306, 186, t)],
@@ -317,8 +447,9 @@
       maybeCast(w, t);
     }
     maybeCatCast(t);
-    updateSpells(dt);
+    updateSpells(dt, t);
     cafeService(t);
+    updateTableGames(t);
     // ambient particles
     if (occupied('cauldron') && Math.random() < dt * 7) spark(70 + Math.random() * 14, 152, '#58d878', -14, .8);
     if (occupied('circle') && Math.random() < dt * 6) { const a = Math.random() * 6.28; spark(186 + Math.cos(a) * 22, 178 + Math.sin(a) * 9, '#9a7cf0', -12, .9); }
@@ -349,10 +480,14 @@
           cat.dest = null;
           cat.until = t + 22 + catR() * 8;
           cat.order = { drink: catDrink(), stage: 'queued', askAt: t, servedAt: 0 };
+        } else if (cat.dest === 'game') {
+          cat.state = 'game';
+          cat.dest = null;
+          cat.until = t + 120;
         } else catThink(t);
       }
     }
-    else if (t > cat.until) catThink(t);
+    else if (!cat.game && t > cat.until) catThink(t);
   }
 
   // ---------- draw ----------
@@ -448,6 +583,12 @@
       if (s.kind === 'rune') { g.fillRect(Math.round(x) - 2, Math.round(y) - 2, 2, 2); g.fillRect(Math.round(x) + 3, Math.round(y) + 3, 2, 2); }
     }
   }
+  function dragonSeat() {
+    const table = tableById(dragon.game);
+    if (!table || !table.game || dragon.task) return null;
+    const p = table.game.players.find(x => x.kind === 'dragon');
+    return p ? table.seats[p.seat] : null;
+  }
 
   function draw(t) {
     g.drawImage(bg, 0, 0);
@@ -456,7 +597,13 @@
     PR.circle(g, 160, 152 + 12, t, occupied('circle'));
     const items = props(t).map(([y, f]) => ({ y, f: () => f(g) }));
     for (const w of wizards.values()) items.push({ y: w.y, f: () => drawWizardSprite(w, t) });
-    items.push({ y: barY, f: () => {
+    const dSeat = dragonSeat();
+    items.push({ y: dSeat ? dSeat[1] : barY, f: () => {
+      if (dSeat) {
+        g.globalAlpha = .3; g.fillStyle = '#0a0810'; g.fillRect(dSeat[0] - 9, dSeat[1] - 1, 18, 2); g.globalAlpha = 1;
+        g.drawImage(dragon.frames[t % 2.6 < 1.3 ? 'idleA' : 'idleB'], dSeat[0] - 15, dSeat[1] - 25);
+        return;
+      }
       const busy = !!dragon.task, brewing = busy && dragon.task.phase === 'brew', flap = !busy && t < dragon.flapUntil, p = flap ? 1 - (dragon.flapUntil - t) / 3 : 0;
       const lift = Math.sin(p * Math.PI) * 7;
       g.globalAlpha = .3; g.fillStyle = '#0a0810';
@@ -534,7 +681,8 @@
     const r = cv.getBoundingClientRect(), mx = (e.clientX - r.left) / S, my = (e.clientY - r.top) / S;
     for (const w of [...wizards.values()].sort((a, b) => b.y - a.y))
       if (Math.abs(mx - w.x) <= 9 && my >= w.y - 26 && my <= w.y + 3) return w.a.id;
-    if (mx >= dragon.x - 25 && mx <= dragon.x + 25 && my >= barY - 36 && my <= barY + 3) return 'barista';
+    const ds = dragonSeat();
+    if (ds ? Math.abs(mx - ds[0]) <= 16 && my >= ds[1] - 28 && my <= ds[1] + 3 : mx >= dragon.x - 25 && mx <= dragon.x + 25 && my >= barY - 36 && my <= barY + 3) return 'barista';
     if (Math.abs(mx - cat.x) <= 8 && Math.abs(my - cat.y + 4) <= 7) return 'cat';
     return null;
   }
@@ -562,6 +710,8 @@
   const drinkName = d => (d.article === '' ? '' : d.article ? d.article + ' ' : /^(AMERICANO|ESPRESSO)/.test(d.name) ? 'AN ' : 'A ') + d.name;
   function cafeStatus(w) {
     if (!w || w.station !== 'cafe') return 'AWAITING YOUR COUNSEL AT THE CAFE';
+    const table = tableById(w.game);
+    if (table && table.game) return 'PLAYING ' + gameName(table.game.type);
     const d = w.order && w.order.drink || w.sp.drink, name = drinkName(d);
     if (!w.order) return 'ASKING EARL GREY FOR ' + name;
     if (w.order.stage === 'brewing') return 'HAVING ' + name + ' BREWED WITH FIRE';
@@ -692,5 +842,5 @@
   catThink(0);
   poll();
   requestAnimationFrame(frame);
-  window.WF = { wizards, ST, cat, dragon, SPELLS };
+  window.WF = { wizards, ST, cat, dragon, SPELLS, TABLES };
 })();

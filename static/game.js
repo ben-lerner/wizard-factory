@@ -22,6 +22,77 @@
   };
   for (const k in ST) ST[k].occ = ST[k].spots.map(() => null);
 
+  // ---------- collision ----------
+  const GRID = 8, WIZ_R = 5, CAT_R = 4;
+  const BLOCKERS = [
+    { x: 264, y: 34, w: 8, h: 78 }, { x: 264, y: 168, w: 8, h: 92 },
+    { x: 58, y: 154, w: 24, h: 18 },
+    { x: 8, y: 58, w: 26, h: 34 }, { x: 8, y: 94, w: 26, h: 34 },
+    { x: 118, y: 46, w: 66, h: 16 },
+    { x: 94, y: 205, w: 30, h: 11 }, { x: 138, y: 205, w: 30, h: 11 },
+    { x: 216, y: 104, w: 16, h: 18 },
+    { x: 299, y: 96, w: 28, h: 14 }, { x: 359, y: 116, w: 28, h: 14 },
+    { x: 438, y: 72, w: 32, h: 24 },
+    { x: 294, y: 194, w: 102, h: 25 },
+    { x: 452, y: 40, w: 13, h: 14 },
+  ];
+  const bodyR = e => e && e.sp ? WIZ_R : CAT_R;
+  const snap = v => Math.round(v / GRID) * GRID;
+  const hitRect = (x, y, r, b) => x + r > b.x && x - r < b.x + b.w && y + r > b.y && y - r < b.y + b.h;
+  const blocked = (x, y, r) => x < 18 + r || x > 462 - r || y < 42 + r || y > 266 || BLOCKERS.some(b => hitRect(x, y, r, b));
+  function gridOpenNear(x, y, r) {
+    let best = null, bd = 1e9, sx = snap(x), sy = snap(y);
+    for (let d = 0; d <= 48; d += GRID) {
+      for (let gx = sx - d; gx <= sx + d; gx += GRID) for (let gy = sy - d; gy <= sy + d; gy += GRID) {
+        const ds = Math.hypot(gx - x, gy - y);
+        if (ds < bd && !blocked(gx, gy, r)) { best = [gx, gy]; bd = ds; }
+      }
+      if (best) return best;
+    }
+    return clampZone(x, y);
+  }
+  function lineOpen(x1, y1, x2, y2, r) {
+    const n = Math.max(1, Math.ceil(Math.hypot(x2 - x1, y2 - y1) / 4));
+    for (let i = 1; i <= n; i++) if (blocked(x1 + (x2 - x1) * i / n, y1 + (y2 - y1) * i / n, r)) return false;
+    return true;
+  }
+  function compactPath(pts) {
+    const out = [];
+    for (const p of pts) {
+      const a = out[out.length - 2], b = out[out.length - 1];
+      if (a && b && ((a[0] === b[0] && b[0] === p[0]) || (a[1] === b[1] && b[1] === p[1]))) out[out.length - 1] = p;
+      else out.push(p);
+    }
+    return out;
+  }
+  function route(sx, sy, tx, ty, r) {
+    const dest = blocked(tx, ty, r) ? gridOpenNear(tx, ty, r) : [tx, ty];
+    if (lineOpen(sx, sy, dest[0], dest[1], r)) return [[dest[0], dest[1]]];
+    const start = gridOpenNear(sx, sy, r), goal = gridOpenNear(dest[0], dest[1], r), key = p => p[0] + ',' + p[1];
+    const open = [{ p: start, g: 0, f: Math.hypot(goal[0] - start[0], goal[1] - start[1]), from: null }], seen = new Map([[key(start), open[0]]]);
+    let found = null;
+    while (open.length) {
+      open.sort((a, b) => b.f - a.f);
+      const cur = open.pop();
+      if (cur.p[0] === goal[0] && cur.p[1] === goal[1]) { found = cur; break; }
+      for (const [dx, dy] of [[GRID, 0], [-GRID, 0], [0, GRID], [0, -GRID]]) {
+        const p = [cur.p[0] + dx, cur.p[1] + dy], k = key(p), g2 = cur.g + GRID;
+        if (blocked(p[0], p[1], r) || (seen.has(k) && seen.get(k).g <= g2)) continue;
+        const n = { p, g: g2, f: g2 + Math.hypot(goal[0] - p[0], goal[1] - p[1]), from: cur };
+        seen.set(k, n); open.push(n);
+      }
+    }
+    if (!found) return [[dest[0], dest[1]]];
+    const pts = [];
+    for (let n = found; n; n = n.from) pts.push(n.p);
+    pts.reverse();
+    const path = compactPath(pts).filter(p => Math.hypot(p[0] - sx, p[1] - sy) > 2);
+    if (!path.length) path.push(goal);
+    const last = path[path.length - 1];
+    if (Math.hypot(last[0] - dest[0], last[1] - dest[1]) > 2 && lineOpen(last[0], last[1], dest[0], dest[1], r)) path.push(dest);
+    return path;
+  }
+
   function toolStation(tool) {
     const t = (tool || '').toLowerCase();
     if (t.startsWith('mcp__') || /^web|fetch|page|click|snapshot|script|console/.test(t)) return 'crystal';
@@ -43,7 +114,7 @@
     return [Math.max(lab ? 18 : 282, Math.min(lab ? 252 : 462, x)), Math.max(46, Math.min(250, y))];
   }
   function pathTo(w, tx, ty) {
-    w.path = (w.x < 268) !== (tx < 268) ? [[w.x, 142], [tx, 142], [tx, ty]] : [[tx, w.y], [tx, ty]];
+    w.path = route(w.x, w.y, tx, ty, bodyR(w));
   }
   function release(w) {
     if (w.station && w.spotI >= 0) ST[w.station].occ[w.spotI] = null;
@@ -118,7 +189,7 @@
       const ws = [...wizards.values()];
       const pal = ws.length && catR() < .5 ? ws[catR() * ws.length | 0] : null;
       const target = pal ? [pal.x + 12, pal.y] : clampZone(catR() * VW, 60 + catR() * 180);
-      cat.path = (cat.x < 268) !== (target[0] < 268) ? [[cat.x, 142], [target[0], 142], target] : [[target[0], cat.y], target];
+      pathTo(cat, target[0], target[1]);
       cat.state = 'walk'; cat.until = t + 20;
     }
   }
@@ -428,9 +499,43 @@
   function moveAlong(e, dt, speed) {
     if (!e.path.length) return false;
     const [tx, ty] = e.path[0], dx = tx - e.x, dy = ty - e.y, d = Math.hypot(dx, dy), step = speed * dt;
-    if (d <= step) { e.x = tx; e.y = ty; e.path.shift(); }
-    else { e.x += dx / d * step; e.y += dy / d * step; if (Math.abs(dx) > .5) e.dir = dx < 0 ? -1 : 1; }
+    if (d < .1) { e.x = tx; e.y = ty; e.path.shift(); return true; }
+    const done = d <= step, nx = done ? tx : e.x + dx / d * step, ny = done ? ty : e.y + dy / d * step, r = bodyR(e);
+    const tryMove = (x, y) => {
+      if (blocked(x, y, r)) return false;
+      if (Math.abs(x - e.x) > .4) e.dir = x < e.x ? -1 : 1;
+      e.x = x; e.y = y;
+      return true;
+    };
+    if (tryMove(nx, ny)) { if (done) e.path.shift(); }
+    else if (!tryMove(nx, e.y)) tryMove(e.x, ny);
     return true;
+  }
+
+  function shoveActor(a, dx, dy) {
+    if (a.fixed) return;
+    const e = a.e, x = e.x + dx, y = e.y + dy;
+    if (!blocked(x, y, a.r)) { e.x = x; e.y = y; return; }
+    if (!blocked(x, e.y, a.r)) e.x = x;
+    else if (!blocked(e.x, y, a.r)) e.y = y;
+  }
+  function collisionActors() {
+    const a = [...wizards.values()].filter(w => w.alpha > .25).map(w => ({ e: w, r: WIZ_R + 1 }));
+    a.push({ e: cat, r: CAT_R + 1 });
+    const ds = dragonSeat();
+    if (ds) a.push({ e: { x: ds[0], y: ds[1] }, r: 9, fixed: true });
+    return a;
+  }
+  function separateActors() {
+    const a = collisionActors();
+    for (let pass = 0; pass < 2; pass++) for (let i = 0; i < a.length; i++) for (let j = i + 1; j < a.length; j++) {
+      const p = a[i], q = a[j], dx = q.e.x - p.e.x, dy = q.e.y - p.e.y, d = Math.hypot(dx, dy), min = p.r + q.r;
+      if (d >= min || (p.fixed && q.fixed)) continue;
+      const ux = d > .1 ? dx / d : i % 2 ? 1 : -1, uy = d > .1 ? dy / d : 0, push = (min - d) + .2;
+      if (p.fixed) shoveActor(q, ux * push, uy * push);
+      else if (q.fixed) shoveActor(p, -ux * push, -uy * push);
+      else { shoveActor(p, -ux * push / 2, -uy * push / 2); shoveActor(q, ux * push / 2, uy * push / 2); }
+    }
   }
 
   function update(dt, t) {
@@ -440,7 +545,7 @@
       if (w.leaving && w.alpha <= 0) { wizards.delete(id); continue; }
       if (!w.walk && !w.leaving && (w.a.status === 'thinking') && t > w.paceAt) {
         w.paceAt = t + 2.5 + w.r() * 3;
-        if (w.home && w.r() < .7) { const [hx, hy] = w.home; w.path = [[hx + ((w.r() * 14 - 7) | 0), hy + ((w.r() * 6 - 3) | 0)]]; }
+        if (w.home && w.r() < .7) { const [hx, hy] = w.home; pathTo(w, hx + ((w.r() * 14 - 7) | 0), hy + ((w.r() * 6 - 3) | 0)); }
       }
       if (w.a.status === 'idle' && Math.random() < dt * .5) spark(w.x + 6, w.y - 24, '#a8a2c8', -6, 1.4, 'z');
       if (w.a.status === 'attention' && Math.random() < dt * 2) spark(w.x, w.y - 26, '#ff5a5a', -10, .5);
@@ -488,6 +593,7 @@
       }
     }
     else if (!cat.game && t > cat.until) catThink(t);
+    separateActors();
   }
 
   // ---------- draw ----------

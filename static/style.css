@@ -1,0 +1,110 @@
+:root {
+  --bg: #16121f; --panel: #1e1830; --panel2: #251d3a; --edge: #4a3f63; --ink: #e8e2d4;
+  --dim: #8a84a0; --gold: #ffd84a; --red: #ff5a5a; --green: #58d878; --blue: #8fd0ff;
+  --purple: #d86ad8; --font: "Menlo", "Consolas", monospace;
+}
+* { box-sizing: border-box; margin: 0; }
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  background-image: radial-gradient(#1d1730 1px, transparent 1px);
+  background-size: 24px 24px;
+  color: var(--ink); font-family: var(--font); font-size: 12px;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+header {
+  display: flex; align-items: center; gap: 16px; padding: 8px 14px;
+  background: var(--panel); border-bottom: 2px solid #000; box-shadow: 0 2px 0 var(--edge);
+  flex: 0 0 auto;
+}
+#logo { image-rendering: pixelated; flex: 0 0 auto; }
+#counts { display: flex; gap: 14px; flex: 1; justify-content: center; flex-wrap: wrap; letter-spacing: 1px; font-size: 11px; }
+#counts span { white-space: nowrap; }
+.c-work { color: var(--green); } .c-wait { color: var(--gold); } .c-doze { color: var(--dim); }
+.c-attn { color: #7a7490; }
+.c-attn.hot { color: var(--red); animation: blink 1s steps(2) infinite; }
+.c-demo { color: var(--purple); border: 1px solid var(--purple); padding: 1px 5px; }
+@keyframes blink { 50% { opacity: .45; } }
+.pixbtn {
+  font-family: var(--font); font-size: 14px; color: var(--gold); background: var(--panel2);
+  border: 2px solid #000; box-shadow: 0 0 0 2px var(--edge); width: 30px; height: 30px; cursor: pointer;
+}
+.pixbtn:hover { background: var(--edge); }
+main { flex: 1; display: flex; min-height: 0; }
+#stage {
+  flex: 1; display: flex; align-items: center; justify-content: center; position: relative; min-width: 0;
+  padding: 10px;
+}
+#view { image-rendering: pixelated; image-rendering: crisp-edges; border: 2px solid #000; box-shadow: 0 0 0 2px var(--edge), 0 8px 30px rgba(0,0,0,.5); background: #0c0914; }
+#tip {
+  position: absolute; width: 232px; pointer-events: none; z-index: 5;
+  background: #0f0b1a; border: 2px solid #000; box-shadow: 0 0 0 2px var(--edge); padding: 8px 9px;
+  font-size: 11px; line-height: 1.45;
+}
+.tt-name { color: var(--gold); letter-spacing: 1px; }
+.tt-name span { color: var(--dim); font-size: 10px; }
+.tt-meta { color: var(--dim); font-size: 10px; margin: 2px 0 4px; text-transform: uppercase; }
+.tt-status { margin-bottom: 3px; }
+.tt-title { color: var(--ink); font-size: 11px; margin-bottom: 2px; }
+.tt-quest { color: var(--dim); font-style: italic; margin-bottom: 3px; }
+.tt-age { color: var(--dim); font-size: 9px; letter-spacing: .5px; }
+#side {
+  flex: 0 0 304px; display: flex; flex-direction: column; min-height: 0;
+  background: var(--panel); border-left: 2px solid #000; box-shadow: -2px 0 0 var(--edge);
+}
+#sideHead { padding: 9px 12px; color: var(--gold); letter-spacing: 2px; font-size: 11px; border-bottom: 2px solid var(--edge); }
+#num { color: var(--dim); }
+#rows { flex: 1; overflow-y: auto; min-height: 0; }
+#rows::-webkit-scrollbar { width: 10px; }
+#rows::-webkit-scrollbar-thumb { background: var(--edge); border: 2px solid var(--panel); }
+.row {
+  display: flex; gap: 9px; padding: 7px 10px; border-bottom: 1px solid #15101f;
+  border-left: 3px solid var(--dim); cursor: pointer; align-items: center;
+}
+.row:hover { background: var(--panel2); }
+.row.sel { background: var(--panel2); outline: 1px solid var(--gold); outline-offset: -1px; }
+.row.sub { padding-left: 22px; }
+.sub-arrow { color: var(--dim); }
+.row .pt { width: 36px; height: 36px; image-rendering: pixelated; background: #0f0b1a; border: 1px solid var(--edge); flex: 0 0 auto; }
+.row .mid { min-width: 0; flex: 1; }
+.row .nm { color: var(--ink); font-size: 11px; letter-spacing: .5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .ep { color: var(--dim); font-size: 9px; }
+.row .ln { color: var(--dim); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 2px 0; }
+.row .ch { display: flex; gap: 5px; align-items: center; }
+.chip {
+  font-size: 9px; background: #0f0b1a; color: var(--blue); padding: 1px 5px;
+  border: 1px solid var(--edge); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px;
+}
+.chip.alt { color: var(--purple); }
+.chip.cdx { color: #f0a83c; border-color: #6b4a26; }
+.time { margin-left: auto; color: var(--dim); font-size: 9px; }
+.st-working { border-left-color: var(--green); } .st-working .ln { color: var(--green); }
+.st-thinking { border-left-color: var(--blue); } .st-thinking .ln { color: var(--blue); }
+.st-responding { border-left-color: var(--purple); } .st-responding .ln { color: var(--purple); }
+.st-waiting { border-left-color: var(--gold); } .st-waiting .ln { color: var(--gold); }
+.st-done { border-left-color: var(--gold); }
+.st-idle { border-left-color: var(--dim); }
+.st-attention { border-left-color: var(--red); animation: blink 1.1s steps(2) infinite; }
+.st-attention .ln { color: var(--red); }
+#tip .st-attention { color: var(--red); } #tip .st-working { color: var(--green); }
+#tip .st-waiting { color: var(--gold); } #tip .st-thinking { color: var(--blue); }
+#tip .st-responding { color: var(--purple); } #tip .st-idle, #tip .st-done { color: var(--dim); }
+#foot { padding: 7px 12px; font-size: 9px; color: var(--dim); letter-spacing: 1px; border-top: 2px solid var(--edge); }
+#help {
+  position: fixed; inset: 0; background: rgba(8,5,14,.78); z-index: 10;
+  display: flex; align-items: center; justify-content: center;
+}
+#help[hidden], #tip[hidden] { display: none; }
+#help .panel {
+  width: min(560px, 92vw); max-height: 86vh; overflow-y: auto;
+  background: var(--panel); border: 2px solid #000; box-shadow: 0 0 0 2px var(--edge), 0 12px 40px #000;
+  padding: 18px 22px; line-height: 1.6;
+}
+#help h2 { color: var(--gold); letter-spacing: 2px; font-size: 14px; margin-bottom: 8px; }
+#help h3 { color: var(--blue); letter-spacing: 1px; font-size: 11px; margin: 14px 0 4px; }
+#help p, #help li { color: var(--ink); font-size: 11px; }
+#help ul { padding-left: 18px; }
+#help code { background: #0f0b1a; color: var(--green); padding: 1px 5px; border: 1px solid var(--edge); }
+#help .red { color: var(--red); }
+#help .dim { color: var(--dim); margin-top: 12px; font-size: 10px; }
+@media (max-width: 900px) { #side { flex-basis: 240px; } }

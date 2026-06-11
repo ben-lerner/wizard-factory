@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wizard Factory - a retro dashboard that shows every Claude Code agent as a pixel wizard.
+"""Wizard Factory - a retro dashboard that shows every coding agent as a pixel wizard.
 
 Polls ~/.claude/projects/**/*.jsonl transcripts (main sessions + subagents), infers what
 each agent is doing, and serves the tower at http://127.0.0.1:7777. No registration needed.
@@ -341,7 +341,7 @@ class Demo:
             if a['kind'] == 'sub' and r.random() < .3:
                 go('done', 8, 12, tool=None, msg=None)
             elif r.random() < .15:
-                go('attention', 12, 25, msg=f"Claude needs your permission to use {a['tool']}")
+                go('attention', 12, 25, msg=f"Agent needs your permission to use {a['tool']}")
             elif r.random() < .6:
                 go('thinking', 2, 6, tool=None, msg=None)
             else:

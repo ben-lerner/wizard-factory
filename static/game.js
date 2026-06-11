@@ -4,7 +4,7 @@
   const VW = 480, VH = 272, POLL = 1500, SPEED = 42;
   const $ = q => document.querySelector(q);
   const cv = $('#view'), g = cv.getContext('2d');
-  const { drawText, textW, rng, hash, PR, drawEmote, WARM_MILK } = SP;
+  const { drawText, textW, rng, hash, PR, drawEmote, WARM_MILK, DRINKS } = SP;
 
   // ---------- stations ----------
   const ST = {
@@ -104,12 +104,14 @@
   const catFrames = SP.makeCat();
   const cat = { x: 446, y: 110, state: 'sit', until: 4, path: [], dir: -1, dest: null, order: null, castAt: 0 };
   const catR = rng(99);
+  const CAT_SPECIALS = DRINKS.filter(d => ['health-potion', 'mana-potion', 'antimatter'].includes(d.key));
+  const catDrink = () => catR() < .8 ? WARM_MILK : CAT_SPECIALS[catR() * CAT_SPECIALS.length | 0];
   function catThink(t) {
-    if (cat.state === 'milk') cat.order = null;
+    if (cat.state === 'cafe') cat.order = null;
     cat.dest = null;
     const roll = catR();
-    if (roll < .16) sendCatToCafe(t);
-    else if (roll < .42) { cat.state = 'sleep'; cat.until = t + 6 + catR() * 8; cat.path = [[440, 112]]; }
+    if (roll < .08) sendCatToCafe(t);
+    else if (roll < .38) { cat.state = 'sleep'; cat.until = t + 6 + catR() * 8; cat.path = [[440, 112]]; }
     else if (roll < .64) { cat.state = 'sit'; cat.until = t + 4 + catR() * 5; }
     else {
       const ws = [...wizards.values()];
@@ -139,11 +141,11 @@
   function cafeCustomers() {
     const cs = [];
     for (const w of wizards.values()) if (cafeReady(w) && w.order) cs.push({ kind: 'wizard', id: w.a.id, order: w.order, drink: w.order.drink, x: w.x, y: w.y });
-    if (cat.state === 'milk' && !cat.path.length && cat.order) cs.push({ kind: 'cat', id: 'cat', order: cat.order, drink: cat.order.drink, x: cat.x, y: cat.y });
+    if (cat.state === 'cafe' && !cat.path.length && cat.order) cs.push({ kind: 'cat', id: 'cat', order: cat.order, drink: cat.order.drink, x: cat.x, y: cat.y });
     return cs;
   }
   function taskCustomer(task) {
-    if (task.kind === 'cat') return cat.state === 'milk' && cat.order === task.order ? { kind: 'cat', id: 'cat', order: cat.order, drink: cat.order.drink, x: cat.x, y: cat.y } : null;
+    if (task.kind === 'cat') return cat.state === 'cafe' && cat.order === task.order ? { kind: 'cat', id: 'cat', order: cat.order, drink: cat.order.drink, x: cat.x, y: cat.y } : null;
     const w = wizards.get(task.id);
     return w && cafeReady(w) && w.order === task.order ? { kind: 'wizard', id: w.a.id, order: w.order, drink: w.order.drink, x: w.x, y: w.y } : null;
   }
@@ -333,10 +335,10 @@
     if (cat.state === 'walk') {
       if (!moveAlong(cat, dt, 26)) {
         if (cat.dest === 'cafe') {
-          cat.state = 'milk';
+          cat.state = 'cafe';
           cat.dest = null;
           cat.until = t + 22 + catR() * 8;
-          cat.order = { drink: WARM_MILK, stage: 'queued', askAt: t, servedAt: 0 };
+          cat.order = { drink: catDrink(), stage: 'queued', askAt: t, servedAt: 0 };
         } else catThink(t);
       }
     }
@@ -462,14 +464,14 @@
       if (w.order && w.order.stage !== 'served' && !w.walk && w.alpha > .8 && ((t + w.ph) % 6) < 2.4) tag(w.x, w.y - 45, w.order.drink.name);
       if ((hover === w.a.id || sel === w.a.id) && w.alpha > .5) tag(w.x, w.y - 38, w.sp.name);
     }
-    if (cat.order && cat.order.stage === 'served') PR.cup(g, cat.x + 5, cat.y - 6, WARM_MILK.key, t);
-    if (cat.order && cat.order.stage !== 'served' && ((t + 1.7) % 6) < 2.4) tag(cat.x, cat.y - 25, WARM_MILK.name);
+    if (cat.order && cat.order.stage === 'served') PR.cup(g, cat.x + 5, cat.y - 6, cat.order.drink.key, t);
+    if (cat.order && cat.order.stage !== 'served' && ((t + 1.7) % 6) < 2.4) tag(cat.x, cat.y - 25, cat.order.drink.name);
     if (hover === 'cat') tag(cat.x, cat.y - 20, 'BIGGLES, STAFF CAT');
     if (hover === 'barista') tag(338, barY - 32, 'EARL GREY, BARISTA');
     if (!wizards.size) {
       g.fillStyle = 'rgba(12,9,20,.55)'; g.fillRect(90, 110, 300, 44);
       drawText(g, 240 - textW('THE TOWER SLEEPS', 2) / 2, 120, 'THE TOWER SLEEPS', '#cdc6e0', 2);
-      drawText(g, 240 - textW('NO CLAUDE AGENTS ABOUT - START ONE!') / 2, 138, 'NO CLAUDE AGENTS ABOUT - START ONE!', '#8a84a0');
+      drawText(g, 240 - textW('NO AGENTS ABOUT - START ONE!') / 2, 138, 'NO AGENTS ABOUT - START ONE!', '#8a84a0');
     }
     if (offline) {
       g.fillStyle = 'rgba(20,8,8,.6)'; g.fillRect(0, 0, VW, VH);
@@ -636,7 +638,7 @@
     lg.fillStyle = '#523aa8'; lg.fillRect(2, 20, 20, 4);
     lg.fillStyle = '#ffd84a'; lg.fillRect(10, 10, 2, 2);
     drawText(lg, 30, 4, 'WIZARD FACTORY', '#ffd84a', 3);
-    drawText(lg, 31, 24, 'A CLAUDE CODE AGENT OBSERVATORY', '#8a84a0', 1);
+    drawText(lg, 31, 24, 'AN AGENT OBSERVATORY', '#8a84a0', 1);
   })();
 
   $('#helpBtn').onclick = () => { $('#help').hidden = !$('#help').hidden; };

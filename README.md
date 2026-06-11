@@ -1,6 +1,6 @@
 # 🧙 Wizard Factory
 
-A retro 8-bit dashboard that shows every running Claude Code and Codex agent as a pixel wizard
+A retro 8-bit dashboard that shows every running coding agent as a pixel wizard
 in a shared tower. Main sessions are wizards; subagents are apprentices. They move between
 stations based on what they're doing, and wait for you at the café with a fresh drink when
 their turn is done.
@@ -20,7 +20,7 @@ No dependencies (Python 3 stdlib only).
 
 ## How it works
 
-The server tails the transcript files Claude Code writes to
+The server tails the transcript files written to
 `~/.claude/projects/<project>/<session>.jsonl` (and
 `<session>/subagents/agent-*.jsonl` for subagents), keeping byte offsets per file
 and re-reading the tail if a file is rewritten. OpenAI Codex CLI sessions are
@@ -46,14 +46,14 @@ plans/questions = petition board.
 Appearance and name are deterministic per agent id (seeded hats, beards, robes,
 spectacles, staffs, and cafe order), so the same session keeps the same wizard
 across reloads. Earl Grey, the dragon barista, brews cafe orders with fire and
-pours milk for milk drinks. Biggles occasionally visits for warm milk.
+pours milk for milk drinks. Biggles occasionally visits for a drink.
 The frontend polls `/api/state` every 1.5s.
 
 ## Hooks: instant "needs your blessing"
 
 Polling can't always distinguish a long-running Bash spell from a permission
 prompt. Installing the hooks fixes that: the wizard runs to the petition board
-with a red `!` the moment Claude asks for approval, and arrivals/departures/turn
+with a red `!` the moment a session asks for approval, and arrivals/departures/turn
 ends land instantly instead of on the next poll.
 
 ```sh
@@ -67,7 +67,7 @@ untouched (verified round-trip), the write is atomic, a backup is kept at
 `~/.claude/settings.json.wizard-bak`, install is idempotent, and each hook is a
 fire-and-forget `curl` to `127.0.0.1:7777/hook` that exits 0 in under a second
 even when the server isn't running. Hooks are captured at session startup, so
-they only take effect for Claude Code sessions started after installing —
+they only take effect for sessions started after installing —
 already-running sessions keep working via polling alone.
 
 ## Notes
@@ -79,4 +79,4 @@ already-running sessions keep working via polling alone.
   uses file mtime and statuses may lag a little for those.
 - `python3 server.py --debug-scan` prints the inferred agent list as JSON.
 - The cat is named Biggles. He is not configurable.
-  [Editor's note: I didn't ask for a cat, this is 100% Claude Fable.]
+  [Editor's note: I didn't ask for a cat, this is 100% agent folklore.]

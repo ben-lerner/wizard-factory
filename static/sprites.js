@@ -41,6 +41,26 @@ window.SP = (() => {
   const N3 = ['BART', 'BERT', 'DOR', 'DRIC', 'FIUS', 'GAST', 'GRIM', 'LIN', 'LOCK', 'MIRE', 'MUND', 'NOR', 'RICK', 'STAR', 'THORN', 'WICK', 'WIN', 'WYN', 'ZAR', 'CASTER', 'MANCER'];
   const EPITHETS = ['THE WISE', 'THE PATIENT', 'THE UNTESTED', 'BUGBANE', 'THE RECURSIVE', 'TOKENWEAVER', 'THE PARALLEL', 'NULLSEEKER', 'THE VERBOSE', 'MERGEWRIGHT', 'LINTBANE', 'THE ASYNC', 'OOMSLAYER', 'THE IDEMPOTENT', 'SHIPWRIGHT', 'THE CACHED', 'DAEMONFRIEND', 'THE WELL-TYPED', 'THE REBASED', 'OF THE LONG BUILD', 'QUERYBINDER', 'THE PROFILED', 'FLAKEBANE', 'THE VECTORIZED', 'HOTFIX', 'THE GREPWORN', 'OF THE NINTH STACK', 'SEGFAULTSBANE'];
   const APPRENTICE = ['PIP', 'WICK', 'NIB', 'TWIG', 'MOTE', 'FIG', 'DOT', 'BRAN', 'COG', 'LUMEN', 'SPECK', 'WISP', 'FERN', 'SOOT', 'PEBBLE', 'QUILL', 'MOSS', 'FLINT', 'BEAN', 'SPROUT', 'INKY', 'PATCH'];
+  const DRINKS = [
+    { key: 'drip', name: 'DRIP COFFEE', milk: false },
+    { key: 'pourover', name: 'POUROVER', milk: false },
+    { key: 'americano', name: 'AMERICANO', milk: false },
+    { key: 'long-black', name: 'LONG BLACK', milk: false },
+    { key: 'espresso', name: 'ESPRESSO', milk: false },
+    { key: 'double-espresso', name: 'DOUBLE ESPRESSO', milk: false },
+    { key: 'macchiato', name: 'MACCHIATO', milk: true },
+    { key: 'cortado', name: 'CORTADO', milk: true },
+    { key: 'flat-white', name: 'FLAT WHITE', milk: true },
+    { key: 'cappuccino', name: 'CAPPUCCINO', milk: true },
+    { key: 'latte', name: 'LATTE', milk: true },
+    { key: 'cafe-au-lait', name: 'CAFE AU LAIT', milk: true },
+    { key: 'mana-potion', name: 'MANA POTION', milk: false, potion: '#5aa9e6' },
+    { key: 'health-potion', name: 'HEALTH POTION', milk: false, potion: '#d84a4a' },
+    { key: 'antimatter', name: 'ANTIMATTER', milk: false, article: '' },
+  ];
+  const WARM_MILK = { key: 'warm-milk', name: 'WARM MILK', milk: true };
+  const drinkFor = id => DRINKS[hash(id + ':drink') % DRINKS.length];
+  const drinkByKey = key => key === WARM_MILK.key ? WARM_MILK : DRINKS.find(d => d.key === key) || DRINKS[0];
 
   // ---------- wizard sprite ----------
   const SKINS = ['#f0c8a0', '#e6b88e', '#cf9a66', '#b07845', '#8a5a32', '#6b4226'];
@@ -131,7 +151,7 @@ window.SP = (() => {
     const pc = document.createElement('canvas'); pc.width = 42; pc.height = 42;
     const pg = pc.getContext('2d'); pg.imageSmoothingEnabled = false;
     pg.drawImage(frames.idleA, 3, sub ? 1 : 0, 14, 14, 0, 0, 42, 42);
-    return { name, epithet, frames, portrait: pc.toDataURL(), hue, sub };
+    return { name, epithet, frames, portrait: pc.toDataURL(), hue, sub, drink: drinkFor(id) };
   }
 
   // ---------- the staff cat ----------
@@ -397,6 +417,38 @@ window.SP = (() => {
     drawText(g, x + 3, y + 3, txt, '#ffd84a');
   };
 
+  function drawCup(g, x, y, drink, t) {
+    const d = typeof drink === 'string' ? drinkByKey(drink) : drink || DRINKS[0];
+    if (d.key === 'antimatter') {
+      rc(g, x + 3, y + 6, 6, 3, '#f4f0e0'); px(g, x + 9, y + 7, '#f4f0e0'); rc(g, x + 4, y + 6, 4, 1, '#1c1430');
+      [[6, 2], [6, 1], [5, 3], [7, 3], [4, 4], [3, 5], [8, 4], [9, 5], [6, 4]].forEach(([dx, dy], i) => px(g, x + dx, y + dy + ((t * 3 | 0) % 2 === 0 && i > 0 ? -1 : 0), i ? '#d8ff58' : '#1c1430'));
+      return;
+    }
+    if (d.potion) {
+      rc(g, x + 5, y + 2, 3, 2, '#d8def0'); rc(g, x + 4, y + 4, 5, 5, d.potion); rc(g, x + 3, y + 6, 7, 3, d.potion);
+      px(g, x + 5, y + 2, '#f7f3e8'); px(g, x + 8, y + 5, shade(d.potion, .72)); px(g, x + 5, y + 6, '#f7f3e8');
+      px(g, x + 6, y + 4 + ((t * 3 | 0) % 2), '#e8f6ff');
+      return;
+    }
+    const small = d.key === 'espresso' || d.key === 'double-espresso' || d.key === 'macchiato';
+    const milk = d.milk || d.key === 'warm-milk';
+    const dark = d.key === 'warm-milk' ? '#f2ead0' : milk ? '#d8b98c' : '#5a321d';
+    const foam = d.key === 'cappuccino' ? '#f7f3e8' : d.key === 'flat-white' ? '#eadfc8' : '#f0e6d0';
+    if (small) {
+      const w = d.key === 'double-espresso' ? 6 : 5;
+      rc(g, x + 3, y + 6, w, 3, '#f4f0e0'); px(g, x + 3 + w, y + 7, '#f4f0e0');
+      rc(g, x + 4, y + 6, w - 2, 1, d.key === 'macchiato' ? foam : '#5a321d');
+      if (d.key === 'macchiato') px(g, x + 5, y + 5, '#f7f3e8');
+    } else {
+      rc(g, x + 2, y + 5, 7, 4, '#f4f0e0'); px(g, x + 9, y + 6, '#f4f0e0'); px(g, x + 9, y + 7, '#f4f0e0');
+      rc(g, x + 3, y + 5, 5, 1, dark);
+      if (milk) { px(g, x + 4, y + 4, foam); px(g, x + 6, y + 4, foam); if (d.key === 'latte' || d.key === 'cappuccino') px(g, x + 5, y + 3, foam); }
+    }
+    px(g, x + 4, y + 2 - ((t * 2 | 0) % 2), '#c8c2d8');
+    px(g, x + 7, y + 1 + ((t * 2 | 0) % 2), '#c8c2d8');
+  }
+  PR.cup = drawCup;
+
   // ---------- emotes ----------
   function drawEmote(g, cx, topY, key, t) {
     const x = cx - 6, y = topY - 14 + Math.round(Math.sin(t * 2.2) * 1.5);
@@ -405,6 +457,7 @@ window.SP = (() => {
     rc(g, x - 1, y + 1, 1, 9, '#262032'); rc(g, x + 12, y + 1, 1, 9, '#262032');
     px(g, x + 5, y + 11, '#262032'); px(g, x + 5, y + 12, '#f7f3e8'); px(g, x + 4, y + 11, '#f7f3e8');
     const I = (dx, dy, c) => px(g, x + dx, y + dy, c);
+    if (key && key.startsWith('drink:')) { drawCup(g, x, y, key.slice(6), t); return; }
     switch (key) {
       case 'alert': drawText(g, x + 5, y + 3, '!', '#d83a3a'); break;
       case 'ask': drawText(g, x + 4, y + 3, '?', '#3a6ad8'); break;
@@ -423,5 +476,5 @@ window.SP = (() => {
     }
   }
 
-  return { hash, rng, pick, hsl, shade, drawText, textW, makeWizard, makeCat, makeDragon, PR, drawEmote, EPITHETS };
+  return { hash, rng, pick, hsl, shade, drawText, textW, makeWizard, makeCat, makeDragon, PR, drawEmote, EPITHETS, DRINKS, WARM_MILK, drinkFor };
 })();

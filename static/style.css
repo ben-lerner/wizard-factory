@@ -89,7 +89,6 @@ main { flex: 1; display: flex; min-height: 0; }
 #tip .st-attention { color: var(--red); } #tip .st-working { color: var(--green); }
 #tip .st-waiting { color: var(--gold); } #tip .st-thinking { color: var(--blue); }
 #tip .st-responding { color: var(--purple); } #tip .st-idle, #tip .st-done { color: var(--dim); }
-#foot { padding: 7px 12px; font-size: 9px; color: var(--dim); letter-spacing: 1px; border-top: 2px solid var(--edge); }
 #help {
   position: fixed; inset: 0; background: rgba(8,5,14,.78); z-index: 10;
   display: flex; align-items: center; justify-content: center;

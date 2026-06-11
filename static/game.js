@@ -4,7 +4,7 @@
   const VW = 480, VH = 272, POLL = 1500, SPEED = 42;
   const $ = q => document.querySelector(q);
   const cv = $('#view'), g = cv.getContext('2d');
-  const { drawText, textW, rng, hash, PR, drawEmote } = SP;
+  const { drawText, textW, rng, hash, PR, drawEmote, WARM_MILK } = SP;
 
   // ---------- stations ----------
   const ST = {
@@ -65,7 +65,7 @@
     const s = w.a.status;
     if (s === 'working') return toolStation(w.a.tool);
     if (s === 'attention') return 'board';
-    if (s === 'waiting') return w.waitSpot || (w.waitSpot = w.r() < .6 ? 'cafe' : 'odesk');
+    if (s === 'waiting') return 'cafe';
     if (s === 'idle') return 'hearth';
     if (s === 'done') return 'door';
     return w.station || 'bench';
@@ -73,7 +73,8 @@
   function emoteFor(w) {
     const s = w.a.status;
     if (s === 'working') return TOOL_EMOTE[(w.a.tool || '').toLowerCase()] || ST[w.station].emote || 'flask';
-    return { attention: 'alert', thinking: 'think', responding: 'write', idle: 'sleep', done: 'star', waiting: w.station === 'cafe' ? 'coffee' : null }[s] || null;
+    return { attention: 'alert', thinking: 'think', responding: 'write', idle: 'sleep', done: 'star',
+             waiting: w.station === 'cafe' ? 'drink:' + ((w.order && w.order.drink || w.sp.drink).key) : null }[s] || null;
   }
 
   function reconcile(data) {
@@ -83,7 +84,7 @@
       let w = wizards.get(a.id);
       if (!w) {
         w = { a, sp: SP.makeWizard(a.id, a.kind, a.engine), x: 436 + ((hash(a.id) % 9) - 4), y: 250, dir: -1, path: [], walk: false,
-              station: null, spotI: -1, home: null, waitSpot: null, paceAt: 0, leaving: false,
+              station: null, spotI: -1, home: null, order: null, paceAt: 0, leaving: false,
               alpha: 0, ph: (hash(a.id) % 100) / 16, r: rng(hash(a.id) ^ 0xbeef), emote: null };
         wizards.set(a.id, w);
         sparkleAt(436, 252);
@@ -93,7 +94,7 @@
       const changed = w.a.status !== a.status || (a.status === 'working' && w.a.tool !== a.tool) || w.leaving;
       w.a = a;
       w.leaving = false;
-      if (a.status !== 'waiting') w.waitSpot = null;
+      if (a.status !== 'waiting') w.order = null;
       if (changed) retarget(w);
     }
     for (const [id, w] of wizards) if (!seen.has(id) && !w.leaving) { w.leaving = true; release(w); w.station = null; pathTo(w, 436, 250); w.path.push([436, 266]); }
@@ -101,12 +102,15 @@
 
   // ---------- cat & barista ----------
   const catFrames = SP.makeCat();
-  const cat = { x: 446, y: 110, state: 'sit', until: 4, path: [], dir: -1 };
+  const cat = { x: 446, y: 110, state: 'sit', until: 4, path: [], dir: -1, dest: null, order: null };
   const catR = rng(99);
   function catThink(t) {
+    if (cat.state === 'milk') cat.order = null;
+    cat.dest = null;
     const roll = catR();
-    if (roll < .35) { cat.state = 'sleep'; cat.until = t + 6 + catR() * 8; cat.path = [[440, 112]]; }
-    else if (roll < .6) { cat.state = 'sit'; cat.until = t + 4 + catR() * 5; }
+    if (roll < .16) sendCatToCafe(t);
+    else if (roll < .42) { cat.state = 'sleep'; cat.until = t + 6 + catR() * 8; cat.path = [[440, 112]]; }
+    else if (roll < .64) { cat.state = 'sit'; cat.until = t + 4 + catR() * 5; }
     else {
       const ws = [...wizards.values()];
       const pal = ws.length && catR() < .5 ? ws[catR() * ws.length | 0] : null;
@@ -116,8 +120,58 @@
     }
   }
   // Earl Grey roasts the house beans himself.
-  const dragon = { frames: SP.makeDragon(), x: 338, roastAt: 7, roastUntil: -9, flapAt: 13, flapUntil: -9 };
+  const dragon = { frames: SP.makeDragon(), x: 338, roastAt: 7, roastUntil: -9, flapAt: 13, flapUntil: -9, task: null };
   const PAN = [324, 196];
+  const CUP = [316, 187], CAT_CAFE = [404, 226];
+
+  function sendCatToCafe(t) {
+    pathTo(cat, CAT_CAFE[0], CAT_CAFE[1]);
+    cat.state = 'walk';
+    cat.dest = 'cafe';
+    cat.until = t + 40;
+  }
+  function cafeReady(w) {
+    return w.a.status === 'waiting' && w.station === 'cafe' && !w.walk && !w.leaving && w.alpha > .8;
+  }
+  function ensureOrder(w, t) {
+    if (cafeReady(w) && !w.order) w.order = { drink: w.sp.drink, stage: 'queued', askAt: t + w.r() * 1.2, servedAt: 0 };
+  }
+  function cafeCustomers() {
+    const cs = [];
+    for (const w of wizards.values()) if (cafeReady(w) && w.order) cs.push({ kind: 'wizard', id: w.a.id, order: w.order, drink: w.order.drink, x: w.x, y: w.y });
+    if (cat.state === 'milk' && !cat.path.length && cat.order) cs.push({ kind: 'cat', id: 'cat', order: cat.order, drink: cat.order.drink, x: cat.x, y: cat.y });
+    return cs;
+  }
+  function taskCustomer(task) {
+    if (task.kind === 'cat') return cat.state === 'milk' && cat.order === task.order ? { kind: 'cat', id: 'cat', order: cat.order, drink: cat.order.drink, x: cat.x, y: cat.y } : null;
+    const w = wizards.get(task.id);
+    return w && cafeReady(w) && w.order === task.order ? { kind: 'wizard', id: w.a.id, order: w.order, drink: w.order.drink, x: w.x, y: w.y } : null;
+  }
+  function startDrink(c, t) {
+    c.order.stage = 'brewing';
+    dragon.roastUntil = dragon.flapUntil = -9;
+    dragon.task = { kind: c.kind, id: c.id, order: c.order, drink: c.drink, phase: 'brew', until: t + 1.45 };
+  }
+  function cafeService(t) {
+    for (const w of wizards.values()) ensureOrder(w, t);
+    if (dragon.task && t >= dragon.task.until) {
+      const c = taskCustomer(dragon.task);
+      if (!c) dragon.task = null;
+      else if (dragon.task.phase === 'brew' && c.drink.milk) {
+        c.order.stage = 'milk';
+        dragon.task = { ...dragon.task, phase: 'milk', until: t + 1.15 };
+      } else {
+        c.order.stage = 'served';
+        c.order.servedAt = t;
+        dragon.task = null;
+        sparkleAt(c.x, c.y - 8);
+      }
+    }
+    if (!dragon.task) {
+      const next = cafeCustomers().filter(c => c.order.stage === 'queued' && t >= c.order.askAt).sort((a, b) => a.order.askAt - b.order.askAt)[0];
+      if (next) startDrink(next, t);
+    }
+  }
 
   // ---------- particles ----------
   const PARTS = [];
@@ -168,6 +222,7 @@
     [95, gg => PR.chair(gg, 418, 82, false)], [117, gg => PR.chair(gg, 418, 104, false)],
     [214.5, gg => PR.counter(gg, 296, 196)], [215, gg => PR.espresso(gg, 306, 186, t)],
     [215.2, gg => PR.beans(gg, PAN[0], PAN[1], t < dragon.roastUntil + 4)],
+    [215.3, gg => { if (dragon.task) PR.cup(gg, CUP[0], CUP[1], dragon.task.drink.key, t); }],
     [52, gg => PR.plant(gg, 452, 38)],
     [274, gg => PR.doorway(gg, 424, 258, t)],
   ];
@@ -194,29 +249,40 @@
       if (w.a.status === 'idle' && Math.random() < dt * .5) spark(w.x + 6, w.y - 24, '#a8a2c8', -6, 1.4, 'z');
       if (w.a.status === 'attention' && Math.random() < dt * 2) spark(w.x, w.y - 26, '#ff5a5a', -10, .5);
     }
+    cafeService(t);
     // ambient particles
     if (occupied('cauldron') && Math.random() < dt * 7) spark(70 + Math.random() * 14, 152, '#58d878', -14, .8);
     if (occupied('circle') && Math.random() < dt * 6) { const a = Math.random() * 6.28; spark(186 + Math.cos(a) * 22, 178 + Math.sin(a) * 9, '#9a7cf0', -12, .9); }
     if (occupied('crystal') && Math.random() < dt * 3) spark(223, 100, '#cfe8ff', -8, .7);
     if ([...wizards.values()].some(w => w.station === 'cafe') && Math.random() < dt * 4) spark(312, 184, '#d8d4e4', -9, 1);
-    if (Math.random() < dt * 3) spark(450 + Math.random() * 6, 86, '#f0a83c', -11, .7);
+    if (!dragon.task && Math.random() < dt * 3) spark(450 + Math.random() * 6, 86, '#f0a83c', -11, .7);
     // the dragon's roasting and wing-stretching schedules (never both at once)
-    if (t > dragon.roastAt && t >= dragon.flapUntil) { dragon.roastUntil = t + 1.8; dragon.roastAt = t + 14 + Math.random() * 20; }
-    if (t > dragon.flapAt && t >= dragon.roastUntil) { dragon.flapUntil = t + 3; dragon.flapAt = t + 18 + Math.random() * 25; }
-    if (t < dragon.flapUntil && Math.random() < dt * 9) spark(dragon.x - 14 + Math.random() * 28, barY - 4, '#b8b2cc', -3, .5);
-    if (t < dragon.roastUntil) {
+    if (!dragon.task && t > dragon.roastAt && t >= dragon.flapUntil) { dragon.roastUntil = t + 1.8; dragon.roastAt = t + 14 + Math.random() * 20; }
+    if (!dragon.task && t > dragon.flapAt && t >= dragon.roastUntil) { dragon.flapUntil = t + 3; dragon.flapAt = t + 18 + Math.random() * 25; }
+    if (!dragon.task && t < dragon.flapUntil && Math.random() < dt * 9) spark(dragon.x - 14 + Math.random() * 28, barY - 4, '#b8b2cc', -3, .5);
+    if ((dragon.task && dragon.task.phase === 'brew') || t < dragon.roastUntil) {
       if (Math.random() < dt * 22) spark(PAN[0] + 2 + Math.random() * 5, PAN[1] - 1, Math.random() < .5 ? '#ffd84a' : '#f08a2a', -8 - Math.random() * 8, .45);
-    } else if (t < dragon.roastUntil + 4 && Math.random() < dt * 6) {
+    } else if (!dragon.task && t < dragon.roastUntil + 4 && Math.random() < dt * 6) {
       spark(PAN[0] + 4, PAN[1] - 2, '#9a93b0', -8, 1.2);                 // fresh-roast smoke
-    } else if (Math.random() < dt * .15) {
+    } else if (!dragon.task && Math.random() < dt * .15) {
       spark(dragon.x - 13, barY - 21, '#9a93b0', -5, .9);                // idle nostril puff
     }
+    if (dragon.task && dragon.task.phase === 'milk' && Math.random() < dt * 10) spark(CUP[0] + 5, CUP[1] + 3, '#f7f3e8', -4, .45);
     for (let i = PARTS.length - 1; i >= 0; i--) {
       const p = PARTS[i]; p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt;
       if (p.t > p.life) PARTS.splice(i, 1);
     }
     // cat
-    if (cat.state === 'walk') { if (!moveAlong(cat, dt, 26)) catThink(t); }
+    if (cat.state === 'walk') {
+      if (!moveAlong(cat, dt, 26)) {
+        if (cat.dest === 'cafe') {
+          cat.state = 'milk';
+          cat.dest = null;
+          cat.until = t + 22 + catR() * 8;
+          cat.order = { drink: WARM_MILK, stage: 'queued', askAt: t, servedAt: 0 };
+        } else catThink(t);
+      }
+    }
     else if (t > cat.until) catThink(t);
   }
 
@@ -237,6 +303,16 @@
     g.globalAlpha = 1;
   }
 
+  function drawMilkPour(t) {
+    const sx = dragon.x - 7, sy = barY - 22, tx = CUP[0] + 5, ty = CUP[1] + 5;
+    g.fillStyle = '#d8def0'; g.fillRect(sx, sy, 6, 3); g.fillRect(sx + 4, sy + 3, 2, 2);
+    g.fillStyle = '#f7f3e8'; g.fillRect(sx + 1, sy + 1, 3, 1);
+    for (let i = 0; i < 9; i++) {
+      const k = i / 8, wiggle = Math.sin(t * 12 + i) * .7;
+      g.fillRect(sx + 4 + (tx - sx - 4) * k + wiggle, sy + 4 + (ty - sy - 4) * k, 1, i > 5 ? 2 : 1);
+    }
+  }
+
   function draw(t) {
     g.drawImage(bg, 0, 0);
     for (let i = 0; i < 5; i++) PR.window(g, [48, 128, 208, 312, 392][i], 8, t, i * 7 + 3);
@@ -245,7 +321,7 @@
     const items = props(t).map(([y, f]) => ({ y, f: () => f(g) }));
     for (const w of wizards.values()) items.push({ y: w.y, f: () => drawWizardSprite(w, t) });
     items.push({ y: barY, f: () => {
-      const flap = t < dragon.flapUntil, p = flap ? 1 - (dragon.flapUntil - t) / 3 : 0;
+      const busy = !!dragon.task, brewing = busy && dragon.task.phase === 'brew', flap = !busy && t < dragon.flapUntil, p = flap ? 1 - (dragon.flapUntil - t) / 3 : 0;
       const lift = Math.sin(p * Math.PI) * 7;
       g.globalAlpha = .3; g.fillStyle = '#0a0810';
       g.fillRect(dragon.x - 9 + lift / 2, barY - 1, 18 - lift, 2);
@@ -254,21 +330,23 @@
         const sway = Math.sin(t * 2.8) * 3 * Math.sin(p * Math.PI);
         g.drawImage(dragon.frames[(t * 7 | 0) % 2 ? 'flapA' : 'flapB'], Math.round(dragon.x - 22 + sway), Math.round(barY - 29 - lift));
       } else {
-        const fr = t < dragon.roastUntil ? ((t * 8 | 0) % 2 ? 'roastA' : 'roastB') : (t % 2.6 < 1.3 ? 'idleA' : 'idleB');
+        const fr = brewing || t < dragon.roastUntil ? ((t * 8 | 0) % 2 ? 'roastA' : 'roastB') : (t % 2.6 < 1.3 ? 'idleA' : 'idleB');
         g.drawImage(dragon.frames[fr], dragon.x - 15, barY - 25);
       }
     } });
     items.push({ y: cat.y, f: () => { const fr = cat.state === 'sleep' ? 'sleep' : cat.state === 'walk' ? ((t * 5 | 0) % 2 ? 'walkA' : 'walkB') : ((t * 1.3 | 0) % 2 ? 'sitA' : 'sitB');
       const img = catFrames[fr]; if (cat.dir < 0) { g.save(); g.translate(cat.x + 7, cat.y - 9); g.scale(-1, 1); g.drawImage(img, 0, 0); g.restore(); } else g.drawImage(img, cat.x - 7, cat.y - 9); } });
     items.sort((a, b) => a.y - b.y).forEach(i => i.f());
-    if (t < dragon.roastUntil) {  // fire breath, drawn over the counter
-      const mx = dragon.x - 13, my = barY - 15, ty2 = PAN[1] - 2;
+    const fireTarget = dragon.task && dragon.task.phase === 'brew' ? [CUP[0] + 5, CUP[1] + 4] : t < dragon.roastUntil ? [PAN[0] + 4, PAN[1] - 2] : null;
+    if (fireTarget) {  // fire breath, drawn over the counter
+      const mx = dragon.x - 13, my = barY - 15, tx = fireTarget[0], ty2 = fireTarget[1];
       for (let i = 0; i < 16; i++) {
         const k = i / 15, s = k > .45 ? 2 : 1;
         g.fillStyle = ['#ffe89a', '#ffd84a', '#f0a83c', '#f08a2a'][(Math.random() * 4) | 0];
-        g.fillRect(mx + (Math.random() * 4 - 2) * k, my + (ty2 - my) * k, s, s);
+        g.fillRect(mx + (tx - mx) * k + (Math.random() * 4 - 2) * k, my + (ty2 - my) * k, s, s);
       }
     }
+    if (dragon.task && dragon.task.phase === 'milk') drawMilkPour(t);
     for (const p of PARTS) {
       g.globalAlpha = Math.max(0, 1 - p.t / p.life);
       if (p.kind === 'z') drawText(g, p.x, p.y, 'Z', p.c);
@@ -277,8 +355,12 @@
     g.globalAlpha = 1;
     for (const w of wizards.values()) {
       if (w.emote && !w.walk && w.alpha > .8) drawEmote(g, w.x, w.y - 26, w.emote, t + w.ph);
+      if (w.order && w.order.stage === 'served' && !w.walk && w.alpha > .8) PR.cup(g, w.x + (w.dir < 0 ? -14 : 4), w.y - 11, w.order.drink.key, t + w.ph);
+      if (w.order && w.order.stage !== 'served' && !w.walk && w.alpha > .8 && ((t + w.ph) % 6) < 2.4) tag(w.x, w.y - 45, w.order.drink.name);
       if ((hover === w.a.id || sel === w.a.id) && w.alpha > .5) tag(w.x, w.y - 38, w.sp.name);
     }
+    if (cat.order && cat.order.stage === 'served') PR.cup(g, cat.x + 5, cat.y - 6, WARM_MILK.key, t);
+    if (cat.order && cat.order.stage !== 'served' && ((t + 1.7) % 6) < 2.4) tag(cat.x, cat.y - 25, WARM_MILK.name);
     if (hover === 'cat') tag(cat.x, cat.y - 20, 'BIGGLES, STAFF CAT');
     if (hover === 'barista') tag(338, barY - 32, 'EARL GREY, DRAGON BARISTA');
     if (!wizards.size) {
@@ -340,6 +422,16 @@
     TodoWrite: 'UPDATING THE QUESTBOOK', LSP: 'DIVINING', ToolSearch: 'RUMMAGING FOR', AskUserQuestion: 'PETITIONING YOU',
     EnterPlanMode: 'PLOTTING', ExitPlanMode: 'PRESENTING A PLAN', KillShell: 'DOUSING A POTION', Monitor: 'WATCHING A POTION',
     exec_command: 'BREWING', write_stdin: 'STIRRING', apply_patch: 'INSCRIBING', update_plan: 'UPDATING THE QUESTBOOK', web_search: 'SCRYING' };
+  const drinkName = d => (d.article === '' ? '' : d.article ? d.article + ' ' : /^(AMERICANO|ESPRESSO)/.test(d.name) ? 'AN ' : 'A ') + d.name;
+  function cafeStatus(w) {
+    if (!w || w.station !== 'cafe') return 'AWAITING YOUR COUNSEL AT THE CAFE';
+    const d = w.order && w.order.drink || w.sp.drink, name = drinkName(d);
+    if (!w.order) return 'ASKING EARL GREY FOR ' + name;
+    if (w.order.stage === 'brewing') return 'HAVING ' + name + ' BREWED WITH FIRE';
+    if (w.order.stage === 'milk') return 'EARL GREY IS POURING MILK FOR ' + name;
+    if (w.order.stage === 'served') return 'SIPPING ' + name;
+    return 'ASKING EARL GREY FOR ' + name;
+  }
   function statusLine(a, w) {
     const d = a.detail ? ': ' + a.detail : '';
     switch (a.status) {
@@ -350,8 +442,8 @@
       }
       case 'thinking': return 'PONDERING…';
       case 'responding': return 'COMPOSING A MISSIVE…';
-      case 'waiting': return 'AWAITING YOUR COUNSEL ' + (w && w.station === 'odesk' ? 'IN THE OFFICE' : 'AT THE CAFE');
-      case 'attention': return (a.msg || 'SEEKS YOUR BLESSING') + ' (!)';
+      case 'waiting': return cafeStatus(w);
+      case 'attention': return (a.engine === 'codex' ? 'Codex needs your help' : a.msg || 'SEEKS YOUR BLESSING') + ' (!)';
       case 'idle': return 'DOZING BY THE HEARTH…';
       case 'done': return 'QUEST COMPLETE!';
     }
@@ -426,12 +518,10 @@
       serverSkew = Date.now() / 1000 - lastData.now;
       isDemo = lastData.demo;
       offline = false;
-      $('#link').textContent = 'LIVE';
       reconcile(lastData);
       renderSide();
     } catch {
       offline = true;
-      $('#link').textContent = 'SEVERED';
     }
     setTimeout(poll, POLL);
   }
@@ -465,5 +555,5 @@
   catThink(0);
   poll();
   requestAnimationFrame(frame);
-  window.WF = { wizards, ST, cat };
+  window.WF = { wizards, ST, cat, dragon };
 })();

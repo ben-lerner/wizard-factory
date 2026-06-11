@@ -2,7 +2,8 @@
 
 A retro 8-bit dashboard that shows every running Claude Code and Codex agent as a pixel wizard
 in a shared tower. Main sessions are wizards; subagents are apprentices. They move between
-stations based on what they're doing, and wait for you at the café when their turn is done.
+stations based on what they're doing, and wait for you at the café with a fresh drink when
+their turn is done.
 
 ![demo](assets/demo.gif)
 
@@ -33,7 +34,7 @@ last few events it infers a status for each agent:
 | working    | a tool call is in flight                  | station for that tool        |
 | thinking   | tool result landed / prompt being chewed  | stays put, `…` bubble        |
 | responding | writing the final answer                  | stays put, quill bubble      |
-| waiting    | turn ended, your move                     | café or office, ☕           |
+| waiting    | turn ended, your move                     | café, fresh drink in hand    |
 | attention  | needs permission (hooks mode only)        | petition board, red `!`      |
 | idle       | waiting 15+ min                           | hearth armchairs, `Z`        |
 | done       | subagent finished                         | celebrates, exits the door   |
@@ -43,7 +44,9 @@ writing desks · Web/MCP = crystal ball · Task/Agent/Skill = summoning circle �
 plans/questions = petition board.
 
 Appearance and name are deterministic per agent id (seeded hats, beards, robes,
-spectacles, staffs), so the same session keeps the same wizard across reloads.
+spectacles, staffs, and cafe order), so the same session keeps the same wizard
+across reloads. Earl Grey, the dragon barista, brews cafe orders with fire and
+pours milk for milk drinks. Biggles occasionally visits for warm milk.
 The frontend polls `/api/state` every 1.5s.
 
 ## Hooks: instant "needs your blessing"

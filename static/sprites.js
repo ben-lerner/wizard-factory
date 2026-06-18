@@ -460,6 +460,7 @@ window.SP = (() => {
 
   // ---------- emotes ----------
   function drawEmote(g, cx, topY, key, t) {
+    if (key === 'sleep') return;
     const x = cx - 6, y = topY - 14 + Math.round(Math.sin(t * 2.2) * 1.5);
     rc(g, x, y, 12, 11, '#f7f3e8');
     rc(g, x, y, 12, 1, '#262032'); rc(g, x, y + 10, 12, 1, '#262032');
@@ -471,7 +472,6 @@ window.SP = (() => {
       case 'alert': drawText(g, x + 5, y + 3, '!', '#d83a3a'); break;
       case 'ask': drawText(g, x + 4, y + 3, '?', '#3a6ad8'); break;
       case 'think': { const f = (t * 2.5 | 0) % 3; [[2, 7], [5, 7], [8, 7]].forEach(([dx, dy], i) => I(dx + 1, dy - (i === f ? 1 : 0), i === f ? '#4a4458' : '#8a84a0')); break; }
-      case 'sleep': drawText(g, x + 3, y + 3, 'Z', '#7a74a0'); I(8, 2, '#a8a2c8'); break;
       case 'write': I(3, 8, '#30364a'); I(4, 7, '#8a5a32'); I(5, 6, '#8a5a32'); I(6, 5, '#d8def0'); I(7, 4, '#d8def0'); I(8, 3, '#d8def0'); break;
       case 'brew': rc(g, x + 3, y + 4, 6, 4, '#3a3f4c'); rc(g, x + 2, y + 3, 8, 1, '#4d5468'); I(4, 2, '#58d878'); I(7, 1 + ((t * 3 | 0) % 2), '#58d878'); break;
       case 'book': rc(g, x + 2, y + 4, 4, 5, '#a84848'); rc(g, x + 6, y + 4, 4, 5, '#c8b890'); I(7, 5, '#8a7a58'); I(8, 6, '#8a7a58'); break;

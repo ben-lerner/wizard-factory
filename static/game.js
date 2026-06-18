@@ -180,7 +180,7 @@
   function emoteFor(w) {
     const s = w.a.status;
     if (s === 'working') return TOOL_EMOTE[(w.a.tool || '').toLowerCase()] || ST[w.station].emote || 'flask';
-    return { attention: 'alert', thinking: 'think', responding: 'write', idle: 'sleep', done: 'star',
+    return { attention: 'alert', thinking: 'think', responding: 'write', done: 'star',
              waiting: w.station === 'cafe' ? 'drink:' + ((w.order && w.order.drink || w.sp.drink).key) : null }[s] || null;
   }
 
@@ -691,6 +691,7 @@
       spark(dragon.x - 13, dragon.y - 21, '#9a93b0', -5, .9);            // idle nostril puff
     }
     if (dragon.task && dragon.task.phase === 'milk' && Math.random() < dt * 10) spark(CUP[0] + 5, CUP[1] + 3, '#f7f3e8', -4, .45);
+    if (cat.state === 'sleep' && Math.random() < dt * .45) spark(cat.x + (cat.dir < 0 ? -5 : 5), cat.y - 14, '#a8a2c8', -5, 1.3, 'z');
     for (let i = PARTS.length - 1; i >= 0; i--) {
       const p = PARTS[i]; p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt;
       if (p.t > p.life) PARTS.splice(i, 1);

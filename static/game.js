@@ -2,6 +2,7 @@
 'use strict';
 (() => {
   const VW = 480, VH = 272, POLL = 1500, SPEED = 42;
+  const DAY_SEC = 24 * 60, TAU = Math.PI * 2;
   const $ = q => document.querySelector(q);
   const cv = $('#view'), g = cv.getContext('2d');
   const { drawText, textW, rng, hash, PR, drawEmote, WARM_MILK, DRINKS } = SP;
@@ -528,6 +529,96 @@
     drawText(b, 60, 240, 'LABORATORIVM', '#8a84a0');
   })();
 
+  const clamp01 = v => Math.max(0, Math.min(1, v));
+  const mix = (a, b, k) => a + (b - a) * clamp01(k);
+  const mixColor = (a, b, k) => '#' + [1, 3, 5].map(i => {
+    const v = mix(parseInt(a.slice(i, i + 2), 16), parseInt(b.slice(i, i + 2), 16), k);
+    return Math.round(v).toString(16).padStart(2, '0');
+  }).join('');
+  function dayCycle(t) {
+    const phase = (t / DAY_SEC + .25) % 1, sunAlt = Math.sin((phase - .25) * TAU);
+    const sunrise = clamp01(1 - Math.abs(phase - .25) / .055), sunset = clamp01(1 - Math.abs(phase - .75) / .055);
+    return { phase, sunAlt, moonAlt: -sunAlt, day: clamp01((sunAlt + .12) / .72), night: clamp01((-sunAlt + .08) / .7), sunrise, sunset, warm: Math.max(sunrise, sunset) };
+  }
+  const skyColor = d => mixColor(mixColor('#0e1230', '#79b9d8', d.day), d.sunrise > d.sunset ? '#f08a4a' : '#d86878', d.warm * .7);
+  const sunPos = phase => {
+    const q = (phase - .25) / .5, alt = Math.max(0, Math.sin((phase - .25) * TAU));
+    return [24 + q * (VW - 48), 28 - alt * 21];
+  };
+  function drawSun(gg, x, y, a) {
+    gg.globalAlpha = a; gg.fillStyle = '#ffd84a';
+    [[0, -4, 2, 2], [0, 6, 2, 2], [-5, 1, 2, 2], [7, 1, 2, 2]].forEach(p => gg.fillRect(Math.round(x + p[0]), Math.round(y + p[1]), p[2], p[3]));
+    gg.fillStyle = '#f0a83c'; gg.fillRect(Math.round(x - 2), Math.round(y - 2), 6, 6);
+    gg.fillStyle = '#ffe89a'; gg.fillRect(Math.round(x), Math.round(y), 2, 2);
+    gg.globalAlpha = 1;
+  }
+  function drawMoon(gg, x, y, a, sky) {
+    gg.globalAlpha = a; gg.fillStyle = '#e8e4d0';
+    gg.fillRect(Math.round(x - 2), Math.round(y - 3), 5, 7); gg.fillRect(Math.round(x - 3), Math.round(y - 2), 7, 5);
+    gg.fillStyle = sky; gg.fillRect(Math.round(x + 1), Math.round(y - 2), 4, 5);
+    gg.globalAlpha = 1;
+  }
+  function drawSkyBand(gg, d, t) {
+    const sky = skyColor(d), glow = d.day * .12 + d.warm * .18;
+    if (glow) { gg.globalAlpha = glow; gg.fillStyle = sky; gg.fillRect(0, 0, VW, 34); gg.globalAlpha = 1; }
+    if (d.night > .15) {
+      const r = rng(712);
+      for (let i = 0; i < 34; i++) {
+        const x = r() * (VW - 16) + 8 | 0, y = r() * 25 + 3 | 0;
+        gg.globalAlpha = d.night * (.35 + .25 * Math.sin(t * 1.7 + i));
+        gg.fillStyle = i % 2 ? '#cdd6f0' : '#8a93b8'; gg.fillRect(x, y, 1, 1);
+      }
+      gg.globalAlpha = 1;
+    }
+    if (d.sunAlt > -.08) drawSun(gg, ...sunPos(d.phase), clamp01((d.sunAlt + .08) / .3));
+    if (d.moonAlt > -.08) {
+      const mp = (d.phase + .5) % 1;
+      drawMoon(gg, ...sunPos(mp), clamp01((d.moonAlt + .08) / .3), sky);
+    }
+  }
+  function drawSkyWindow(gg, x, y, t, seed, d) {
+    const sky = skyColor(d), r = rng(seed), sun = sunPos(d.phase), moon = sunPos((d.phase + .5) % 1);
+    gg.fillStyle = '#2c2535'; gg.fillRect(x, y, 14, 16);
+    gg.fillStyle = sky; gg.fillRect(x + 2, y + 2, 10, 12);
+    if (d.warm) {
+      gg.globalAlpha = d.warm; gg.fillStyle = d.sunrise > d.sunset ? '#f0a83c' : '#d86a5a'; gg.fillRect(x + 2, y + 10, 10, 4); gg.globalAlpha = 1;
+    }
+    if (d.night > .2) for (let i = 0; i < 5; i++) {
+      const sx = x + 3 + (r() * 8 | 0), sy = y + 3 + (r() * 9 | 0);
+      if ((t * 2 + i) % 4 < 3) { gg.globalAlpha = d.night; gg.fillStyle = i % 2 ? '#cdd6f0' : '#8a93b8'; gg.fillRect(sx, sy, 1, 1); }
+    }
+    gg.globalAlpha = 1;
+    gg.save(); gg.beginPath(); gg.rect(x + 2, y + 2, 10, 12); gg.clip();
+    if (d.sunAlt > -.08 && sun[0] > x && sun[0] < x + 14) drawSun(gg, sun[0], y + 11 - Math.max(0, d.sunAlt) * 8, .9);
+    if (d.moonAlt > -.08 && moon[0] > x && moon[0] < x + 14) drawMoon(gg, moon[0], y + 11 - Math.max(0, d.moonAlt) * 8, .9, sky);
+    gg.restore();
+    gg.fillStyle = '#2c2535'; gg.fillRect(x + 2, y + 2, 1, 1); gg.fillRect(x + 11, y + 2, 1, 1);
+    gg.fillStyle = '#3c3344'; gg.fillRect(x + 1, y + 14, 12, 2);
+  }
+  function drawDaylight(gg, d) {
+    const a = d.day * .09 + d.warm * .08;
+    if (!a) return;
+    gg.globalAlpha = a; gg.fillStyle = d.warm ? '#f0a83c' : '#d8eef0';
+    gg.fillRect(8, 34, 256, 226); gg.fillRect(264, 34, 208, 226);
+    gg.globalAlpha = a * 1.8;
+    [48, 128, 208, 312, 392].forEach((x, i) => gg.fillRect(x + 5 + i % 2, 34, 12, 20 + (i % 3) * 3));
+    gg.globalAlpha = 1;
+  }
+  function drawSundial(gg, x, y, d) {
+    const lit = d.sunAlt > 0 ? d.day : d.moonAlt > 0 ? d.night * .35 : 0;
+    if (lit) {
+      const p = d.sunAlt > 0 ? (d.phase - .25) / .5 : ((d.phase + .5) % 1 - .25) / .5;
+      const dx = Math.round((.5 - p) * 18), dy = Math.round(5 + Math.abs(p - .5) * 3), n = Math.max(1, Math.hypot(dx, dy) / 2 | 0);
+      gg.globalAlpha = lit * .45; gg.fillStyle = d.sunAlt > 0 ? '#1c1430' : '#6f6a88';
+      for (let i = 0; i <= n; i++) gg.fillRect(x + Math.round(dx * i / n), y - 2 + Math.round(dy * i / n), 2, 1);
+      gg.globalAlpha = 1;
+    }
+    gg.fillStyle = '#5a3c26'; gg.fillRect(x - 10, y + 2, 20, 3);
+    gg.fillStyle = '#d8b878'; gg.fillRect(x - 8, y - 1, 16, 4); gg.fillRect(x - 5, y - 3, 10, 2);
+    gg.fillStyle = '#8a6242'; gg.fillRect(x - 7, y, 14, 1); gg.fillRect(x - 1, y - 7, 2, 7);
+    gg.fillStyle = '#ffe89a'; gg.fillRect(x, y - 6, 1, 4);
+  }
+
   function drawTableGame(gg, table, t) {
     const x = table.x - 10, y = table.y - 6;
     if (table.game) {
@@ -559,7 +650,7 @@
   }
 
   // animated props, y-sorted with sprites: [sortY, drawFn]
-  const props = t => [
+  const props = (t, day) => [
     [174, gg => PR.cauldron(gg, 56, 150, t, occupied('cauldron'))],
     [91, gg => PR.shelf(gg, 10, 60, 11)], [127, gg => PR.shelf(gg, 10, 96, 23)],
     [62, gg => PR.bench(gg, 120, 42, t)],
@@ -576,6 +667,7 @@
     [214.5, gg => PR.counter(gg, 296, 196)], [215, gg => PR.espresso(gg, 306, 186, t)],
     [215.2, gg => PR.beans(gg, PAN[0], PAN[1], t < dragon.roastUntil + 4)],
     [215.3, gg => { if (dragon.task) PR.cup(gg, CUP[0], CUP[1], dragon.task.drink.key, t); }],
+    [236, gg => drawSundial(gg, 238, 232, day)],
     [52, gg => PR.plant(gg, 452, 38)],
     [274, gg => PR.doorway(gg, 424, 258, t)],
   ];
@@ -830,11 +922,14 @@
     }
   }
   function draw(t) {
+    const day = dayCycle(t);
     g.drawImage(bg, 0, 0);
-    for (let i = 0; i < 5; i++) PR.window(g, [48, 128, 208, 312, 392][i], 8, t, i * 7 + 3);
+    drawDaylight(g, day);
+    drawSkyBand(g, day, t);
+    for (let i = 0; i < 5; i++) drawSkyWindow(g, [48, 128, 208, 312, 392][i], 8, t, i * 7 + 3, day);
     PR.torch(g, 24, 14, t); PR.torch(g, 240, 14, t + .5); PR.torch(g, 282, 14, t + .2); PR.torch(g, 444, 14, t + .8);
     PR.circle(g, 160, 152 + 12, t, occupied('circle'));
-    const items = props(t).map(([y, f]) => ({ y, f: () => f(g) }));
+    const items = props(t, day).map(([y, f]) => ({ y, f: () => f(g) }));
     for (const w of wizards.values()) items.push({ y: w.y, f: () => drawWizardSprite(w, t) });
     items.push({ y: dragon.y, f: () => {
       const busy = !!dragon.task, brewing = busy && dragon.task.phase === 'brew', flying = dragon.mode === 'fly';

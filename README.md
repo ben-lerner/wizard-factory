@@ -31,7 +31,7 @@ last few events it infers a status for each agent:
 
 | status     | meaning                                   | where the wizard goes        |
 |------------|-------------------------------------------|------------------------------|
-| working    | a tool call is in flight                  | station for that tool        |
+| working    | a tool call is in flight                  | laboratory station for that tool |
 | thinking   | tool result landed / prompt being chewed  | stays put, `…` bubble        |
 | responding | writing the final answer                  | stays put, quill bubble      |
 | waiting    | turn ended, your move                     | café, fresh drink in hand    |
@@ -39,9 +39,10 @@ last few events it infers a status for each agent:
 | idle       | waiting 15+ min                           | hearth armchairs, `Z`        |
 | done       | subagent finished                         | celebrates, exits the door   |
 
-Tool → station: Bash = cauldron · Read/Grep/Glob = bookshelves · Edit/Write =
-writing desks · Web/MCP = crystal ball · Task/Agent/Skill = summoning circle ·
-plans/questions = petition board.
+Long-running command/test runs and explicit questions wait in the café even while
+their transcript status is still `working`. Tool → station: Bash = cauldron ·
+Read/Grep/Glob = bookshelves · Edit/Write/Plan/Todo = writing desks · Web/MCP =
+crystal ball · Task/Agent/Skill = summoning circle · approvals = petition board.
 
 Appearance and name are deterministic per agent id (seeded hats, beards, robes,
 spectacles, staffs, and cafe order), so the same session keeps the same wizard

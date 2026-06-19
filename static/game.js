@@ -120,16 +120,23 @@
     if (!/bash|exec|shell|stdin/.test(tool)) return false;
     return /\b(wait|watch|tail|test|tests|pytest|vitest|jest|playwright|npm|pnpm|yarn|bun|cargo|make|build|compile|lint|typecheck|server|dev server|running)\b/.test(detail);
   }
+  function waitingOnQuestion(a) {
+    const t = ((a && a.tool) || '').toLowerCase();
+    return t === 'request_user_input' || /(^|[_-])ask[_-]?user/.test(t) || /question/.test(t);
+  }
+  function cafeWait(a) {
+    return a && (a.status === 'waiting' || (a.status === 'working' && (waitingOnRun(a) || waitingOnQuestion(a))));
+  }
   function toolStation(a) {
     const t = ((a && a.tool) || '').toLowerCase();
+    if (cafeWait(a)) return 'cafe';
     if (submitKind(a)) return 'submit';
     if (testingMcp(a)) return 'crystal';
-    if (waitingOnRun(a)) return 'labwait';
     if (/bash|^kill|exec|shell|stdin/.test(t)) return 'cauldron';
     if (/^(read|grep|glob|ls$|lsp|toolsearch|notebookread)/.test(t)) return 'shelf';
     if (/^(edit|write|notebookedit|apply)/.test(t)) return 'desk';
     if (/task|agent|workflow|skill/.test(t)) return 'circle';
-    if (/todo|plan|question|sharepoint|onboarding/.test(t)) return 'board';
+    if (/todo|plan|sharepoint|onboarding/.test(t)) return 'desk';
     return 'bench';
   }
   const TOOL_EMOTE = { grep: 'search', glob: 'search', toolsearch: 'search' };
@@ -170,15 +177,16 @@
   }
   function placeFor(w) {
     const s = w.a.status;
+    if (cafeWait(w.a)) return 'cafe';
     if (s === 'working') return toolStation(w.a);
     if (s === 'attention') return 'board';
-    if (s === 'waiting') return 'cafe';
     if (s === 'idle') return 'hearth';
     if (s === 'done') return 'door';
     return w.station || 'bench';
   }
   function emoteFor(w) {
     const s = w.a.status;
+    if (cafeWait(w.a)) return w.station === 'cafe' ? 'drink:' + ((w.order && w.order.drink || w.sp.drink).key) : null;
     if (s === 'working') return TOOL_EMOTE[(w.a.tool || '').toLowerCase()] || ST[w.station].emote || 'flask';
     return { attention: 'alert', thinking: 'think', responding: 'write', done: 'star',
              waiting: w.station === 'cafe' ? 'drink:' + ((w.order && w.order.drink || w.sp.drink).key) : null }[s] || null;
@@ -201,9 +209,9 @@
       const changed = w.a.status !== a.status || (a.status === 'working' && (w.a.tool !== a.tool || w.a.detail !== a.detail)) || w.leaving;
       w.a = a;
       w.leaving = false;
-      if (a.status !== 'waiting') {
+      if (!cafeWait(a)) {
         w.order = null;
-        if (!(a.status === 'working' && toolStation(a) === 'labwait')) leaveGameForWizard(w, 0);
+        leaveGameForWizard(w, 0);
       }
       if (changed) { w.castAt = 0; retarget(w); }
     }
@@ -245,7 +253,7 @@
     cat.until = t + 40;
   }
   function cafeReady(w) {
-    return w.a.status === 'waiting' && w.station === 'cafe' && !w.walk && !w.leaving && w.alpha > .8;
+    return cafeWait(w.a) && w.station === 'cafe' && !w.walk && !w.leaving && w.alpha > .8;
   }
   function ensureOrder(w, t) {
     if (cafeReady(w) && !w.order) w.order = { drink: w.sp.drink, stage: 'queued', askAt: t + w.r() * 1.2, servedAt: 0 };
@@ -322,17 +330,14 @@
   const tableById = id => TABLES.find(t => t.id === id);
   const gameName = g => g === 'magic' ? 'MAGIC THE GATHERING' : g.toUpperCase();
   const gameHas = (table, kind, id) => !!table.game && table.game.players.some(p => p.kind === kind && (!id || p.id === id));
-  function labWaitReady(w) {
-    return w.a.status === 'working' && w.station === 'labwait' && !w.walk && !w.leaving && w.alpha > .8;
-  }
   function waitingForGame(w, table) {
-    if (table && table.lab) return labWaitReady(w) && !w.game;
+    if (table && table.lab) return false;
     return cafeReady(w) && !w.game && w.order && w.order.stage === 'served';
   }
   function releaseGamePlayer(p, t) {
     if (p.kind === 'wizard') {
       const w = wizards.get(p.id);
-      if (w) { w.game = null; if (!w.leaving && (w.a.status === 'waiting' || placeFor(w) === 'labwait')) { w.station = null; w.home = null; retarget(w); } }
+      if (w) { w.game = null; if (!w.leaving && cafeWait(w.a)) { w.station = null; w.home = null; retarget(w); } }
     } else if (p.kind === 'cat') {
       cat.game = null;
       if (cat.state === 'game' || cat.dest === 'game') { cat.dest = null; catThink(t); }
@@ -364,7 +369,7 @@
     if (p.kind === 'wizard') {
       const w = wizards.get(p.id);
       if (!w) return false;
-      release(w); w.game = table.id; w.station = table.lab ? 'labwait' : 'cafe'; w.home = [x, y]; w.emote = null; pathTo(w, x, y);
+      release(w); w.game = table.id; w.station = 'cafe'; w.home = [x, y]; w.emote = null; pathTo(w, x, y);
     } else if (p.kind === 'cat') {
       cat.game = table.id; cat.order = null; cat.dest = 'game'; cat.state = 'walk'; cat.until = t + 120; pathTo(cat, x, y);
     } else return false;
@@ -384,20 +389,19 @@
         table.game.players = table.game.players.filter(p => {
           if (p.kind === 'wizard') {
             const w = wizards.get(p.id);
-            return w && !w.leaving && (table.lab ? w.a.status === 'working' && toolStation(w.a) === 'labwait' : w.a.status === 'waiting');
+            return w && !w.leaving && !table.lab && cafeWait(w.a);
           }
           if (p.kind === 'cat') return !table.lab && cat.game === table.id;
           return false;
         });
         if (table.game.players.length < 2 || t > table.game.until) endGame(table, t, false);
       }
-      if (table.game || t < table.burnUntil) continue;
+      if (table.game || t < table.burnUntil || table.lab) continue;
       const ws = [...wizards.values()].filter(w => waitingForGame(w, table)).sort((a, b) => (a.a.started || 0) - (b.a.started || 0));
       if (!ws.length) continue;
       const players = [{ kind: 'wizard', id: ws[0].a.id }];
       if (ws[1]) players.push({ kind: 'wizard', id: ws[1].a.id });
-      if (table.lab) { if (players.length > 1) startGame(table, players, t); continue; }
-      else if (canUseCat()) players.push({ kind: 'cat' });
+      if (canUseCat()) players.push({ kind: 'cat' });
       if (players.length > 1 && players.length < 3 && !players.some(p => p.kind === 'cat') && canUseCat() && tableR() < .35) players.push({ kind: 'cat' });
       if (players.length > 1) startGame(table, players, t);
     }
@@ -470,7 +474,7 @@
     spark(sx, sy, '#d8ff58', -5, .35);
   }
   function maybeCast(w, t) {
-    if (w.a.status !== 'working' || w.walk || w.leaving || w.alpha < .8 || !w.home) return;
+    if (w.a.status !== 'working' || cafeWait(w.a) || w.walk || w.leaving || w.alpha < .8 || !w.home) return;
     if (!w.castAt) w.castAt = t + .8 + w.r() * 2.8;
     if (t > w.castAt) {
       w.castAt = t + 2.4 + w.r() * 4.8;
@@ -1009,6 +1013,7 @@
       case 'working': {
         const table = tableById(w && w.game);
         if (table && table.game) return 'WAITING OVER ' + gameName(table.game.type);
+        if (waitingOnQuestion(a)) return 'AWAITING YOUR ANSWER' + d;
         const submit = submitKind(a);
         if (submit) return SUBMIT_STATUS[submit] + d;
         if ((a.tool || '').startsWith('mcp__')) return 'FAR-SCRYING' + ': ' + a.tool.slice(5).replace('__', ' / ') + (a.detail ? ' — ' + a.detail : '');
@@ -1070,7 +1075,8 @@
       else if (a.status === 'thinking' || a.status === 'responding') counts.active++;
       else if (a.status === 'working') {
         const submit = submitKind(a);
-        if (submit) counts[submit]++;
+        if (waitingOnQuestion(a)) counts.waiting++;
+        else if (submit) counts[submit]++;
         else if (testingActivity(a)) counts.test++;
         else if (waitingOnRun(a)) counts.run++;
         else counts.active++;

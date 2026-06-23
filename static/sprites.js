@@ -69,7 +69,8 @@ window.SP = (() => {
   function paintWizard(ctx, o, mode) {
     const P = (x, y, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, 1, 1); };
     const R = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); };
-    const b = (o.sub ? 2 : 0) + ((mode === 'idleB' || mode === 'walkB') ? 1 : 0);
+    const sleeping = mode.startsWith('sleep');
+    const b = (o.sub ? 2 : 0) + ((mode === 'idleB' || mode === 'walkB' || mode === 'sleepB') ? 1 : 0);
     const cx = 10;
     // robe
     R(cx - 4, 12 + b, 8, 3, o.robe); R(cx - 5, 15 + b, 10, 4, o.robe); R(cx - 6, 19 + b, 12, Math.max(1, 23 - (19 + b)), o.robe);
@@ -83,7 +84,11 @@ window.SP = (() => {
     R(cx + feet[0], 22, 2, 2, '#241a2e'); R(cx + feet[1], 22, 2, 2, '#241a2e');
     // head
     R(cx - 3, 5 + b, 6, 6, o.skin); R(cx + 2, 5 + b, 1, 6, o.skinD);
-    if (o.glasses) { P(cx - 2, 8 + b, '#cfe3ff'); P(cx + 1, 8 + b, '#cfe3ff'); P(cx - 3, 8 + b, '#1c1430'); P(cx + 2, 8 + b, '#1c1430'); }
+    if (sleeping && o.glasses) {
+      P(cx - 2, 8 + b, '#cfe3ff'); P(cx + 1, 8 + b, '#cfe3ff'); P(cx - 3, 8 + b, '#1c1430'); P(cx + 2, 8 + b, '#1c1430');
+      R(cx - 3, 9 + b, 3, 1, '#1c1430'); R(cx + 1, 9 + b, 2, 1, '#1c1430');
+    } else if (sleeping) { R(cx - 3, 9 + b, 2, 1, '#1c1430'); R(cx + 1, 9 + b, 2, 1, '#1c1430'); }
+    else if (o.glasses) { P(cx - 2, 8 + b, '#cfe3ff'); P(cx + 1, 8 + b, '#cfe3ff'); P(cx - 3, 8 + b, '#1c1430'); P(cx + 2, 8 + b, '#1c1430'); }
     else { P(cx - 2, 8 + b, '#1c1430'); P(cx + 1, 8 + b, '#1c1430'); }
     // beard
     const bc = o.beardC, bh = shade(bc, 1.2);
@@ -152,7 +157,7 @@ window.SP = (() => {
     for (let i = 0; !sub && name.length > 11 && i < 4; i++) name = pick(r, N1) + pick(r, N2) + pick(r, N3);
     const epithet = codex ? pick(r, CODEX_EPITHETS) : sub ? 'THE EAGER' : pick(r, EPITHETS);
     const frames = {};
-    for (const m of ['idleA', 'idleB', 'walkA', 'walkB']) {
+    for (const m of ['idleA', 'idleB', 'walkA', 'walkB', 'sleepA', 'sleepB']) {
       const c = document.createElement('canvas'); c.width = 20; c.height = 24;
       paintWizard(c.getContext('2d'), o, m);
       frames[m] = c;

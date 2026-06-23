@@ -770,7 +770,9 @@
 
   // ---------- draw ----------
   function drawWizardSprite(w, t) {
-    const f = w.walk ? ((t * 6 | 0) % 2 ? 'walkA' : 'walkB') : ((t + w.ph) % 2.6 < 1.3 ? 'idleA' : 'idleB');
+    const rest = w.a.status === 'idle' && !w.walk;
+    const idle = rest ? 'sleep' : 'idle';
+    const f = w.walk ? ((t * 6 | 0) % 2 ? 'walkA' : 'walkB') : ((t + w.ph) % 2.6 < 1.3 ? idle + 'A' : idle + 'B');
     const img = w.sp.frames[f];
     g.globalAlpha = .3 * w.alpha; g.fillStyle = '#0a0810'; g.fillRect(w.x - 5, w.y - 1, 10, 2);
     g.globalAlpha = w.alpha;

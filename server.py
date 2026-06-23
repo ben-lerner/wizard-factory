@@ -194,7 +194,12 @@ class FileState:
         if DEAD.get(self.sid, 0) > max(self.last_ts, self.mtime) - 10:  # ended, and no signs of life since
             st = 'gone'
         else:
-            st = {'tool_use': 'working', 'tool_result': 'thinking', 'user_text': 'thinking', 'thinking': 'thinking'}.get(self.last_kind, 'done' if self.kind == 'sub' or self.oneshot else 'waiting')
+            if self.last_kind == 'tool_use':
+                st = 'working'
+            elif self.last_kind in ('tool_result', 'user_text', 'thinking'):
+                st = 'thinking'
+            else:
+                st = 'done' if self.kind == 'sub' or self.oneshot else 'waiting'
             if self.last_kind == 'assistant_text':
                 st = 'done' if self.kind == 'sub' or self.oneshot else ('responding' if age < RESPONDING_SEC else 'waiting')
             if st == 'thinking' and live > 300:  # interrupted/killed mid-turn; nobody ponders that long

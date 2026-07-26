@@ -778,7 +778,7 @@
     g.globalAlpha = w.alpha;
     if (w.dir < 0) { g.save(); g.translate(w.x + 10, w.y - 23); g.scale(-1, 1); g.drawImage(img, 0, 0); g.restore(); }
     else g.drawImage(img, w.x - 10, w.y - 23);
-    if (w.a.id === sel || w.a.status === 'attention') {
+    if (w.a.id === sel || w.a.id === hover || w.a.status === 'attention') {
       const c = w.a.status === 'attention' ? '#ff5a5a' : '#ffd84a';
       g.globalAlpha = (Math.sin(t * 5) + 1.6) / 3;
       g.fillStyle = c;
@@ -959,35 +959,49 @@
   let S = 1;
   function resize() {
     const box = $('#stage').getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
-    S = Math.max(1, Math.floor(Math.min(box.width / VW, (box.height - 4) / VH)));
-    cv.width = VW * S * dpr; cv.height = VH * S * dpr;
-    cv.style.width = VW * S + 'px'; cv.style.height = VH * S + 'px';
-    g.setTransform(S * dpr, 0, 0, S * dpr, 0, 0);
+    S = Math.max(.5, Math.min((box.width - 24) / VW, (box.height - 24) / VH));
+    cv.width = Math.round(VW * S * dpr); cv.height = Math.round(VH * S * dpr);
+    cv.style.width = VW * S + 4 + 'px'; cv.style.height = VH * S + 4 + 'px';
+    g.setTransform(cv.width / VW, 0, 0, cv.height / VH, 0, 0);
     g.imageSmoothingEnabled = false;
   }
   window.addEventListener('resize', resize);
 
   function pickAt(e) {
-    const r = cv.getBoundingClientRect(), mx = (e.clientX - r.left) / S, my = (e.clientY - r.top) / S;
+    const r = cv.getBoundingClientRect(), mx = (e.clientX - r.left - cv.clientLeft) / S, my = (e.clientY - r.top - cv.clientTop) / S;
     for (const w of [...wizards.values()].sort((a, b) => b.y - a.y))
       if (Math.abs(mx - w.x) <= 9 && my >= w.y - 26 && my <= w.y + 3) return w.a.id;
     if (mx >= dragon.x - 25 && mx <= dragon.x + 25 && my >= dragon.y - 40 && my <= dragon.y + 3) return 'barista';
     if (Math.abs(mx - cat.x) <= 8 && Math.abs(my - cat.y + 4) <= 7) return 'cat';
     return null;
   }
+  function hoverRow(id) {
+    document.querySelectorAll('#rows .row').forEach(row => row.classList.toggle('hover', row.dataset.id === id));
+  }
+  function showTip(w, left, top) {
+    const tip = $('#tip'), stage = $('#stage').getBoundingClientRect();
+    tip.innerHTML = tipHTML(w);
+    tip.hidden = false;
+    tip.style.left = Math.max(4, Math.min(left, stage.width - tip.offsetWidth - 4)) + 'px';
+    tip.style.top = Math.max(4, Math.min(top, stage.height - tip.offsetHeight - 4)) + 'px';
+  }
+  function clearHover(id) {
+    if (id && hover !== id) return;
+    hover = null;
+    hoverRow(null);
+    $('#tip').hidden = true;
+  }
   cv.addEventListener('mousemove', e => {
     hover = pickAt(e);
+    hoverRow(hover);
     cv.style.cursor = hover ? 'pointer' : 'default';
-    const tip = $('#tip'), w = wizards.get(hover);
+    const w = wizards.get(hover);
     if (w) {
-      tip.innerHTML = tipHTML(w);
-      tip.hidden = false;
       const sr = $('#stage').getBoundingClientRect();
-      tip.style.left = Math.min(e.clientX - sr.left + 14, sr.width - 240) + 'px';
-      tip.style.top = Math.min(e.clientY - sr.top + 10, sr.height - 120) + 'px';
-    } else tip.hidden = true;
+      showTip(w, e.clientX - sr.left + 14, e.clientY - sr.top + 10);
+    } else $('#tip').hidden = true;
   });
-  cv.addEventListener('mouseleave', () => { hover = null; $('#tip').hidden = true; });
+  cv.addEventListener('mouseleave', () => clearHover());
   cv.addEventListener('click', e => { const id = pickAt(e); sel = (id && wizards.has(id)) ? (sel === id ? null : id) : null; renderSide(); });
 
   // ---------- status text ----------
@@ -1054,7 +1068,7 @@
     $('#rows').innerHTML = ags.map(a => {
       const w = wizards.get(a.id);
       if (!w) return '';
-      return `<div class="row st-${a.status} ${sel === a.id ? 'sel' : ''} ${a.kind}" data-id="${esc(a.id)}">
+      return `<div class="row st-${a.status} ${sel === a.id ? 'sel' : ''} ${hover === a.id ? 'hover' : ''} ${a.kind}" data-id="${esc(a.id)}">
         <img class="pt" src="${w.sp.portrait}" alt="">
         <div class="mid">
           <div class="nm">${a.kind === 'sub' ? '<span class="sub-arrow">&#8627;</span> ' : ''}${esc(w.sp.name)} <span class="ep">${esc(w.sp.epithet)}</span></div>
@@ -1062,12 +1076,21 @@
           <div class="ch"><span class="chip">${esc(a.project || '?')}</span>${a.engine === 'codex' ? '<span class="chip cdx">codex</span>' : ''}${a.branch ? `<span class="chip alt">${esc(a.branch)}</span>` : ''}<span class="time">${AGE(now - (a.since || now))}</span></div>
         </div></div>`;
     }).join('');
-    document.querySelectorAll('#rows .row').forEach(el => el.onclick = () => {
+    document.querySelectorAll('#rows .row').forEach(el => {
       const id = el.dataset.id;
-      sel = sel === id ? null : id;
-      const w = wizards.get(id);
-      if (w && sel) sparkleAt(w.x, w.y - 16);
-      renderSide();
+      el.onmouseenter = () => {
+        const w = wizards.get(id), cr = cv.getBoundingClientRect(), sr = $('#stage').getBoundingClientRect();
+        hover = id;
+        hoverRow(id);
+        if (w) showTip(w, cr.left - sr.left + cv.clientLeft + w.x * S + 14, cr.top - sr.top + cv.clientTop + (w.y - 26) * S);
+      };
+      el.onmouseleave = () => clearHover(id);
+      el.onclick = () => {
+        sel = sel === id ? null : id;
+        const w = wizards.get(id);
+        if (w && sel) sparkleAt(w.x, w.y - 16);
+        renderSide();
+      };
     });
     const counts = { active: 0, git: 0, graphite: 0, jujutsu: 0, test: 0, run: 0, attention: 0, waiting: 0, resting: 0 };
     ags.forEach(a => {
@@ -1144,6 +1167,20 @@
 
   $('#helpBtn').onclick = () => { $('#help').hidden = !$('#help').hidden; };
   $('#help').onclick = e => { if (e.target.id === 'help') $('#help').hidden = true; };
+  let installPrompt;
+  addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    installPrompt = e;
+    $('#installBtn').hidden = false;
+  });
+  $('#installBtn').onclick = async () => {
+    await installPrompt.prompt();
+    await installPrompt.userChoice;
+    installPrompt = null;
+    $('#installBtn').hidden = true;
+  };
+  addEventListener('appinstalled', () => { $('#installBtn').hidden = true; });
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js');
 
   // ---------- main loop ----------
   // rAF drives rendering; a fallback interval keeps the simulation flowing (in 0.1s

@@ -3,14 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1e1830">
 <title>Wizard Factory</title>
-<link rel="icon" href="data:,">
+<link rel="manifest" href="app.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header>
   <canvas id="logo" width="232" height="34"></canvas>
   <div id="counts"></div>
+  <button id="installBtn" class="pixbtn" hidden>INSTALL</button>
   <button id="helpBtn" class="pixbtn" title="about the tower">?</button>
 </header>
 <main>

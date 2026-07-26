@@ -123,6 +123,10 @@ window.SP = (() => {
     } else { // bare: hair
       R(cx - 3, 4 + b, 6, 1, bc); P(cx - 4, 5 + b, bc); P(cx - 4, 6 + b, bc); P(cx + 3, 5 + b, bc); P(cx + 3, 6 + b, bc);
     }
+    if (o.demon) {
+      P(cx - 4, 3 + b, '#ece3c4'); P(cx - 5, 2 + b, '#ece3c4');
+      P(cx + 3, 3 + b, '#ece3c4'); P(cx + 4, 2 + b, '#ece3c4');
+    }
     if (o.decal && (o.hatType === 'pointy' || o.hatType === 'bent' || o.hatType === 'wide')) {
       if (o.decal === 'star') { P(cx - 1, 3 + b, '#ffe89a'); P(cx, 4 + b, '#ffe89a'); }
       else { P(cx, 3 + b, '#ffe89a'); P(cx - 1, 4 + b, '#ffe89a'); }
@@ -137,7 +141,7 @@ window.SP = (() => {
 
   function makeWizard(id, kind, engine) {
     const r = rng(hash(id));
-    const sub = kind === 'sub', codex = engine === 'codex';
+    const sub = kind === 'sub', codex = engine === 'codex', demon = sub && hash(id + ':infernal') % 5 === 0;
     const hue = (r() * 360) | 0;
     const robe = hsl(hue, 42, 40), robeD = hsl(hue, 44, 28);
     const trim = pick(r, ['#e8c04a', '#d8def0', hsl((hue + 150) % 360, 55, 62), '#e8c04a']);
@@ -146,16 +150,17 @@ window.SP = (() => {
       sub, robe, robeD, trim,
       hat: hsl(hatHue, 48, 36), hatD: hsl(hatHue, 48, 24),
       skin: pick(r, SKINS), beardC: pick(r, BEARDS),
-      hatType: codex ? 'hood' : sub ? pick(r, ['cap', 'bare', 'pointy', 'cap']) : pick(r, ['pointy', 'pointy', 'pointy', 'bent', 'wide', 'hood', 'bare']),
+      hatType: demon ? 'bare' : codex ? 'hood' : sub ? pick(r, ['cap', 'bare', 'pointy', 'cap']) : pick(r, ['pointy', 'pointy', 'pointy', 'bent', 'wide', 'hood', 'bare']),
       beardType: sub ? 'none' : pick(r, ['long', 'long', 'short', 'short', 'forked', 'stache', 'none']),
       acc: pick(r, sub ? ['none', 'tome', 'wand', 'none'] : ['staff', 'staff', 'wand', 'tome', 'none']),
       glasses: r() < .22, decal: r() < .5 ? (r() < .5 ? 'star' : 'moon') : null,
       accC: hsl((hue + 90) % 360, 45, 45),
     };
+    if (demon) Object.assign(o, { demon, skin: '#b84a48', beardC: '#241622', robe: '#542238', robeD: '#321424', trim: '#f08a2a', glasses: false });
     o.skinD = shade(o.skin, .82);
-    let name = sub ? 'APPRENTICE ' + pick(r, APPRENTICE) : pick(r, N1) + pick(r, N2) + pick(r, N3);
+    let name = sub ? (demon ? 'DEMON ' : 'APPRENTICE ') + pick(r, APPRENTICE) : pick(r, N1) + pick(r, N2) + pick(r, N3);
     for (let i = 0; !sub && name.length > 11 && i < 4; i++) name = pick(r, N1) + pick(r, N2) + pick(r, N3);
-    const epithet = codex ? pick(r, CODEX_EPITHETS) : sub ? 'THE EAGER' : pick(r, EPITHETS);
+    const epithet = demon ? 'OF THE INFERNAL STACK' : codex ? pick(r, CODEX_EPITHETS) : sub ? 'THE EAGER' : pick(r, EPITHETS);
     const frames = {};
     for (const m of ['idleA', 'idleB', 'walkA', 'walkB', 'sleepA', 'sleepB']) {
       const c = document.createElement('canvas'); c.width = 20; c.height = 24;
@@ -165,25 +170,26 @@ window.SP = (() => {
     const pc = document.createElement('canvas'); pc.width = 42; pc.height = 42;
     const pg = pc.getContext('2d'); pg.imageSmoothingEnabled = false;
     pg.drawImage(frames.idleA, 3, sub ? 1 : 0, 14, 14, 0, 0, 42, 42);
-    return { name, epithet, frames, portrait: pc.toDataURL(), hue, sub, drink: drinkFor(id) };
+    return { name, epithet, frames, portrait: pc.toDataURL(), hue, sub, demon, drink: drinkFor(id) };
   }
 
   // ---------- the staff cat ----------
-  function makeCat() {
+  function makeCat(demon = false) {
     const frames = {};
     for (const m of ['sitA', 'sitB', 'walkA', 'walkB', 'sleep']) {
       const c = document.createElement('canvas'); c.width = 14; c.height = 10;
       const g = c.getContext('2d');
       const P = (x, y, col) => { g.fillStyle = col; g.fillRect(x, y, 1, 1); };
       const R = (x, y, w, h, col) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
-      const B = '#cf8a3e', S = '#a8632a';
+      const B = demon ? '#713650' : '#cf8a3e', S = demon ? '#3b1930' : '#a8632a', E = demon ? '#f08a2a' : '#3fae5a';
       if (m === 'sleep') {
         R(3, 5, 9, 4, B); R(4, 4, 6, 1, B); P(5, 5, S); P(8, 6, S); P(10, 5, S);
         R(11, 4, 2, 2, B); P(2, 6, B); P(1, 5, B);
       } else {
         R(3, 4, 7, 4, B); P(5, 4, S); P(8, 5, S);
         R(9, 1, 4, 4, B); P(9, 0, B); P(12, 0, B);                       // head+ears
-        P(10, 2, m === 'sitB' ? S : '#3fae5a'); P(12, 2, m === 'sitB' ? S : '#3fae5a');
+        P(10, 2, m === 'sitB' ? S : E); P(12, 2, m === 'sitB' ? S : E);
+        if (demon) { P(9, 0, '#ece3c4'); P(8, 0, '#ece3c4'); P(12, 0, '#ece3c4'); P(13, 0, '#ece3c4'); }
         if (m.startsWith('walk')) { const l = m === 'walkA' ? [3, 8] : [5, 6]; P(l[0], 8, S); P(l[1] + 3, 8, S); }
         else { R(3, 8, 2, 1, S); R(8, 8, 2, 1, S); }
         if (m === 'walkB' || m === 'sitB') { P(2, 3, B); P(1, 2, B); } else { P(2, 4, B); P(1, 4, B); P(1, 3, B); }

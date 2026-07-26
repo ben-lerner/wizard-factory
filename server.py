@@ -14,6 +14,7 @@ import os
 import random
 import threading
 import time
+from collections import deque
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -91,6 +92,7 @@ class FileState:
         self.cwd = self.branch = self.model = self.title = self.quest = None
         self.last_kind = self.tool = self.detail = self.last_ts = self.started = None
         self.status = self.since = None
+        self.history = deque(maxlen=24)
 
     def feed(self, d):
         if self.engine == 'codex':
@@ -138,6 +140,7 @@ class FileState:
             src = p.get('source')
             if isinstance(src, dict):  # e.g. {'subagent': 'review'}
                 self.kind, self.oneshot = 'sub', True
+                self.parent = p.get('parent_thread_id') or self.parent
             elif src == 'exec':
                 self.oneshot = True
         elif t == 'turn_context':
@@ -186,6 +189,27 @@ class FileState:
         self.last_kind = kind
         if ts:
             self.last_ts, self.started = ts, self.started or ts
+            self._record(kind, ts)
+
+    def _record(self, kind, ts):
+        if kind == 'tool_use':
+            text = f'{self.tool}: {self.detail}' if self.detail else self.tool
+        elif kind == 'tool_result' and self.tool:
+            text = f'{self.tool} completed'
+        elif kind == 'user_text':
+            text = f'New counsel: {self.quest}' if self.quest else 'Received new counsel'
+        elif kind == 'assistant_text':
+            text = 'Delivered a response'
+        elif kind == 'interrupted':
+            text = 'Work interrupted'
+        else:
+            return
+        text = clean(text, 120)
+        if self.history and ts < self.history[-1]['ts']:
+            return
+        if self.history and self.history[-1]['text'] == text and ts - self.history[-1]['ts'] < 2:
+            return
+        self.history.append({'ts': ts, 'kind': kind, 'tool': self.tool if kind in ('tool_use', 'tool_result') else None, 'text': text})
 
     def derive(self, now):
         if not self.last_ts:
@@ -227,7 +251,7 @@ class FileState:
                 'branch': self.branch, 'title': self.title, 'quest': self.quest, 'model': self.model,
                 'status': self.status, 'tool': self.tool, 'detail': self.detail,
                 'since': self.since, 'last': max(self.last_ts or 0, self.mtime) or None, 'started': self.started,
-                'msg': ov.get('msg') if self.status == 'attention' else None}
+                'msg': ov.get('msg') if self.status == 'attention' else None, 'history': list(self.history)}
 
 
 def retail(fs, size):
@@ -335,6 +359,7 @@ class Demo:
             'project': self.rng.choice(self.PROJ), 'branch': None, 'title': None,
             'quest': self.rng.choice(self.QUESTS), 'model': 'claude-fable-5', 'status': 'thinking',
             'tool': None, 'detail': None, 'msg': None, 'since': now, 'last': now, 'started': now,
+            'history': [{'ts': now, 'kind': 'user_text', 'tool': None, 'text': 'Received a new quest'}],
             '_next': now + self.rng.uniform(2, 5)}
 
     def step(self, a, now):
@@ -342,6 +367,8 @@ class Demo:
 
         def go(s, lo, hi, **kw):
             a.update(status=s, since=now, last=now, _next=now + r.uniform(lo, hi), **kw)
+            if kw.get('tool'):
+                a['history'] = [*a['history'][-11:], {'ts': now, 'kind': 'tool_use', 'tool': kw['tool'], 'text': kw['tool'] + ': ' + kw.get('detail', '')}]
         st = a['status']
         if st == 'thinking':
             t = r.choice(self.TOOLS)

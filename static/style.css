@@ -45,6 +45,25 @@ main { flex: 1; display: flex; min-height: 0; }
   background: #0f0b1a; border: 2px solid #000; box-shadow: 0 0 0 2px var(--edge); padding: 8px 9px;
   font-size: 11px; line-height: 1.45;
 }
+#journal {
+  position: absolute; left: 18px; top: 18px; z-index: 6; width: min(370px, calc(100% - 36px)); max-height: calc(100% - 36px);
+  overflow-y: auto; background: #191326; border: 2px solid #000; box-shadow: 0 0 0 2px #8a6f3d, 0 10px 28px #000;
+  padding: 14px 16px;
+}
+#journalClose {
+  position: absolute; right: 7px; top: 5px; border: 0; background: none; color: var(--dim);
+  font: 18px var(--font); cursor: pointer;
+}
+#journalClose:hover { color: var(--gold); }
+.j-head { color: var(--gold); letter-spacing: 2px; font-size: 13px; padding-right: 24px; }
+.j-ep { color: var(--dim); font-size: 9px; margin: 2px 0 10px; }
+.j-summary { color: var(--ink); line-height: 1.55; padding: 9px; background: #0f0b1a; border-left: 3px solid var(--purple); }
+.j-title { color: var(--blue); letter-spacing: 1px; font-size: 10px; margin: 14px 0 6px; }
+.j-event { display: grid; grid-template-columns: 42px 12px 1fr; gap: 5px; padding: 5px 0; border-top: 1px solid #2c2340; }
+.j-time { color: var(--dim); font-size: 9px; }
+.j-rune { color: var(--purple); }
+.j-text { color: var(--ink); font-size: 10px; overflow-wrap: anywhere; }
+.j-empty { color: var(--dim); font-style: italic; }
 .tt-name { color: var(--gold); letter-spacing: 1px; }
 .tt-name span { color: var(--dim); font-size: 10px; }
 .tt-meta { color: var(--dim); font-size: 10px; margin: 2px 0 4px; text-transform: uppercase; }
@@ -98,7 +117,7 @@ main { flex: 1; display: flex; min-height: 0; }
   position: fixed; inset: 0; background: rgba(8,5,14,.78); z-index: 10;
   display: flex; align-items: center; justify-content: center;
 }
-#help[hidden], #tip[hidden] { display: none; }
+#help[hidden], #tip[hidden], #journal[hidden] { display: none; }
 #help .panel {
   width: min(560px, 92vw); max-height: 86vh; overflow-y: auto;
   background: var(--panel); border: 2px solid #000; box-shadow: 0 0 0 2px var(--edge), 0 12px 40px #000;

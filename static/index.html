@@ -21,6 +21,10 @@
   <div id="stage">
     <canvas id="view" width="480" height="272"></canvas>
     <div id="tip" hidden></div>
+    <section id="journal" hidden>
+      <button id="journalClose" title="close journal">&times;</button>
+      <div id="journalBody"></div>
+    </section>
   </div>
   <aside id="side">
     <div id="sideHead">WIZARDS ON DUTY <span id="num"></span></div>
@@ -46,6 +50,8 @@
       <li><b>Cafe</b> — waiting on commands, test runs, questions, or your next prompt with a fresh order from Earl Grey</li>
       <li><b>Hearth armchairs</b> — idle 15min+, dozing off</li>
       <li>Apprentices (smaller, beardless) are subagents; they vanish when their task ends.</li>
+      <li>Click any wizard to open their quest journal and recent-action chronicle.</li>
+      <li>Summoning threads connect wizards to their apprentices—and occasional infernal helpers.</li>
       <li>Hooded wizards with a <b>codex</b> chip are OpenAI Codex CLI sessions
           (read from <code>~/.codex/sessions</code>); one-shot <code>codex exec</code> runs
           finish and leave rather than waiting around.</li>

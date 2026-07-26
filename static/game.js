@@ -143,7 +143,8 @@
 
   // ---------- entities ----------
   const wizards = new Map();
-  let sel = null, hover = null, offline = false, isDemo = false, serverSkew = 0, lastData = { agents: [] };
+  let sel = null, hover = null, cafeChat = null, nextCafeChat = 10;
+  let offline = false, isDemo = false, serverSkew = 0, lastData = { agents: [] };
 
   function clampZone(x, y) {
     const lab = x < 264;
@@ -222,6 +223,9 @@
   const catFrames = SP.makeCat();
   const cat = { x: 446, y: 110, state: 'sit', until: 4, path: [], dir: -1, dest: null, order: null, game: null, castAt: 0 };
   const catR = rng(99);
+  const demonCat = { frames: SP.makeCat(true), x: 446, y: 110, active: false, path: [], dir: -1, alpha: 0, until: 0, moveAt: 0, summonAt: 24 };
+  const demonCatR = rng(666);
+  demonCat.r = demonCatR;
   const CAT_SPECIALS = DRINKS.filter(d => ['health-potion', 'mana-potion', 'antimatter'].includes(d.key));
   const catDrink = () => catR() < .8 ? WARM_MILK : CAT_SPECIALS[catR() * CAT_SPECIALS.length | 0];
   function catThink(t) {
@@ -254,6 +258,25 @@
   }
   function cafeReady(w) {
     return cafeWait(w.a) && w.station === 'cafe' && !w.walk && !w.leaving && w.alpha > .8;
+  }
+  function chatSubject(a) {
+    const raw = a.title || a.quest || a.project || 'THAT QUEST';
+    return raw.toUpperCase().replace(/[^A-Z0-9 .!?-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 24);
+  }
+  function maybeCafeChat(t) {
+    if (cafeChat && t >= cafeChat.until) cafeChat = null;
+    if (cafeChat || t < nextCafeChat) return;
+    const ready = [...wizards.values()].filter(w => cafeReady(w) && w.order && w.order.stage === 'served' && !w.game);
+    const pairs = [];
+    for (let i = 0; i < ready.length; i++) for (let j = i + 1; j < ready.length; j++)
+      if (ready[i].a.project === ready[j].a.project) pairs.push([ready[i], ready[j]]);
+    nextCafeChat = t + 28 + Math.random() * 24;
+    if (!pairs.length) return;
+    const [a, b] = pairs[Math.random() * pairs.length | 0];
+    const recent = [...(b.a.history || [])].reverse().find(h => h.tool);
+    const tool = recent && String(recent.tool).toUpperCase().replace(/[^A-Z0-9 -]/g, ' ').replace(/\s+/g, ' ').slice(0, 18);
+    cafeChat = { a: a.a.id, b: b.a.id, start: t, until: t + 8,
+      lines: [`HOW GOES ${chatSubject(b.a)}?`, tool ? `I LAST TRIED ${tool}.` : 'THE RUNES ARE YET UNCLEAR.'] };
   }
   function ensureOrder(w, t) {
     if (cafeReady(w) && !w.order) w.order = { drink: w.sp.drink, stage: 'queued', askAt: t + w.r() * 1.2, servedAt: 0 };
@@ -430,8 +453,8 @@
   function teleportBurst(x, y, c) {
     for (let i = 0; i < 10; i++) spark(x + Math.cos(i) * 5, y - 13 + Math.sin(i * 2) * 5, c, -4 - Math.random() * 7, .55);
   }
-  function castTeleport(e, tx, ty, r) {
-    const catBlink = !e.sp, c = catBlink ? '#d8ff58' : '#c8b4ff';
+  function castTeleport(e, tx, ty, r, color) {
+    const catBlink = !e.sp, c = color || (catBlink ? '#d8ff58' : '#c8b4ff');
     SPELLS.push({ kind: 'teleport', sx: e.x, sy: e.y - (catBlink ? 8 : 18), tx, ty: ty - (catBlink ? 8 : 18), t: 0, life: .75, seed: r() * 99 | 0, c });
     teleportBurst(e.x, e.y, c);
     teleportBurst(tx, ty, c);
@@ -451,7 +474,8 @@
   }
   function castSpell(w, t) {
     if (SPELLS.length > 36) return;
-    const kinds = ['fireball', 'bolt', 'missile', 'spark', 'rune', 'rain'], kind = kinds[w.r() * kinds.length | 0];
+    const kinds = w.sp.demon ? ['hellfire', 'brimstone', 'hex', 'void'] : ['fireball', 'bolt', 'missile', 'spark', 'rune', 'rain'];
+    const kind = kinds[w.r() * kinds.length | 0];
     const [tx, ty] = spellTarget(w), sx = w.x + (w.dir > 0 ? 7 : -7), sy = w.y - 17;
     if (kind === 'rain') {
       SPELLS.push({ kind, id: w.a.id, sx: w.x, sy: w.y - 34, t: 0, life: 2.4 + w.r() * 1.2, seed: w.r() * 99 | 0 });
@@ -459,7 +483,7 @@
       return;
     }
     SPELLS.push({ kind, sx, sy, tx, ty, t: 0, life: kind === 'bolt' ? .24 : .65 + w.r() * .35, seed: w.r() * 99 | 0 });
-    spark(sx, sy, kind === 'fireball' ? '#ffd84a' : kind === 'bolt' ? '#e8f6ff' : '#c8b4ff', -5, .35);
+    spark(sx, sy, ['hellfire', 'brimstone'].includes(kind) ? '#f05a3a' : kind === 'fireball' ? '#ffd84a' : kind === 'bolt' ? '#e8f6ff' : '#c8b4ff', -5, .35);
   }
   function castCatSpell(t) {
     if (SPELLS.length > 36) return;
@@ -489,6 +513,29 @@
       if (catR() < .55) castCatSpell(t);
     }
   }
+  function updateDemonCat(dt, t) {
+    if (!demonCat.active) {
+      if (t < demonCat.summonAt || cat.state === 'walk' || cat.state === 'sleep') return;
+      [demonCat.x, demonCat.y] = clampZone(cat.x + (cat.x > 268 ? -18 : 18), cat.y + 3);
+      Object.assign(demonCat, { active: true, alpha: 0, until: t + 18 + demonCatR() * 10, moveAt: t + 1, path: [] });
+      castTeleport(cat, demonCat.x, demonCat.y, demonCatR, '#f08a2a');
+      return;
+    }
+    demonCat.alpha = Math.min(1, demonCat.alpha + dt * 3);
+    if (t >= demonCat.until) {
+      teleportBurst(demonCat.x, demonCat.y, '#f08a2a');
+      demonCat.active = false;
+      demonCat.summonAt = t + 45 + demonCatR() * 55;
+      return;
+    }
+    if (demonCat.path.length) moveAlong(demonCat, dt, 24);
+    else if (t >= demonCat.moveAt) {
+      demonCat.moveAt = t + 3 + demonCatR() * 4;
+      const [x, y] = clampZone(cat.x + (demonCatR() * 36 - 18), cat.y + (demonCatR() * 20 - 10));
+      pathTo(demonCat, x, y);
+    }
+    if (Math.random() < dt * .7) spark(demonCat.x, demonCat.y - 8, '#f08a2a', -5, .6);
+  }
   function updateSpells(dt, t) {
     for (let i = SPELLS.length - 1; i >= 0; i--) {
       const s = SPELLS[i];
@@ -498,7 +545,7 @@
       else if (s.kind === 'fireball') sparkleAt(s.tx, s.ty);
       else if (s.kind !== 'rain') {
         if (s.cat) burnGameAt(s.tx, s.ty, t);
-        spark(s.tx, s.ty, s.kind === 'bolt' ? '#e8f6ff' : '#c8b4ff', -4, .4);
+        spark(s.tx, s.ty, ['hellfire', 'brimstone'].includes(s.kind) ? '#f05a3a' : s.kind === 'bolt' ? '#e8f6ff' : '#c8b4ff', -4, .4);
       }
       SPELLS.splice(i, 1);
     }
@@ -723,6 +770,7 @@
     maybeCatCast(t);
     updateSpells(dt, t);
     cafeService(t);
+    maybeCafeChat(t);
     maybeDragonStretch(t);
     updateTableGames(t);
     updateLightning(t);
@@ -765,6 +813,7 @@
       }
     }
     else if (!cat.game && t > cat.until) catThink(t);
+    updateDemonCat(dt, t);
     separateActors();
   }
 
@@ -806,6 +855,37 @@
       const k = i / n;
       g.fillRect(Math.round(x1 + (x2 - x1) * k), Math.round(y1 + (y2 - y1) * k), 2, 2);
     }
+  }
+  function drawBonds(t) {
+    for (const child of wizards.values()) {
+      if (child.a.kind !== 'sub' || !child.a.parent) continue;
+      const parent = wizards.get(child.a.parent);
+      if (!parent || parent.leaving || child.leaving) continue;
+      const hot = [sel, hover].includes(parent.a.id) || [sel, hover].includes(child.a.id);
+      const color = child.a.status === 'done' ? '#ffd84a' : child.a.status === 'attention' ? '#ff5a5a' : '#9a7cf0';
+      const n = Math.max(8, Math.hypot(child.x - parent.x, child.y - parent.y) / 4 | 0);
+      g.globalAlpha = hot ? .9 : .28;
+      for (let i = 0; i <= n; i++) {
+        if ((i + (t * 5 | 0)) % 3) continue;
+        const k = i / n, x = parent.x + (child.x - parent.x) * k;
+        const y = parent.y - 12 + (child.y - parent.y) * k - Math.sin(k * Math.PI) * 12;
+        g.fillStyle = i % 2 ? color : '#e8dcff';
+        g.fillRect(Math.round(x), Math.round(y), hot ? 2 : 1, hot ? 2 : 1);
+      }
+      g.globalAlpha = 1;
+    }
+  }
+  function drawCafeChat(t) {
+    if (!cafeChat) return;
+    const second = t - cafeChat.start >= 3.6, w = wizards.get(second ? cafeChat.b : cafeChat.a);
+    if (!w || !cafeReady(w)) { cafeChat = null; return; }
+    const text = cafeChat.lines[second ? 1 : 0], width = textW(text) + 8;
+    const x = Math.max(274, Math.min(478 - width, w.x - width / 2)), y = Math.max(38, w.y - 51);
+    g.fillStyle = '#f7f3e8'; g.fillRect(x, y, width, 11);
+    g.fillStyle = '#262032'; g.fillRect(x, y, width, 1); g.fillRect(x, y + 10, width, 1);
+    g.fillRect(x, y, 1, 11); g.fillRect(x + width - 1, y, 1, 11);
+    g.fillStyle = '#f7f3e8'; g.fillRect(Math.round(w.x), y + 11, 2, 2);
+    drawText(g, x + 4, y + 3, text, '#30283e');
   }
   function drawPortal(cx, cy, t, c, seed, flip) {
     const fade = Math.max(0, 1 - t), spin = t * 8 + seed + (flip ? 3.14 : 0);
@@ -870,7 +950,24 @@
       return;
     }
     const [x, y] = spellPos(s, k);
-    if (s.kind === 'fireball') {
+    if (s.kind === 'hellfire') {
+      for (let j = 0; j < 5; j++) {
+        const q = Math.max(0, k - j * .05), p = spellPos(s, q);
+        g.fillStyle = ['#fff0a0', '#f08a2a', '#f05a3a', '#9f2742', '#321424'][j];
+        g.fillRect(Math.round(p[0]) - 1, Math.round(p[1]) - 1, j < 2 ? 3 : 2, j < 2 ? 3 : 2);
+      }
+    } else if (s.kind === 'brimstone') {
+      g.fillStyle = '#321424'; g.fillRect(Math.round(x) - 3, Math.round(y) - 3, 7, 6);
+      g.fillStyle = '#f08a2a'; g.fillRect(Math.round(x) - 1, Math.round(y) - 2, 2, 2);
+      g.fillStyle = '#f05a3a'; g.fillRect(Math.round(x) + 2, Math.round(y) + 1, 2, 2);
+    } else if (s.kind === 'void') {
+      g.fillStyle = '#140b20'; g.fillRect(Math.round(x) - 4, Math.round(y) - 4, 9, 9);
+      g.fillStyle = '#9a4fc8'; g.fillRect(Math.round(x) - 5, Math.round(y), 11, 1); g.fillRect(Math.round(x), Math.round(y) - 5, 1, 11);
+      g.fillStyle = '#d8a0f0'; g.fillRect(Math.round(x) - 2, Math.round(y) - 2, 2, 2);
+    } else if (s.kind === 'hex') {
+      g.fillStyle = '#f05a8a'; g.fillRect(Math.round(x) - 4, Math.round(y), 9, 1); g.fillRect(Math.round(x), Math.round(y) - 4, 1, 9);
+      g.fillRect(Math.round(x) - 3, Math.round(y) - 3, 2, 2); g.fillRect(Math.round(x) + 2, Math.round(y) + 2, 2, 2);
+    } else if (s.kind === 'fireball') {
       for (let j = 0; j < 4; j++) {
         const q = Math.max(0, k - j * .05), p = spellPos(s, q);
         g.fillStyle = ['#ffe89a', '#ffd84a', '#f08a2a', '#d83a3a'][j];
@@ -891,6 +988,7 @@
     PR.torch(g, 24, 14, t); PR.torch(g, 240, 14, t + .5); PR.torch(g, 282, 14, t + .2); PR.torch(g, 444, 14, t + .8);
     PR.circle(g, 160, 152 + 12, t, occupied('circle'));
     drawLightningCast(g, t);
+    drawBonds(t);
     const items = props(t).map(([y, f]) => ({ y, f: () => f(g) }));
     for (const w of wizards.values()) items.push({ y: w.y, f: () => drawWizardSprite(w, t) });
     items.push({ y: dragon.y, f: () => {
@@ -910,6 +1008,13 @@
     } });
     items.push({ y: cat.y, f: () => { const fr = cat.state === 'sleep' ? 'sleep' : cat.state === 'walk' ? ((t * 5 | 0) % 2 ? 'walkA' : 'walkB') : ((t * 1.3 | 0) % 2 ? 'sitA' : 'sitB');
       const img = catFrames[fr]; if (cat.dir < 0) { g.save(); g.translate(cat.x + 7, cat.y - 9); g.scale(-1, 1); g.drawImage(img, 0, 0); g.restore(); } else g.drawImage(img, cat.x - 7, cat.y - 9); } });
+    if (demonCat.active) items.push({ y: demonCat.y, f: () => {
+      const fr = demonCat.path.length ? ((t * 6 | 0) % 2 ? 'walkA' : 'walkB') : ((t * 1.8 | 0) % 2 ? 'sitA' : 'sitB');
+      const img = demonCat.frames[fr]; g.globalAlpha = demonCat.alpha;
+      if (demonCat.dir < 0) { g.save(); g.translate(demonCat.x + 7, demonCat.y - 9); g.scale(-1, 1); g.drawImage(img, 0, 0); g.restore(); }
+      else g.drawImage(img, demonCat.x - 7, demonCat.y - 9);
+      g.globalAlpha = 1;
+    } });
     items.sort((a, b) => a.y - b.y).forEach(i => i.f());
     const fireTarget = dragon.task && dragon.task.phase === 'brew' ? [CUP[0] + 5, CUP[1] + 4] : dragonAtBar() && t < dragon.roastUntil ? [PAN[0] + 4, PAN[1] - 2] : null;
     if (fireTarget) {  // fire breath, drawn over the counter
@@ -934,6 +1039,7 @@
       if (w.order && w.order.stage !== 'served' && !w.walk && w.alpha > .8 && ((t + w.ph) % 6) < 2.4) tag(w.x, w.y - 45, w.order.drink.name);
       if ((hover === w.a.id || sel === w.a.id) && w.alpha > .5) tag(w.x, w.y - 38, w.sp.name);
     }
+    drawCafeChat(t);
     if (cat.order && cat.order.stage === 'served') PR.cup(g, cat.x + 5, cat.y - 6, cat.order.drink.key, t);
     if (cat.order && cat.order.stage !== 'served' && ((t + 1.7) % 6) < 2.4) tag(cat.x, cat.y - 25, cat.order.drink.name);
     if (hover === 'cat') tag(cat.x, cat.y - 20, 'BIGGLES, STAFF CAT');
@@ -1002,7 +1108,12 @@
     } else $('#tip').hidden = true;
   });
   cv.addEventListener('mouseleave', () => clearHover());
-  cv.addEventListener('click', e => { const id = pickAt(e); sel = (id && wizards.has(id)) ? (sel === id ? null : id) : null; renderSide(); });
+  function selectWizard(id) {
+    sel = id && wizards.has(id) && sel !== id ? id : null;
+    renderJournal();
+    renderSide();
+  }
+  cv.addEventListener('click', e => selectWizard(pickAt(e)));
 
   // ---------- status text ----------
   const VERB = { Bash: 'BREWING', Read: 'READING', Edit: 'INSCRIBING', Write: 'SCRIBING', Grep: 'SCOURING FOR', Glob: 'SCOURING FOR',
@@ -1061,6 +1172,25 @@
 
   // ---------- sidebar ----------
   const ORDER = { attention: 0, working: 1, thinking: 2, responding: 3, waiting: 4, done: 5, idle: 6 };
+  function journalSummary(a, w) {
+    const quest = a.title || a.quest, tools = [...new Set((a.history || []).map(h => h.tool).filter(Boolean))].slice(-4);
+    const state = a.status === 'waiting' ? 'Now awaiting your counsel at the café.' :
+      a.status === 'done' ? 'The quest is complete.' : a.status === 'idle' ? 'Now resting by the hearth.' :
+      `Currently ${statusLine(a, w).toLowerCase()}.`;
+    return `${quest ? `Quest: ${quest}. ` : ''}${tools.length ? `Recent craft: ${tools.join(', ')}. ` : ''}${state}`;
+  }
+  function renderJournal() {
+    const panel = $('#journal'), w = wizards.get(sel);
+    if (!w) { panel.hidden = true; return; }
+    const a = w.a, now = Date.now() / 1000 - serverSkew, history = [...(a.history || [])].reverse();
+    $('#journalBody').innerHTML = `<div class="j-head">${esc(w.sp.name)}</div>
+      <div class="j-ep">${esc(w.sp.epithet)} · ${esc(a.project || '?')}${a.branch ? ' · ' + esc(a.branch) : ''}</div>
+      <div class="j-summary">${esc(journalSummary(a, w))}</div>
+      <div class="j-title">QUEST HISTORY</div>
+      ${history.length ? history.map(h => `<div class="j-event"><span class="j-time">${AGE(now - h.ts)} AGO</span><span class="j-rune">◆</span><span class="j-text">${esc(h.text)}</span></div>`).join('') :
+        '<div class="j-empty">No deeds have reached the chronicle yet.</div>'}`;
+    panel.hidden = false;
+  }
   function renderSide() {
     const now = Date.now() / 1000 - serverSkew;
     const ags = [...lastData.agents].sort((x, y) => (ORDER[x.status] ?? 9) - (ORDER[y.status] ?? 9) || (x.started || 0) - (y.started || 0));
@@ -1086,10 +1216,9 @@
       };
       el.onmouseleave = () => clearHover(id);
       el.onclick = () => {
-        sel = sel === id ? null : id;
         const w = wizards.get(id);
-        if (w && sel) sparkleAt(w.x, w.y - 16);
-        renderSide();
+        if (w && sel !== id) sparkleAt(w.x, w.y - 16);
+        selectWizard(id);
       };
     });
     const counts = { active: 0, git: 0, graphite: 0, jujutsu: 0, test: 0, run: 0, attention: 0, waiting: 0, resting: 0 };
@@ -1149,6 +1278,7 @@
       offline = false;
       reconcile(lastData);
       renderSide();
+      renderJournal();
     } catch {
       offline = true;
     }
@@ -1167,6 +1297,8 @@
 
   $('#helpBtn').onclick = () => { $('#help').hidden = !$('#help').hidden; };
   $('#help').onclick = e => { if (e.target.id === 'help') $('#help').hidden = true; };
+  $('#journalClose').onclick = () => selectWizard(sel);
+  addEventListener('keydown', e => { if (e.key === 'Escape' && sel) selectWizard(sel); });
   let installPrompt;
   addEventListener('beforeinstallprompt', e => {
     e.preventDefault();
@@ -1198,5 +1330,5 @@
   catThink(0);
   poll();
   requestAnimationFrame(frame);
-  window.WF = { wizards, ST, cat, dragon, SPELLS, TABLES };
+  window.WF = { wizards, ST, cat, demonCat, dragon, SPELLS, TABLES };
 })();

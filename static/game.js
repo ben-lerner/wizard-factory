@@ -208,7 +208,7 @@
       const demon = isDemon(a);
       if (!w) {
         w = { a, sp: SP.makeWizard(a.id, a.kind, a.engine, demon), x: 436 + ((hash(a.id) % 9) - 4), y: 250, dir: -1, path: [], walk: false,
-              station: null, spotI: -1, home: null, order: null, game: null, paceAt: 0, castAt: 0, leaving: false,
+              station: null, spotI: -1, home: null, order: null, game: null, paceAt: 0, castAt: 0, rayAt: 0, blast: null, leaving: false,
               stuckAt: 0, lastX: 436, lastY: 250, alpha: 0, ph: (hash(a.id) % 100) / 16, r: rng(hash(a.id) ^ 0xbeef), emote: null };
         wizards.set(a.id, w);
         sparkleAt(436, 252);
@@ -230,9 +230,10 @@
 
   // ---------- cat & barista ----------
   const catFrames = SP.makeCat();
-  const cat = { x: 446, y: 110, state: 'sit', until: 4, path: [], dir: -1, dest: null, order: null, game: null, castAt: 0 };
+  const cat = { x: 446, y: 110, state: 'sit', until: 4, path: [], dir: -1, dest: null, order: null, game: null, castAt: 0, rayAt: 0 };
   const catR = rng(99);
-  const demonCat = { frames: SP.makeCat(true), x: 446, y: 110, active: false, path: [], dir: -1, alpha: 0, until: 0, summonAt: 24, dest: null, order: null };
+  cat.r = catR;
+  const demonCat = { frames: SP.makeCat(true), x: 446, y: 110, active: false, path: [], dir: -1, alpha: 0, until: 0, summonAt: 24, dest: null, order: null, rayAt: 0 };
   const demonCatR = rng(666);
   demonCat.r = demonCatR;
   const CAT_SPECIALS = DRINKS.filter(d => ['health-potion', 'mana-potion', 'antimatter'].includes(d.key));
@@ -255,7 +256,7 @@
   }
   // Earl Grey roasts the house beans himself.
   const barY = 196, DRAGON_HOME = [338, barY], DRAGON_STRETCH = [[304, 66], [420, 54], [448, 126], [286, 148]], dragonR = rng(777);
-  const dragon = { frames: SP.makeDragon(), x: DRAGON_HOME[0], y: DRAGON_HOME[1], dir: -1, path: [], dest: null, mode: null, stretchUntil: -9, roastAt: 7, roastUntil: -9, flapAt: 45 + dragonR() * 60, flapUntil: -9, task: null, game: null };
+  const dragon = { frames: SP.makeDragon(), x: DRAGON_HOME[0], y: DRAGON_HOME[1], dir: -1, path: [], dest: null, mode: null, stretchUntil: -9, roastAt: 7, roastUntil: -9, flapAt: 45 + dragonR() * 60, flapUntil: -9, task: null, game: null, blast: null };
   const PAN = [324, 196];
   const CUP = [316, 187], CAT_CAFE = [404, 226];
 
@@ -304,7 +305,7 @@
     return w && cafeReady(w) && w.order === task.order ? { kind: 'wizard', id: w.a.id, order: w.order, drink: w.order.drink, x: w.x, y: w.y } : null;
   }
   function dragonAtBar() {
-    return !dragon.game && !dragon.dest && !dragon.path.length && Math.hypot(dragon.x - DRAGON_HOME[0], dragon.y - DRAGON_HOME[1]) < 2;
+    return !dragon.blast && !dragon.game && !dragon.dest && !dragon.path.length && Math.hypot(dragon.x - DRAGON_HOME[0], dragon.y - DRAGON_HOME[1]) < 2;
   }
   function sendDragonTo(x, y, dest, t) {
     dragon.mode = 'fly';
@@ -333,6 +334,7 @@
   }
   function cafeService(t) {
     for (const w of wizards.values()) ensureOrder(w, t);
+    if (dragon.blast) return;
     if (dragon.game && cafeCustomers().some(c => c.order.stage !== 'served')) leaveGameForDragon(t);
     if (dragon.task && t >= dragon.task.until) {
       const c = taskCustomer(dragon.task);
@@ -508,8 +510,49 @@
     SPELLS.push({ kind, sx, sy, tx, ty, t: 0, life: kind === 'bolt' ? .24 : .55 + catR() * .3, seed: catR() * 99 | 0 });
     spark(sx, sy, '#d8ff58', -5, .35);
   }
+  function rayOpponent(w) {
+    const rivals = [...wizards.values()].filter(v => v !== w && v.sp.demon !== w.sp.demon && !v.leaving && !v.walk && !v.game && !v.blast && v.alpha > .8 &&
+      !SPELLS.some(s => s.kind === 'ray' && s.target === v.a.id));
+    if (!dragon.blast && !SPELLS.some(s => s.kind === 'ray' && s.target === 'dragon')) rivals.push(dragon);
+    return rivals.length ? rivals[w.r() * rivals.length | 0] : null;
+  }
+  function combatHelpers(w, opponent) {
+    return [...wizards.values()].filter(v => v !== w && v !== opponent && v.sp.demon === w.sp.demon && v.a.kind !== w.a.kind &&
+      !v.leaving && !v.game && !v.blast && v.alpha > .8).map(v => v.a.id);
+  }
+  function castRay(w, target, catCaster = false) {
+    const demon = catCaster ? w === demonCat : w.sp.demon, c = demon ? '#f05a3a' : catCaster ? '#d8ff58' : '#8fd0ff';
+    const source = catCaster ? w === cat ? 'cat' : 'demon-cat' : w.a.id, targetId = target === dragon ? 'dragon' : target.a.id;
+    const attackers = catCaster ? [] : combatHelpers(w, target), defenders = catCaster || target === dragon ? [] : combatHelpers(target, w);
+    w.dir = target.x < w.x ? -1 : 1;
+    const sy = w.y - (catCaster ? 8 : 17), ty = target.y - (target === dragon ? 15 : 14);
+    SPELLS.push({ kind: 'ray', source, target: targetId, cat: catCaster, attackers, defenders, sx: w.x + w.dir * 7, sy,
+      tx: target.x, ty, t: 0, life: .32, seed: w.r() * 99 | 0, c });
+    spark(w.x + w.dir * 7, sy, c, -5, .35);
+  }
+  function maybeRay(w, t) {
+    if (!w.rayAt) { w.rayAt = t + 5 + w.r() * 8; return false; }
+    if (t < w.rayAt || w.walk || w.leaving || w.game || w.blast || w.alpha < .8) return false;
+    w.rayAt = t + 10 + w.r() * 14;
+    const target = rayOpponent(w);
+    if (!target) return false;
+    castRay(w, target);
+    return true;
+  }
+  function maybeCatRay(c, t) {
+    if (c === demonCat && !c.active) return false;
+    if (!c.rayAt) { c.rayAt = t + 6 + c.r() * 10; return false; }
+    if (t < c.rayAt || c.path.length || c.game || c.state === 'walk' || c.state === 'sleep' || c.alpha !== undefined && c.alpha < .8) return false;
+    c.rayAt = t + 12 + c.r() * 16;
+    const targets = [...wizards.values()].filter(w => !w.leaving && !w.walk && !w.game && !w.blast && w.alpha > .8 &&
+      !SPELLS.some(s => s.kind === 'ray' && s.target === w.a.id));
+    if (!dragon.blast && !SPELLS.some(s => s.kind === 'ray' && s.target === 'dragon')) targets.push(dragon);
+    if (!targets.length) return false;
+    castRay(c, targets[c.r() * targets.length | 0], true);
+    return true;
+  }
   function maybeCast(w, t) {
-    if (w.a.status !== 'working' || cafeWait(w.a) || w.walk || w.leaving || w.alpha < .8 || !w.home) return;
+    if (w.a.status !== 'working' || cafeWait(w.a) || w.walk || w.leaving || w.blast || w.alpha < .8 || !w.home) return;
     if (!w.castAt) w.castAt = t + .8 + w.r() * 2.8;
     if (t > w.castAt) {
       w.castAt = t + 2.4 + w.r() * 4.8;
@@ -547,12 +590,60 @@
     else demonCat.dest = null;
     if (Math.random() < dt * .7) spark(demonCat.x, demonCat.y - 8, '#f08a2a', -5, .6);
   }
+  function fragmentImage(img, r) {
+    const pixels = img.getContext('2d').getImageData(0, 0, img.width, img.height).data;
+    const fragments = [];
+    for (let sy = 0; sy < img.height; sy += 4) for (let sx = 0; sx < img.width; sx += 4) {
+      let visible = false;
+      for (let y = sy; y < Math.min(sy + 4, img.height) && !visible; y++) for (let x = sx; x < Math.min(sx + 4, img.width); x++) {
+        if (pixels[(y * img.width + x) * 4 + 3]) { visible = true; break; }
+      }
+      if (!visible) continue;
+      const a = Math.atan2(sy - img.height / 2, sx - img.width / 2) + (r() - .5) * 1.2, speed = 12 + r() * 22;
+      fragments.push({ sx, sy, w: Math.min(4, img.width - sx), h: Math.min(4, img.height - sy),
+        dx: Math.cos(a) * speed, dy: Math.sin(a) * speed - 8 - r() * 8, spin: (r() - .5) * 3 });
+    }
+    return fragments;
+  }
+  function explodeWizard(w, t, soot = false) {
+    if (!w || w.leaving || w.blast) return;
+    const img = w.sp.frames.idleA;
+    w.blast = { at: t, until: t + 2.4, img, fragments: fragmentImage(img, w.r), soot, ox: -10, oy: -23 };
+    for (let i = 0; i < 18; i++) spark(w.x, w.y - 13, soot ? i % 3 ? '#322c35' : '#77717d' : i % 3 ? w.sp.demon ? '#f08a2a' : '#8fd0ff' : '#ffe89a', -16 + Math.random() * 20, .8);
+  }
+  function explodeDragon(t) {
+    if (dragon.blast) return;
+    const img = dragon.frames.idleA;
+    dragon.blast = { at: t, until: t + 2.8, img, fragments: fragmentImage(img, dragonR), ox: -15, oy: -25 };
+    for (let i = 0; i < 24; i++) spark(dragon.x, dragon.y - 14, i % 2 ? '#f08a2a' : '#ffe89a', -18 + Math.random() * 24, 1);
+  }
+  function castDragonFire(target, delay) {
+    if (dragon.blast || !target || target.leaving || target.blast) return;
+    SPELLS.push({ kind: 'counterfire', target: target.a.id, sx: dragon.x - 13, sy: dragon.y - 15,
+      tx: target.x, ty: target.y - 13, t: -delay, life: .65, seed: dragonR() * 99 | 0 });
+  }
   function updateSpells(dt, t) {
     for (let i = SPELLS.length - 1; i >= 0; i--) {
       const s = SPELLS[i];
       s.t += dt;
       if (s.t <= s.life) continue;
-      if (s.kind === 'teleport') spark(s.tx, s.ty, s.c, -4, .4);
+      if (s.kind === 'ray') {
+        if (s.target === 'dragon') {
+          s.tx = dragon.x; s.ty = dragon.y - 15;
+          if (s.cat) explodeDragon(t);
+          else [s.source, ...s.attackers].map(id => wizards.get(id)).filter(Boolean).forEach((w, j) => castDragonFire(w, j * .72));
+        } else {
+          const target = wizards.get(s.target);
+          if (target) {
+            s.tx = target.x; s.ty = target.y - 14;
+            const source = wizards.get(s.source), loser = !s.cat && source && s.defenders.length > s.attackers.length ? source : target;
+            explodeWizard(loser, t);
+          }
+        }
+      } else if (s.kind === 'counterfire') {
+        const target = wizards.get(s.target);
+        if (target) { s.tx = target.x; s.ty = target.y - 13; explodeWizard(target, t, true); }
+      } else if (s.kind === 'teleport') spark(s.tx, s.ty, s.c, -4, .4);
       else if (s.kind === 'fireball') sparkleAt(s.tx, s.ty);
       else if (s.kind !== 'rain') {
         if (s.cat) burnGameAt(s.tx, s.ty, t);
@@ -731,6 +822,11 @@
     }
   }
   function updateDragon(dt, t) {
+    if (dragon.blast) {
+      if (t < dragon.blast.until) return;
+      dragon.blast = null;
+      sparkleAt(dragon.x, dragon.y);
+    }
     if (dragon.dest === 'stretching' && t >= dragon.stretchUntil) sendDragonHome(t);
     if (dragon.path.length) {
       moveAlong(dragon, dt, 54);
@@ -747,7 +843,7 @@
     else if (!blocked(e.x, y, a.r)) e.y = y;
   }
   function collisionActors() {
-    const a = [...wizards.values()].filter(w => w.alpha > .25).map(w => ({ e: w, r: WIZ_R + 1 }));
+    const a = [...wizards.values()].filter(w => w.alpha > .25 && !w.blast).map(w => ({ e: w, r: WIZ_R + 1 }));
     a.push({ e: cat, r: CAT_R + 1 });
     return a;
   }
@@ -765,6 +861,12 @@
 
   function update(dt, t) {
     for (const [id, w] of wizards) {
+      if (w.blast) {
+        if (t < w.blast.until) continue;
+        w.blast = null;
+        sparkleAt(w.x, w.y);
+        if (!w.leaving && w.home) pathTo(w, w.home[0], w.home[1]);
+      }
       w.walk = moveAlong(w, dt, SPEED);
       unstickWizard(w, t);
       w.alpha = Math.max(0, Math.min(1, w.alpha + (w.leaving && !w.path.length ? -3 : w.leaving && w.y > 252 ? -1.2 : 3) * dt));
@@ -775,10 +877,11 @@
       }
       if (w.a.status === 'idle' && Math.random() < dt * .5) spark(w.x + 6, w.y - 24, '#a8a2c8', -6, 1.4, 'z');
       if (w.a.status === 'attention' && Math.random() < dt * 2) spark(w.x, w.y - 26, '#ff5a5a', -10, .5);
-      maybeCast(w, t);
+      if (!maybeRay(w, t)) maybeCast(w, t);
     }
     updateDragon(dt, t);
-    maybeCatCast(t);
+    if (!maybeCatRay(cat, t)) maybeCatCast(t);
+    maybeCatRay(demonCat, t);
     updateSpells(dt, t);
     cafeService(t);
     maybeCafeChat(t);
@@ -830,6 +933,10 @@
 
   // ---------- draw ----------
   function drawWizardSprite(w, t) {
+    if (w.blast) {
+      drawBlast(w, w.blast, t, w.sp.demon ? '#f08a2a' : '#8fd0ff');
+      return;
+    }
     const rest = w.a.status === 'idle' && !w.walk;
     const idle = rest ? 'sleep' : 'idle';
     const f = w.walk ? ((t * 6 | 0) % 2 ? 'walkA' : 'walkB') : ((t + w.ph) % 2.6 < 1.3 ? idle + 'A' : idle + 'B');
@@ -844,6 +951,25 @@
       g.fillStyle = c;
       [[-8, -26, 4, 1], [-8, -26, 1, 4], [4, -26, 4, 1], [7, -26, 1, 4], [-8, 1, 4, 1], [-8, -2, 1, 3], [4, 1, 4, 1], [7, -2, 1, 3]].forEach(([a, b2, ww, hh]) => g.fillRect(w.x + a, w.y + b2, ww, hh));
     }
+    g.globalAlpha = 1;
+  }
+  function drawBlast(e, blast, t, c) {
+    const p = Math.min(1, (t - blast.at) / (blast.until - blast.at)), scatter = Math.sin(p * Math.PI);
+    g.globalAlpha = e.alpha === undefined ? 1 : e.alpha;
+    for (const f of blast.fragments) {
+      const x = e.x + blast.ox + f.sx + f.dx * scatter, y = e.y + blast.oy + f.sy + f.dy * scatter;
+      g.save();
+      g.translate(Math.round(x + f.w / 2), Math.round(y + f.h / 2));
+      g.rotate(f.spin * scatter);
+      if (blast.soot && p < .55) {
+        g.fillStyle = f.sx % 8 ? '#322c35' : '#77717d';
+        g.fillRect(-f.w / 2, -f.h / 2, f.w, f.h);
+      } else g.drawImage(blast.img, f.sx, f.sy, f.w, f.h, -f.w / 2, -f.h / 2, f.w, f.h);
+      g.restore();
+    }
+    g.globalAlpha = Math.max(0, .7 - scatter);
+    g.fillStyle = c;
+    g.fillRect(e.x - 7, e.y - 17, 14, 3); g.fillRect(e.x - 1, e.y - 23, 3, 15);
     g.globalAlpha = 1;
   }
 
@@ -940,6 +1066,35 @@
     g.globalAlpha = 1;
   }
   function drawSpell(s, t) {
+    if (s.kind === 'ray') {
+      const target = s.target === 'dragon' ? dragon : wizards.get(s.target);
+      const tx = target && !target.leaving ? target.x : s.tx, ty = target && !target.leaving ? target.y - (target === dragon ? 15 : 14) : s.ty;
+      const pulse = (t * 30 + s.seed) | 0;
+      pixLine(s.sx, s.sy, tx, ty, s.c, 2);
+      pixLine(s.sx, s.sy + (pulse % 3 - 1), tx, ty + ((pulse + 1) % 3 - 1), '#fff6d8', 5);
+      for (const id of s.attackers) {
+        const helper = wizards.get(id);
+        if (helper && !helper.leaving && !helper.blast) pixLine(helper.x, helper.y - 16, tx, ty, helper.sp.demon ? '#f08a3a' : '#8fd0ff', 5);
+      }
+      const source = wizards.get(s.source);
+      for (const id of s.defenders) {
+        const helper = wizards.get(id);
+        if (helper && source && !helper.leaving && !helper.blast) pixLine(helper.x, helper.y - 16, source.x, source.y - 14, helper.sp.demon ? '#f08a3a' : '#8fd0ff', 5);
+      }
+      g.fillStyle = s.c; g.fillRect(Math.round(tx) - 3, Math.round(ty) - 3, 7, 7);
+      g.fillStyle = '#fff6d8'; g.fillRect(Math.round(tx) - 1, Math.round(ty) - 1, 3, 3);
+      return;
+    }
+    if (s.kind === 'counterfire') {
+      if (s.t < 0) return;
+      const target = wizards.get(s.target), tx = target && !target.leaving ? target.x : s.tx, ty = target && !target.leaving ? target.y - 13 : s.ty;
+      for (let i = 0; i < 18; i++) {
+        const k = i / 17, wobble = Math.sin(k * 15 + t * 19 + s.seed) * 3 * k;
+        g.fillStyle = ['#ffe89a', '#ffd84a', '#f08a2a', '#f05a3a'][i % 4];
+        g.fillRect(Math.round(s.sx + (tx - s.sx) * k), Math.round(s.sy + (ty - s.sy) * k + wobble), k > .45 ? 3 : 2, k > .45 ? 3 : 2);
+      }
+      return;
+    }
     if (s.kind === 'teleport') { drawTeleportSpell(s); return; }
     if (s.kind === 'rain') { drawRainSpell(s, t); return; }
     const k = Math.min(1, s.t / s.life);
@@ -1003,6 +1158,7 @@
     const items = props(t).map(([y, f]) => ({ y, f: () => f(g) }));
     for (const w of wizards.values()) items.push({ y: w.y, f: () => drawWizardSprite(w, t) });
     items.push({ y: dragon.y, f: () => {
+      if (dragon.blast) { drawBlast(dragon, dragon.blast, t, '#f08a2a'); return; }
       const busy = !!dragon.task, brewing = busy && dragon.task.phase === 'brew', flying = dragon.mode === 'fly';
       const stretch = !busy && !dragon.mode && t < dragon.flapUntil, flap = flying || stretch, p = stretch ? 1 - (dragon.flapUntil - t) / 3 : 0;
       const lift = flying ? 10 + Math.sin(t * 9) * 2 : Math.sin(p * Math.PI) * 7;
@@ -1027,7 +1183,7 @@
       g.globalAlpha = 1;
     } });
     items.sort((a, b) => a.y - b.y).forEach(i => i.f());
-    const fireTarget = dragon.task && dragon.task.phase === 'brew' ? [CUP[0] + 5, CUP[1] + 4] : dragonAtBar() && t < dragon.roastUntil ? [PAN[0] + 4, PAN[1] - 2] : null;
+    const fireTarget = !dragon.blast && dragon.task && dragon.task.phase === 'brew' ? [CUP[0] + 5, CUP[1] + 4] : dragonAtBar() && t < dragon.roastUntil ? [PAN[0] + 4, PAN[1] - 2] : null;
     if (fireTarget) {  // fire breath, drawn over the counter
       const mx = dragon.x - 13, my = dragon.y - 15, tx = fireTarget[0], ty2 = fireTarget[1];
       for (let i = 0; i < 16; i++) {
@@ -1036,7 +1192,7 @@
         g.fillRect(mx + (tx - mx) * k + (Math.random() * 4 - 2) * k, my + (ty2 - my) * k, s, s);
       }
     }
-    if (dragon.task && dragon.task.phase === 'milk') drawMilkPour(t);
+    if (!dragon.blast && dragon.task && dragon.task.phase === 'milk') drawMilkPour(t);
     for (const s of SPELLS) drawSpell(s, t);
     for (const p of PARTS) {
       g.globalAlpha = Math.max(0, 1 - p.t / p.life);
@@ -1045,10 +1201,10 @@
     }
     g.globalAlpha = 1;
     for (const w of wizards.values()) {
-      if (w.emote && !w.walk && w.alpha > .8) drawEmote(g, w.x, w.y - 26, w.emote, t + w.ph);
-      if (w.order && w.order.stage === 'served' && !w.walk && w.alpha > .8) PR.cup(g, w.x + (w.dir < 0 ? -14 : 4), w.y - 11, w.order.drink.key, t + w.ph);
-      if (w.order && w.order.stage !== 'served' && !w.walk && w.alpha > .8 && ((t + w.ph) % 6) < 2.4) tag(w.x, w.y - 45, w.order.drink.name);
-      if ((hover === w.a.id || sel === w.a.id) && w.alpha > .5) tag(w.x, w.y - 38, w.sp.name);
+      if (w.emote && !w.walk && !w.blast && w.alpha > .8) drawEmote(g, w.x, w.y - 26, w.emote, t + w.ph);
+      if (w.order && w.order.stage === 'served' && !w.walk && !w.blast && w.alpha > .8) PR.cup(g, w.x + (w.dir < 0 ? -14 : 4), w.y - 11, w.order.drink.key, t + w.ph);
+      if (w.order && w.order.stage !== 'served' && !w.walk && !w.blast && w.alpha > .8 && ((t + w.ph) % 6) < 2.4) tag(w.x, w.y - 45, w.order.drink.name);
+      if ((hover === w.a.id || sel === w.a.id) && !w.blast && w.alpha > .5) tag(w.x, w.y - 38, w.sp.name);
     }
     drawCafeChat(t);
     if (cat.order && cat.order.stage === 'served') PR.cup(g, cat.x + 5, cat.y - 6, cat.order.drink.key, t);
@@ -1056,7 +1212,7 @@
     if (demonCat.active && demonCat.order && demonCat.order.stage === 'served') PR.cup(g, demonCat.x + 5, demonCat.y - 6, demonCat.order.drink.key, t);
     if (demonCat.active && demonCat.order && demonCat.order.stage !== 'served' && !demonCat.path.length && ((t + 2.3) % 6) < 2.4) tag(demonCat.x, demonCat.y - 25, demonCat.order.drink.name);
     if (hover === 'cat') tag(cat.x, cat.y - 20, 'BIGGLES, STAFF CAT');
-    if (hover === 'demon-cat' && demonCat.active) tag(demonCat.x, demonCat.y - 20, 'LUCIPURR, INFERNAL FAMILIAR');
+    if (hover === 'demon-cat' && demonCat.active) tag(demonCat.x, demonCat.y - 20, 'LUCIPURR');
     if (hover === 'barista') tag(dragon.x, dragon.y - 32, 'EARL GREY, BARISTA');
     if (!wizards.size) {
       g.fillStyle = 'rgba(12,9,20,.55)'; g.fillRect(90, 110, 300, 44);

@@ -46,8 +46,14 @@ crystal ball · Task/Agent/Skill = summoning circle · approvals = petition boar
 
 Appearance and name are deterministic per agent id (seeded hats, beards, robes,
 spectacles, staffs, and cafe order), so the same session keeps the same wizard
-across reloads. Earl Grey, the dragon barista, brews cafe orders with fire and
-pours milk for milk drinks. Biggles occasionally visits for a drink.
+across reloads. Wizards and demons occasionally ray opposing agents into pixel
+fragments; the victim magically reconstitutes and returns to its work. Agents
+of the opposite rank help their faction in a duel; stronger defending support
+reflects the blast at the aggressor, while a tie still hits the target. Agents
+who challenge Earl Grey bring their supporters too, but he roasts every
+assailant into soot in succession. Biggles and Lucipurr bypass duels and can
+blast anyone, including Earl Grey, but are themselves immune. Earl Grey, the
+dragon barista, brews cafe orders with fire and pours milk for milk drinks.
 The frontend polls `/api/state` every 1.5s.
 
 ## Hooks: instant "needs your blessing"

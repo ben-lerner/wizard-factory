@@ -247,11 +247,15 @@ class FileState:
 
     def payload(self):
         ov = OVERRIDES.get(self.sid) or {}
+        history = [h for h in self.history if h['tool'] != 'exec']
+        if self.tool == 'exec' and self.last_kind == 'tool_use':
+            history.append({'ts': self.last_ts, 'kind': 'tool_use', 'tool': 'exec',
+                            'text': clean(f'exec running: {self.detail or ""}', 120)})
         return {'id': self.id, 'kind': self.kind, 'engine': self.engine, 'parent': self.parent, 'project': project_of(self.cwd),
                 'branch': self.branch, 'title': self.title, 'quest': self.quest, 'model': self.model,
                 'status': self.status, 'tool': self.tool, 'detail': self.detail,
                 'since': self.since, 'last': max(self.last_ts or 0, self.mtime) or None, 'started': self.started,
-                'msg': ov.get('msg') if self.status == 'attention' else None, 'history': list(self.history)}
+                'msg': ov.get('msg') if self.status == 'attention' else None, 'history': history}
 
 
 def retail(fs, size):

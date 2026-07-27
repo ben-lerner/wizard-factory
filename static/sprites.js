@@ -58,9 +58,18 @@ window.SP = (() => {
     { key: 'health-potion', name: 'HEALTH POTION', milk: false, potion: '#d84a4a' },
     { key: 'antimatter', name: 'ANTIMATTER', milk: false, article: '' },
   ];
+  const INFERNAL_DRINKS = [
+    { key: 'hellfire-shot', name: 'HELLFIRE SHOT', milk: false, potion: '#f05a3a' },
+    { key: 'molten-brimstone', name: 'MOLTEN BRIMSTONE', milk: false, potion: '#f08a2a' },
+    { key: 'void-latte', name: 'VOID LATTE', milk: true, potion: '#8a4fc8' },
+    { key: 'soul-cold-brew', name: 'SOUL COLD BREW', milk: false, potion: '#4fc8c0' },
+  ];
   const WARM_MILK = { key: 'warm-milk', name: 'WARM MILK', milk: true };
-  const drinkFor = id => DRINKS[hash(id + ':drink') % DRINKS.length];
-  const drinkByKey = key => key === WARM_MILK.key ? WARM_MILK : DRINKS.find(d => d.key === key) || DRINKS[0];
+  const drinkFor = (id, demon = false) => {
+    const menu = demon ? INFERNAL_DRINKS : DRINKS;
+    return menu[hash(id + ':drink') % menu.length];
+  };
+  const drinkByKey = key => key === WARM_MILK.key ? WARM_MILK : [...DRINKS, ...INFERNAL_DRINKS].find(d => d.key === key) || DRINKS[0];
 
   // ---------- wizard sprite ----------
   const SKINS = ['#f0c8a0', '#e6b88e', '#cf9a66', '#b07845', '#8a5a32', '#6b4226'];
@@ -170,7 +179,7 @@ window.SP = (() => {
     const pc = document.createElement('canvas'); pc.width = 42; pc.height = 42;
     const pg = pc.getContext('2d'); pg.imageSmoothingEnabled = false;
     pg.drawImage(frames.idleA, 3, sub ? 1 : 0, 14, 14, 0, 0, 42, 42);
-    return { name, epithet, frames, portrait: pc.toDataURL(), hue, sub, demon, drink: drinkFor(id) };
+    return { name, epithet, frames, portrait: pc.toDataURL(), hue, sub, demon, drink: drinkFor(id, demon) };
   }
 
   // ---------- the staff cat ----------
@@ -496,5 +505,5 @@ window.SP = (() => {
     }
   }
 
-  return { hash, rng, pick, hsl, shade, drawText, textW, makeWizard, makeCat, makeDragon, PR, drawEmote, EPITHETS, DRINKS, WARM_MILK, drinkFor };
+  return { hash, rng, pick, hsl, shade, drawText, textW, makeWizard, makeCat, makeDragon, PR, drawEmote, EPITHETS, DRINKS, INFERNAL_DRINKS, WARM_MILK, drinkFor };
 })();

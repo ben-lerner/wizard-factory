@@ -4,7 +4,7 @@
   const VW = 480, VH = 272, POLL = 1500, SPEED = 42;
   const $ = q => document.querySelector(q);
   const cv = $('#view'), g = cv.getContext('2d');
-  const { drawText, textW, rng, hash, PR, drawEmote, WARM_MILK, DRINKS } = SP;
+  const { drawText, textW, rng, hash, PR, drawEmote, WARM_MILK, DRINKS, INFERNAL_DRINKS } = SP;
 
   // ---------- stations ----------
   const ST = {
@@ -223,7 +223,7 @@
   const catFrames = SP.makeCat();
   const cat = { x: 446, y: 110, state: 'sit', until: 4, path: [], dir: -1, dest: null, order: null, game: null, castAt: 0 };
   const catR = rng(99);
-  const demonCat = { frames: SP.makeCat(true), x: 446, y: 110, active: false, path: [], dir: -1, alpha: 0, until: 0, moveAt: 0, summonAt: 24 };
+  const demonCat = { frames: SP.makeCat(true), x: 446, y: 110, active: false, path: [], dir: -1, alpha: 0, until: 0, summonAt: 24, dest: null, order: null };
   const demonCatR = rng(666);
   demonCat.r = demonCatR;
   const CAT_SPECIALS = DRINKS.filter(d => ['health-potion', 'mana-potion', 'antimatter'].includes(d.key));
@@ -285,10 +285,12 @@
     const cs = [];
     for (const w of wizards.values()) if (cafeReady(w) && w.order) cs.push({ kind: 'wizard', id: w.a.id, order: w.order, drink: w.order.drink, x: w.x, y: w.y });
     if (cat.state === 'cafe' && !cat.path.length && cat.order) cs.push({ kind: 'cat', id: 'cat', order: cat.order, drink: cat.order.drink, x: cat.x, y: cat.y });
+    if (demonCat.active && !demonCat.path.length && demonCat.order) cs.push({ kind: 'demon-cat', id: 'demon-cat', order: demonCat.order, drink: demonCat.order.drink, x: demonCat.x, y: demonCat.y });
     return cs;
   }
   function taskCustomer(task) {
     if (task.kind === 'cat') return cat.state === 'cafe' && cat.order === task.order ? { kind: 'cat', id: 'cat', order: cat.order, drink: cat.order.drink, x: cat.x, y: cat.y } : null;
+    if (task.kind === 'demon-cat') return demonCat.active && demonCat.order === task.order ? { kind: 'demon-cat', id: 'demon-cat', order: demonCat.order, drink: demonCat.order.drink, x: demonCat.x, y: demonCat.y } : null;
     const w = wizards.get(task.id);
     return w && cafeReady(w) && w.order === task.order ? { kind: 'wizard', id: w.a.id, order: w.order, drink: w.order.drink, x: w.x, y: w.y } : null;
   }
@@ -517,23 +519,23 @@
     if (!demonCat.active) {
       if (t < demonCat.summonAt || cat.state === 'walk' || cat.state === 'sleep') return;
       [demonCat.x, demonCat.y] = clampZone(cat.x + (cat.x > 268 ? -18 : 18), cat.y + 3);
-      Object.assign(demonCat, { active: true, alpha: 0, until: t + 18 + demonCatR() * 10, moveAt: t + 1, path: [] });
+      const drink = INFERNAL_DRINKS[hash('lucipurr:drink') % INFERNAL_DRINKS.length];
+      Object.assign(demonCat, { active: true, alpha: 0, until: t + 48 + demonCatR() * 10, dest: 'cafe',
+        order: { drink, stage: 'queued', askAt: t + 3, servedAt: 0 }, path: [] });
       castTeleport(cat, demonCat.x, demonCat.y, demonCatR, '#f08a2a');
+      pathTo(demonCat, 414, 226);
       return;
     }
     demonCat.alpha = Math.min(1, demonCat.alpha + dt * 3);
     if (t >= demonCat.until) {
       teleportBurst(demonCat.x, demonCat.y, '#f08a2a');
       demonCat.active = false;
+      demonCat.order = demonCat.dest = null;
       demonCat.summonAt = t + 45 + demonCatR() * 55;
       return;
     }
     if (demonCat.path.length) moveAlong(demonCat, dt, 24);
-    else if (t >= demonCat.moveAt) {
-      demonCat.moveAt = t + 3 + demonCatR() * 4;
-      const [x, y] = clampZone(cat.x + (demonCatR() * 36 - 18), cat.y + (demonCatR() * 20 - 10));
-      pathTo(demonCat, x, y);
-    }
+    else demonCat.dest = null;
     if (Math.random() < dt * .7) spark(demonCat.x, demonCat.y - 8, '#f08a2a', -5, .6);
   }
   function updateSpells(dt, t) {
@@ -1042,7 +1044,10 @@
     drawCafeChat(t);
     if (cat.order && cat.order.stage === 'served') PR.cup(g, cat.x + 5, cat.y - 6, cat.order.drink.key, t);
     if (cat.order && cat.order.stage !== 'served' && ((t + 1.7) % 6) < 2.4) tag(cat.x, cat.y - 25, cat.order.drink.name);
+    if (demonCat.active && demonCat.order && demonCat.order.stage === 'served') PR.cup(g, demonCat.x + 5, demonCat.y - 6, demonCat.order.drink.key, t);
+    if (demonCat.active && demonCat.order && demonCat.order.stage !== 'served' && !demonCat.path.length && ((t + 2.3) % 6) < 2.4) tag(demonCat.x, demonCat.y - 25, demonCat.order.drink.name);
     if (hover === 'cat') tag(cat.x, cat.y - 20, 'BIGGLES, STAFF CAT');
+    if (hover === 'demon-cat' && demonCat.active) tag(demonCat.x, demonCat.y - 20, 'LUCIPURR, INFERNAL FAMILIAR');
     if (hover === 'barista') tag(dragon.x, dragon.y - 32, 'EARL GREY, BARISTA');
     if (!wizards.size) {
       g.fillStyle = 'rgba(12,9,20,.55)'; g.fillRect(90, 110, 300, 44);
@@ -1078,6 +1083,7 @@
     for (const w of [...wizards.values()].sort((a, b) => b.y - a.y))
       if (Math.abs(mx - w.x) <= 9 && my >= w.y - 26 && my <= w.y + 3) return w.a.id;
     if (mx >= dragon.x - 25 && mx <= dragon.x + 25 && my >= dragon.y - 40 && my <= dragon.y + 3) return 'barista';
+    if (demonCat.active && Math.abs(mx - demonCat.x) <= 8 && Math.abs(my - demonCat.y + 4) <= 7) return 'demon-cat';
     if (Math.abs(mx - cat.x) <= 8 && Math.abs(my - cat.y + 4) <= 7) return 'cat';
     return null;
   }

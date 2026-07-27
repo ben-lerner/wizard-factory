@@ -46,8 +46,9 @@ crystal ball · Task/Agent/Skill = summoning circle · approvals = petition boar
 
 Appearance and name are deterministic per agent id (seeded hats, beards, robes,
 spectacles, staffs, and cafe order), so the same session keeps the same wizard
-across reloads. Wizards and demons occasionally ray opposing agents into pixel
-fragments; the victim magically reconstitutes and returns to its work. Agents
+across reloads. Long quiet stretches are occasionally interrupted by a brief
+tower-wide ray battle; victims magically reconstitute from their pixel fragments
+and return to work. Agents
 of the opposite rank help their faction in a duel; stronger defending support
 reflects the blast at the aggressor, while a tie still hits the target. Agents
 who challenge Earl Grey bring their supporters too, but he roasts every

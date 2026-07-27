@@ -453,6 +453,8 @@
   // ---------- particles ----------
   const PARTS = [];
   const SPELLS = [];
+  const battleR = rng(31337);
+  let nextBattle = 22 + battleR() * 20, battleUntil = 0;
   const SPELL_TARGETS = {
     cauldron: [[68, 154], [80, 154]], shelf: [[24, 68], [24, 104], [24, 140]],
     bench: [[132, 50], [154, 50], [176, 50]], submit: [[112, 118], [84, 126], [140, 126]], labwait: [[112, 118], [92, 130], [132, 130]], desk: [[108, 204], [152, 204]],
@@ -530,20 +532,33 @@
       tx: target.x, ty, t: 0, life: .32, seed: w.r() * 99 | 0, c });
     spark(w.x + w.dir * 7, sy, c, -5, .35);
   }
+  function updateBattle(t) {
+    if (battleUntil) {
+      if (t < battleUntil) return;
+      battleUntil = 0;
+      nextBattle = t + 90 + battleR() * 120;
+    }
+    if (t < nextBattle || !wizards.size) return;
+    battleUntil = t + 7 + battleR() * 3;
+    for (const w of wizards.values()) w.rayAt = t + w.r() * 1.2;
+    cat.rayAt = t + catR() * 1.2;
+    demonCat.rayAt = t + demonCatR() * 1.2;
+  }
   function maybeRay(w, t) {
-    if (!w.rayAt) { w.rayAt = t + 5 + w.r() * 8; return false; }
+    if (!battleUntil || t >= battleUntil) return false;
+    if (!w.rayAt) w.rayAt = t + w.r() * 1.2;
     if (t < w.rayAt || w.walk || w.leaving || w.game || w.blast || w.alpha < .8) return false;
-    w.rayAt = t + 10 + w.r() * 14;
+    w.rayAt = t + 1.8 + w.r() * 2;
     const target = rayOpponent(w);
     if (!target) return false;
     castRay(w, target);
     return true;
   }
   function maybeCatRay(c, t) {
-    if (c === demonCat && !c.active) return false;
-    if (!c.rayAt) { c.rayAt = t + 6 + c.r() * 10; return false; }
+    if (!battleUntil || t >= battleUntil || c === demonCat && !c.active) return false;
+    if (!c.rayAt) c.rayAt = t + c.r() * 1.2;
     if (t < c.rayAt || c.path.length || c.game || c.state === 'walk' || c.state === 'sleep' || c.alpha !== undefined && c.alpha < .8) return false;
-    c.rayAt = t + 12 + c.r() * 16;
+    c.rayAt = t + 2.2 + c.r() * 2;
     const targets = [...wizards.values()].filter(w => !w.leaving && !w.walk && !w.game && !w.blast && w.alpha > .8 &&
       !SPELLS.some(s => s.kind === 'ray' && s.target === w.a.id));
     if (!dragon.blast && !SPELLS.some(s => s.kind === 'ray' && s.target === 'dragon')) targets.push(dragon);
@@ -860,6 +875,7 @@
   }
 
   function update(dt, t) {
+    updateBattle(t);
     for (const [id, w] of wizards) {
       if (w.blast) {
         if (t < w.blast.until) continue;
@@ -1088,11 +1104,17 @@
     if (s.kind === 'counterfire') {
       if (s.t < 0) return;
       const target = wizards.get(s.target), tx = target && !target.leaving ? target.x : s.tx, ty = target && !target.leaving ? target.y - 13 : s.ty;
-      for (let i = 0; i < 18; i++) {
-        const k = i / 17, wobble = Math.sin(k * 15 + t * 19 + s.seed) * 3 * k;
-        g.fillStyle = ['#ffe89a', '#ffd84a', '#f08a2a', '#f05a3a'][i % 4];
-        g.fillRect(Math.round(s.sx + (tx - s.sx) * k), Math.round(s.sy + (ty - s.sy) * k + wobble), k > .45 ? 3 : 2, k > .45 ? 3 : 2);
+      const dir = tx < dragon.x ? -1 : 1, sx = dragon.x + dir * 13;
+      const sy = dragon.y - 15 - (dragon.mode === 'fly' ? 10 + Math.sin(t * 9) * 2 : 0), n = Math.max(16, Math.hypot(tx - sx, ty - sy) / 3 | 0);
+      for (let i = 0; i <= n; i++) {
+        const k = i / n, x = sx + (tx - sx) * k, y = sy + (ty - sy) * k + Math.sin(k * 18 + t * 22 + s.seed) * (1 + k * 3);
+        const size = 2 + (k * 5 | 0), core = Math.max(1, size - 3);
+        g.fillStyle = i % 3 ? '#f05a3a' : '#9f2742';
+        g.fillRect(Math.round(x - size / 2), Math.round(y - size / 2), size, size);
+        g.fillStyle = i % 2 ? '#f08a2a' : '#ffd84a';
+        g.fillRect(Math.round(x - core / 2), Math.round(y - core / 2), core, core);
       }
+      g.fillStyle = '#fff0a0'; g.fillRect(sx - 2, sy - 2, 4, 4);
       return;
     }
     if (s.kind === 'teleport') { drawTeleportSpell(s); return; }
@@ -1155,22 +1177,27 @@
     PR.circle(g, 160, 152 + 12, t, occupied('circle'));
     drawLightningCast(g, t);
     drawBonds(t);
+    const dragonFire = SPELLS.find(s => s.kind === 'counterfire' && s.t >= 0), fireVictim = dragonFire && wizards.get(dragonFire.target);
+    const fireX = fireVictim ? fireVictim.x : dragonFire && dragonFire.tx;
     const items = props(t).map(([y, f]) => ({ y, f: () => f(g) }));
     for (const w of wizards.values()) items.push({ y: w.y, f: () => drawWizardSprite(w, t) });
     items.push({ y: dragon.y, f: () => {
       if (dragon.blast) { drawBlast(dragon, dragon.blast, t, '#f08a2a'); return; }
-      const busy = !!dragon.task, brewing = busy && dragon.task.phase === 'brew', flying = dragon.mode === 'fly';
+      const busy = !!dragon.task, brewing = busy && dragon.task.phase === 'brew', firing = !!dragonFire, flying = dragon.mode === 'fly';
       const stretch = !busy && !dragon.mode && t < dragon.flapUntil, flap = flying || stretch, p = stretch ? 1 - (dragon.flapUntil - t) / 3 : 0;
       const lift = flying ? 10 + Math.sin(t * 9) * 2 : Math.sin(p * Math.PI) * 7;
       g.globalAlpha = .3; g.fillStyle = '#0a0810';
       g.fillRect(dragon.x - 9 + lift / 2, dragon.y - 1, 18 - lift, 2);
       g.globalAlpha = 1;
-      if (flap) {
+      if (flap && !firing) {
         const sway = Math.sin(t * 2.8) * 3 * Math.sin(p * Math.PI);
         g.drawImage(dragon.frames[(t * 7 | 0) % 2 ? 'flapA' : 'flapB'], Math.round(dragon.x - 22 + sway), Math.round(dragon.y - 29 - lift));
       } else {
-        const fr = brewing || t < dragon.roastUntil ? ((t * 8 | 0) % 2 ? 'roastA' : 'roastB') : (t % 2.6 < 1.3 ? 'idleA' : 'idleB');
-        g.drawImage(dragon.frames[fr], Math.round(dragon.x - 15), Math.round(dragon.y - 25));
+        const fr = firing || brewing || t < dragon.roastUntil ? ((t * 8 | 0) % 2 ? 'roastA' : 'roastB') : (t % 2.6 < 1.3 ? 'idleA' : 'idleB');
+        const img = dragon.frames[fr], y = Math.round(dragon.y - 25 - (firing ? lift : 0));
+        if (firing && fireX > dragon.x) {
+          g.save(); g.translate(Math.round(dragon.x + 15), y); g.scale(-1, 1); g.drawImage(img, 0, 0); g.restore();
+        } else g.drawImage(img, Math.round(dragon.x - 15), y);
       }
     } });
     items.push({ y: cat.y, f: () => { const fr = cat.state === 'sleep' ? 'sleep' : cat.state === 'walk' ? ((t * 5 | 0) % 2 ? 'walkA' : 'walkB') : ((t * 1.3 | 0) % 2 ? 'sitA' : 'sitB');

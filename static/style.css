@@ -16,10 +16,10 @@ body {
 header {
   display: flex; align-items: center; gap: 16px; padding: 8px 14px;
   background: var(--panel); border-bottom: 2px solid #000; box-shadow: 0 2px 0 var(--edge);
-  flex: 0 0 auto;
+  flex: 0 0 52px; height: 52px; overflow: hidden;
 }
 #logo { image-rendering: pixelated; flex: 0 0 auto; }
-#counts { display: flex; gap: 14px; flex: 1; justify-content: center; flex-wrap: wrap; letter-spacing: 1px; font-size: 11px; }
+#counts { display: flex; gap: 14px; flex: 1; min-width: 0; justify-content: center; overflow: hidden; letter-spacing: 1px; font-size: 11px; }
 #counts span { white-space: nowrap; }
 .c-active, .c-git, .c-graphite, .c-jj { color: var(--green); }
 .c-test { color: var(--blue); } .c-run { color: var(--purple); }
@@ -34,7 +34,7 @@ header {
 }
 .pixbtn:hover { background: var(--edge); }
 #installBtn { width: auto; padding: 0 10px; font-size: 10px; }
-main { flex: 1; display: flex; min-height: 0; }
+main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 304px; min-height: 0; }
 #stage {
   flex: 1; display: flex; align-items: center; justify-content: center; position: relative; min-width: 0;
   padding: 10px; overflow: hidden;
@@ -72,12 +72,12 @@ main { flex: 1; display: flex; min-height: 0; }
 .tt-quest { color: var(--dim); font-style: italic; margin-bottom: 3px; }
 .tt-age { color: var(--dim); font-size: 9px; letter-spacing: .5px; }
 #side {
-  flex: 0 0 304px; display: flex; flex-direction: column; min-height: 0;
+  display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
   background: var(--panel); border-left: 2px solid #000; box-shadow: -2px 0 0 var(--edge);
 }
 #sideHead { padding: 9px 12px; color: var(--gold); letter-spacing: 2px; font-size: 11px; border-bottom: 2px solid var(--edge); }
 #num { color: var(--dim); }
-#rows { flex: 1; overflow-y: auto; min-height: 0; }
+#rows { flex: 1; overflow-y: auto; min-width: 0; min-height: 0; scrollbar-gutter: stable; }
 #rows::-webkit-scrollbar { width: 10px; }
 #rows::-webkit-scrollbar-thumb { background: var(--edge); border: 2px solid var(--panel); }
 .row {
@@ -130,4 +130,4 @@ main { flex: 1; display: flex; min-height: 0; }
 #help code { background: #0f0b1a; color: var(--green); padding: 1px 5px; border: 1px solid var(--edge); }
 #help .red { color: var(--red); }
 #help .dim { color: var(--dim); margin-top: 12px; font-size: 10px; }
-@media (max-width: 900px) { #side { flex-basis: 240px; } }
+@media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr) 240px; } }

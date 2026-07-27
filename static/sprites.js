@@ -148,9 +148,9 @@ window.SP = (() => {
 
   const CODEX_EPITHETS = ['OF THE CODEX ORDER', 'THE VISITING SCHOLAR', 'OF THE FOREIGN GUILD', 'THE GUEST ARTIFICER', 'THE EMISSARY'];
 
-  function makeWizard(id, kind, engine) {
+  function makeWizard(id, kind, engine, demon) {
     const r = rng(hash(id));
-    const sub = kind === 'sub', codex = engine === 'codex', demon = sub && hash(id + ':infernal') % 5 === 0;
+    const sub = kind === 'sub', codex = engine === 'codex';
     const hue = (r() * 360) | 0;
     const robe = hsl(hue, 42, 40), robeD = hsl(hue, 44, 28);
     const trim = pick(r, ['#e8c04a', '#d8def0', hsl((hue + 150) % 360, 55, 62), '#e8c04a']);

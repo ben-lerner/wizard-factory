@@ -194,12 +194,20 @@
   }
 
   function reconcile(data) {
+    const agents = new Map(data.agents.map(a => [a.id, a]));
+    const isDemon = (a, seen = new Set()) => {
+      if (a.kind !== 'sub' || !a.parent || seen.has(a.id)) return hash(a.id + ':infernal') % 4 === 0;
+      seen.add(a.id);
+      const parent = agents.get(a.parent);
+      return parent ? isDemon(parent, seen) : hash(a.parent + ':infernal') % 4 === 0;
+    };
     const seen = new Set();
     for (const a of data.agents) {
       seen.add(a.id);
       let w = wizards.get(a.id);
+      const demon = isDemon(a);
       if (!w) {
-        w = { a, sp: SP.makeWizard(a.id, a.kind, a.engine), x: 436 + ((hash(a.id) % 9) - 4), y: 250, dir: -1, path: [], walk: false,
+        w = { a, sp: SP.makeWizard(a.id, a.kind, a.engine, demon), x: 436 + ((hash(a.id) % 9) - 4), y: 250, dir: -1, path: [], walk: false,
               station: null, spotI: -1, home: null, order: null, game: null, paceAt: 0, castAt: 0, leaving: false,
               stuckAt: 0, lastX: 436, lastY: 250, alpha: 0, ph: (hash(a.id) % 100) / 16, r: rng(hash(a.id) ^ 0xbeef), emote: null };
         wizards.set(a.id, w);
@@ -207,6 +215,7 @@
         w.a = a; retarget(w);
         continue;
       }
+      if (w.sp.demon !== demon) w.sp = SP.makeWizard(a.id, a.kind, a.engine, demon);
       const changed = w.a.status !== a.status || (a.status === 'working' && (w.a.tool !== a.tool || w.a.detail !== a.detail)) || w.leaving;
       w.a = a;
       w.leaving = false;
@@ -1077,6 +1086,7 @@
     g.imageSmoothingEnabled = false;
   }
   window.addEventListener('resize', resize);
+  new ResizeObserver(resize).observe($('#stage'));
 
   function pickAt(e) {
     const r = cv.getBoundingClientRect(), mx = (e.clientX - r.left - cv.clientLeft) / S, my = (e.clientY - r.top - cv.clientTop) / S;
@@ -1168,8 +1178,9 @@
 
   function tipHTML(w) {
     const a = w.a, now = Date.now() / 1000 - serverSkew;
+    const kind = w.sp.demon ? (a.kind === 'sub' ? 'DEMON APPRENTICE · ' : 'DEMON · ') : a.kind === 'sub' ? 'APPRENTICE · ' : '';
     return `<div class="tt-name">${esc(w.sp.name)} <span>${esc(w.sp.epithet)}</span></div>
-      <div class="tt-meta">${a.engine === 'codex' ? 'CODEX · ' : ''}${a.kind === 'sub' ? 'APPRENTICE · ' : ''}${esc(a.project || '?')}${a.branch ? ' · ' + esc(a.branch) : ''}${a.model ? ' · ' + esc(a.model.replace('claude-', '')) : ''}</div>
+      <div class="tt-meta">${a.engine === 'codex' ? 'CODEX · ' : ''}${kind}${esc(a.project || '?')}${a.branch ? ' · ' + esc(a.branch) : ''}${a.model ? ' · ' + esc(a.model.replace('claude-', '')) : ''}</div>
       <div class="tt-status st-${a.status}">${esc(statusLine(a, w))}</div>
       ${a.title ? `<div class="tt-title">${esc(a.title)}</div>` : ''}
       ${a.quest ? `<div class="tt-quest">"${esc(a.quest.slice(0, 130))}"</div>` : ''}

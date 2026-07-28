@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Wizard Factory - a retro dashboard that shows every coding agent as a pixel wizard.
 
-Polls ~/.claude/projects/**/*.jsonl transcripts (main sessions + subagents), infers what
-each agent is doing, and serves the tower at http://127.0.0.1:7777. No registration needed.
+Polls local and mage-tower agent transcripts, infers what each agent is doing, and serves
+the tower at http://127.0.0.1:7777. No registration needed.
 
   python3 server.py                  # the real tower
   python3 server.py --demo           # a busy fake tower (for trying the UI)
@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import random
+import subprocess
 import threading
 import time
 from collections import deque
@@ -26,6 +27,7 @@ SETTINGS = Path.home() / '.claude' / 'settings.json'
 HOOK_MARK = '#wizard-factory'
 HOOK_EVENTS = ['Notification', 'Stop', 'UserPromptSubmit', 'SessionStart', 'SessionEnd']
 SCAN_SEC, FRESH_SEC, TAIL_BYTES = 1.0, 3 * 3600, 512 * 1024
+REMOTE_SCAN_SEC, REMOTE_STALE_SEC = 3.0, 15
 RESPONDING_SEC, IDLE_SEC, GONE_SEC = 6, 15 * 60, 45 * 60
 ABANDON_SEC, SUB_GONE_SEC = 2 * 3600, 150
 MIME = {'.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png',
@@ -34,6 +36,7 @@ MIME = {'.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.pn
 FILES = {}      # path -> FileState
 OVERRIDES = {}  # session_id -> latest hook event {event, ts, msg}
 DEAD = {}       # session_id -> epoch of SessionEnd hook
+REMOTE_AGENTS, REMOTE_SEEN = [], 0
 LOCK = threading.Lock()
 
 
@@ -357,9 +360,11 @@ class Demo:
 
     def spawn(self, now, parent=None):
         self.n += 1
+        origin = self.ags[parent]['origin'] if parent else 'remote' if self.n % 3 == 0 else 'local'
         self.ags[f'demo-{self.n}'] = {
             'id': f'demo-{self.n}', 'kind': 'sub' if parent else 'main', 'parent': parent,
             'engine': 'codex' if not parent and self.rng.random() < .18 else 'claude',
+            'origin': origin, 'host': 'mage-tower' if origin == 'remote' else None,
             'project': self.rng.choice(self.PROJ), 'branch': None, 'title': None,
             'quest': self.rng.choice(self.QUESTS), 'model': 'claude-fable-5', 'status': 'thinking',
             'tool': None, 'detail': None, 'msg': None, 'since': now, 'last': now, 'started': now,
@@ -406,10 +411,35 @@ class Demo:
         return [{k: v for k, v in a.items() if k != '_next'} for a in self.ags.values() if a['status'] != 'gone']
 
 
+def remote_agents(host, payload):
+    agents = payload.get('agents', []) if isinstance(payload, dict) else []
+    return [{**a, 'id': f"{host}:{a['id']}",
+             'parent': f"{host}:{a['parent']}" if a.get('parent') else None,
+             'origin': 'remote', 'host': host}
+            for a in agents if isinstance(a, dict) and isinstance(a.get('id'), str)]
+
+
+def scan_remote(host):
+    source = Path(__file__).read_bytes()
+    proc = subprocess.run(
+        ['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=3', host,
+         'python3', '-', '--debug-scan'],
+        input=source, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10,
+    )
+    proc.check_returncode()
+    return remote_agents(host, json.loads(proc.stdout))
+
+
 def state_payload(demo):
     now = time.time()
     with LOCK:
-        ags = demo.payload(now) if demo else [fs.payload() for fs in FILES.values() if fs.status and fs.status != 'gone']
+        if demo:
+            ags = demo.payload(now)
+        else:
+            ags = [{**fs.payload(), 'origin': 'local'} for fs in FILES.values()
+                   if fs.status and fs.status != 'gone']
+            if now - REMOTE_SEEN < REMOTE_STALE_SEC:
+                ags += REMOTE_AGENTS
     return {'now': now, 'demo': bool(demo), 'agents': sorted(ags, key=lambda a: a['started'] or 0)}
 
 
@@ -505,6 +535,7 @@ def main():
     ap.add_argument('--port', type=int, default=7777)
     ap.add_argument('--demo', action='store_true', help='populate the tower with fake wizards')
     ap.add_argument('--debug-scan', action='store_true', help='print inferred agents as JSON and exit')
+    ap.add_argument('--remote-host', default='mage-tower', help='SSH host to scan (empty to disable)')
     ap.add_argument('--install-hooks', action='store_true', help='add optional hooks to ~/.claude/settings.json')
     ap.add_argument('--uninstall-hooks', action='store_true', help='remove those hooks')
     a = ap.parse_args()
@@ -516,7 +547,7 @@ def main():
         return print(json.dumps(state_payload(None), indent=2))
     demo = Demo() if a.demo else None
     if not demo:
-        def loop():
+        def local_loop():
             while True:
                 t = time.time()
                 with LOCK:
@@ -525,7 +556,20 @@ def main():
                     except Exception as e:
                         print('scan error:', repr(e), flush=True)
                 time.sleep(max(0.1, SCAN_SEC - (time.time() - t)))
-        threading.Thread(target=loop, daemon=True).start()
+        threading.Thread(target=local_loop, daemon=True).start()
+        if a.remote_host:
+            def remote_loop():
+                global REMOTE_AGENTS, REMOTE_SEEN
+                while True:
+                    t = time.time()
+                    try:
+                        agents = scan_remote(a.remote_host)
+                        with LOCK:
+                            REMOTE_AGENTS, REMOTE_SEEN = agents, time.time()
+                    except Exception:
+                        pass
+                    time.sleep(max(0.1, REMOTE_SCAN_SEC - (time.time() - t)))
+            threading.Thread(target=remote_loop, daemon=True).start()
     srv = ThreadingHTTPServer(('127.0.0.1', a.port), make_handler(demo))
     print(f"\n   /\\\n  /__\\   WIZARD FACTORY{' (demo)' if demo else ''}\n   ||    http://127.0.0.1:{a.port}\n", flush=True)
     srv.serve_forever()

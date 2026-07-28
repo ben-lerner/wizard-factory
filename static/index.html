@@ -27,16 +27,16 @@
     </section>
   </div>
   <aside id="side">
-    <div id="sideHead">WIZARDS ON DUTY <span id="num"></span></div>
+    <div id="sideHead">AGENTS ON DUTY <span id="num"></span></div>
     <div id="rows"></div>
   </aside>
 </main>
 <div id="help" hidden>
   <div class="panel">
     <h2>THE WIZARD FACTORY</h2>
-    <p>Every coding-agent session (and every subagent it summons) appears here as a wizard.
-       Nothing registers itself — the server tails local agent transcripts and infers what
-       each agent is up to.</p>
+    <p>Every local coding-agent session (and every subagent it summons) appears here as a
+       wizard. Agents running remotely on <code>mage-tower</code> appear as demons. Nothing
+       registers itself — the server tails agent transcripts and infers what each is up to.</p>
     <h3>READING THE ROOM</h3>
     <ul>
       <li><b>Cauldron</b> — running shell spells (Bash)</li>
@@ -50,7 +50,8 @@
       <li><b>Cafe</b> — waiting on commands, test runs, questions, or your next prompt with a fresh order from Earl Grey</li>
       <li><b>Hearth armchairs</b> — idle 15min+, dozing off</li>
       <li>Apprentices (smaller, beardless) are subagents; they vanish when their task ends.</li>
-      <li>Hooded wizards with a <b>codex</b> chip are OpenAI Codex CLI sessions
+      <li>Demons are agents running remotely on <code>mage-tower</code>; local agents are wizards.</li>
+      <li>Hooded agents with a <b>codex</b> chip are OpenAI Codex CLI sessions
           (read from <code>~/.codex/sessions</code>); one-shot <code>codex exec</code> runs
           finish and leave rather than waiting around.</li>
     </ul>

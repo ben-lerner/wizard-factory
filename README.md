@@ -1,9 +1,9 @@
 # 🧙 Wizard Factory
 
-A retro 8-bit dashboard that shows every running coding agent as a pixel wizard
-in a shared tower. Main sessions are wizards; subagents are apprentices. They move between
-stations based on what they're doing, and wait for you at the café with a fresh drink when
-their turn is done.
+A retro 8-bit dashboard that shows every running coding agent in a shared tower.
+Local sessions are pixel wizards, agents running remotely on `mage-tower` are demons,
+and subagents are apprentices. They move between stations based on what they're doing,
+and wait for you at the café with a fresh drink when their turn is done.
 
 ![demo](assets/demo.gif)
 
@@ -16,16 +16,17 @@ python3 server.py --demo           # fake wizards, for kicking the tires
 python3 server.py --port N         # different port
 ```
 
-No dependencies (Python 3 stdlib only).
+No Python dependencies (remote polling also requires the system `ssh` command).
 
 ## How it works
 
-The server tails the transcript files written to
+The server tails local transcript files written to
 `~/.claude/projects/<project>/<session>.jsonl` (and
 `<session>/subagents/agent-*.jsonl` for subagents), keeping byte offsets per file
-and re-reading the tail if a file is rewritten. OpenAI Codex CLI sessions are
-tracked the same way from `~/.codex/sessions/**/rollout-*.jsonl` — they appear as
-hooded wizards with a `codex` chip, and one-shot `codex exec` runs (including
+and re-reading the tail if a file is rewritten. It also polls the same paths on
+`mage-tower` over SSH; remote agents are namespaced and displayed as demons. OpenAI Codex
+CLI sessions are tracked the same way from `~/.codex/sessions/**/rollout-*.jsonl` —
+they appear as hooded agents with a `codex` chip, and one-shot `codex exec` runs (including
 codex review subagents) finish and leave instead of waiting for input. From the
 last few events it infers a status for each agent:
 
@@ -81,6 +82,8 @@ already-running sessions keep working via polling alone.
 ## Notes
 
 - Binds to 127.0.0.1 only.
+- Remote polling uses non-interactive SSH to `mage-tower`; pass
+  `--remote-host ''` to disable it or `--remote-host HOST` to use another machine.
 - Sessions whose transcript hasn't been touched for 3h are ignored; waiting
   wizards leave after 45 min, finished apprentices after ~2 min.
 - Desktop-app (bridge) sessions flush transcript content lazily, so "last sign"

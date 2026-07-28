@@ -194,18 +194,11 @@
   }
 
   function reconcile(data) {
-    const agents = new Map(data.agents.map(a => [a.id, a]));
-    const isDemon = (a, seen = new Set()) => {
-      if (a.kind !== 'sub' || !a.parent || seen.has(a.id)) return hash(a.id + ':infernal') % 4 === 0;
-      seen.add(a.id);
-      const parent = agents.get(a.parent);
-      return parent ? isDemon(parent, seen) : hash(a.parent + ':infernal') % 4 === 0;
-    };
     const seen = new Set();
     for (const a of data.agents) {
       seen.add(a.id);
       let w = wizards.get(a.id);
-      const demon = isDemon(a);
+      const demon = a.origin === 'remote';
       if (!w) {
         w = { a, sp: SP.makeWizard(a.id, a.kind, a.engine, demon), x: 436 + ((hash(a.id) % 9) - 4), y: 250, dir: -1, path: [], walk: false,
               station: null, spotI: -1, home: null, order: null, game: null, paceAt: 0, castAt: 0, rayAt: 0, blast: null, leaving: false,
@@ -1363,7 +1356,7 @@
     const a = w.a, now = Date.now() / 1000 - serverSkew;
     const kind = w.sp.demon ? (a.kind === 'sub' ? 'DEMON APPRENTICE · ' : 'DEMON · ') : a.kind === 'sub' ? 'APPRENTICE · ' : '';
     return `<div class="tt-name">${esc(w.sp.name)} <span>${esc(w.sp.epithet)}</span></div>
-      <div class="tt-meta">${a.engine === 'codex' ? 'CODEX · ' : ''}${kind}${esc(a.project || '?')}${a.branch ? ' · ' + esc(a.branch) : ''}${a.model ? ' · ' + esc(a.model.replace('claude-', '')) : ''}</div>
+      <div class="tt-meta">${a.engine === 'codex' ? 'CODEX · ' : ''}${kind}${a.host ? esc(a.host) + ' · ' : ''}${esc(a.project || '?')}${a.branch ? ' · ' + esc(a.branch) : ''}${a.model ? ' · ' + esc(a.model.replace('claude-', '')) : ''}</div>
       <div class="tt-status st-${a.status}">${esc(statusLine(a, w))}</div>
       ${a.title ? `<div class="tt-title">${esc(a.title)}</div>` : ''}
       ${a.quest ? `<div class="tt-quest">"${esc(a.quest.slice(0, 130))}"</div>` : ''}
@@ -1403,7 +1396,7 @@
         <div class="mid">
           <div class="nm">${a.kind === 'sub' ? '<span class="sub-arrow">&#8627;</span> ' : ''}${esc(w.sp.name)} <span class="ep">${esc(w.sp.epithet)}</span></div>
           <div class="ln">${esc(statusLine(a, w))}</div>
-          <div class="ch"><span class="chip">${esc(a.project || '?')}</span>${a.engine === 'codex' ? '<span class="chip cdx">codex</span>' : ''}${a.branch ? `<span class="chip alt">${esc(a.branch)}</span>` : ''}<span class="time">${AGE(now - (a.since || now))}</span></div>
+          <div class="ch"><span class="chip">${esc(a.project || '?')}</span>${a.host ? `<span class="chip alt">${esc(a.host)}</span>` : ''}${a.engine === 'codex' ? '<span class="chip cdx">codex</span>' : ''}${a.branch ? `<span class="chip alt">${esc(a.branch)}</span>` : ''}<span class="time">${AGE(now - (a.since || now))}</span></div>
         </div></div>`;
     }).join('');
     document.querySelectorAll('#rows .row').forEach(el => {

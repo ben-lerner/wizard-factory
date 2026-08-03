@@ -56,6 +56,21 @@ main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 304px; min-
 }
 #journalClose:hover { color: var(--gold); }
 .j-head { color: var(--gold); letter-spacing: 2px; font-size: 13px; padding-right: 24px; }
+#journalOpen {
+  float: right; margin-right: 20px; font: 9px var(--font); letter-spacing: 1px; cursor: pointer;
+  color: var(--blue); background: var(--panel2); border: 1px solid var(--edge); padding: 2px 6px;
+}
+#journalOpen:hover { color: var(--gold); background: var(--edge); }
+.j-chat { max-height: 40vh; overflow-y: auto; background: #120e1d; border: 1px solid #2c2340; padding: 6px 8px; }
+.j-chat::-webkit-scrollbar { width: 8px; }
+.j-chat::-webkit-scrollbar-thumb { background: var(--edge); }
+.j-msg { padding: 5px 0; border-top: 1px solid #241c38; }
+.j-msg:first-child { border-top: 0; }
+.j-who { color: var(--dim); font-size: 9px; letter-spacing: 1px; }
+.j-msg.user .j-who { color: var(--gold); }
+.j-msg.agent .j-who { color: var(--purple); }
+.j-said { color: var(--ink); font-size: 10px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.j-msg.user .j-said { color: #ffeaa7; }
 .j-ep { color: var(--dim); font-size: 9px; margin: 2px 0 10px; }
 .j-summary { color: var(--ink); line-height: 1.55; padding: 9px; background: #0f0b1a; border-left: 3px solid var(--purple); }
 .j-title { color: var(--blue); letter-spacing: 1px; font-size: 10px; margin: 14px 0 6px; }

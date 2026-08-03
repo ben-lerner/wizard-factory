@@ -1372,17 +1372,51 @@
       `Currently ${statusLine(a, w).toLowerCase()}.`;
     return `${quest ? `Quest: ${quest}. ` : ''}${tools.length ? `Recent craft: ${tools.join(', ')}. ` : ''}${state}`;
   }
+  // The exchange itself, oldest first, so it reads like the window you were last looking at.
+  function chatHTML(w, now) {
+    const chat = w.a.chat || [];
+    if (!chat.length) return '<div class="j-empty">Nothing has been said aloud yet.</div>';
+    return `<div class="j-chat">${chat.map(c => `<div class="j-msg ${c.role}">
+      <div class="j-who">${c.role === 'user' ? 'YOU' : esc(w.sp.name)} · ${AGE(now - c.ts)} AGO</div>
+      <div class="j-said">${esc(c.text)}</div></div>`).join('')}</div>`;
+  }
+  let journalSig = null, journalId = null, journalAt = 0;
+  const JOURNAL_STALE = 10;  // rebuild this often anyway, so "3M AGO" doesn't sit there frozen
   function renderJournal() {
     const panel = $('#journal'), w = wizards.get(sel);
-    if (!w) { panel.hidden = true; return; }
+    if (!w) { panel.hidden = true; journalSig = journalId = null; return; }
     const a = w.a, now = Date.now() / 1000 - serverSkew, history = [...(a.history || [])].reverse();
-    $('#journalBody').innerHTML = `<div class="j-head">${esc(w.sp.name)}</div>
+    // Rebuilding wipes both scroll positions, so do it only on a change or once ages go stale.
+    const sig = JSON.stringify([a.id, a.status, a.tool, a.detail, a.title, a.quest, a.project,
+      a.branch, !!a.open, a.chat, history.map(h => h.text)]);
+    if (sig === journalSig && now - journalAt < JOURNAL_STALE && !panel.hidden) return;
+    const fresh = journalId !== a.id;
+    journalId = a.id;
+    const body = $('#journalBody'), keep = fresh ? 0 : panel.scrollTop;  // #journal is the scroller
+    const chatBox = $('.j-chat');
+    const pinned = fresh || !chatBox || chatBox.scrollTop + chatBox.clientHeight >= chatBox.scrollHeight - 8;
+    const chatKeep = chatBox ? chatBox.scrollTop : 0;
+    journalSig = sig;
+    journalAt = now;
+    body.innerHTML = `<div class="j-head">${esc(w.sp.name)}${a.open ? '<button id="journalOpen" title="open this agent\'s terminal">⧉ OPEN</button>' : ''}</div>
       <div class="j-ep">${esc(w.sp.epithet)} · ${esc(a.project || '?')}${a.branch ? ' · ' + esc(a.branch) : ''}</div>
       <div class="j-summary">${esc(journalSummary(a, w))}</div>
+      <div class="j-title">COUNSEL &amp; MISSIVES</div>
+      ${chatHTML(w, now)}
       <div class="j-title">QUEST HISTORY</div>
       ${history.length ? history.map(h => `<div class="j-event"><span class="j-time">${AGE(now - h.ts)} AGO</span><span class="j-rune">◆</span><span class="j-text">${esc(h.text)}</span></div>`).join('') :
         '<div class="j-empty">No deeds have reached the chronicle yet.</div>'}`;
     panel.hidden = false;
+    panel.scrollTop = keep;
+    const box = $('.j-chat');
+    if (box) box.scrollTop = pinned ? box.scrollHeight : chatKeep;
+    const btn = $('#journalOpen');
+    if (btn) btn.onclick = async e => {
+      e.stopPropagation();
+      btn.textContent = '⧉ …';
+      const res = await fetch(`/open?id=${encodeURIComponent(a.id)}&token=${encodeURIComponent(lastData.token || '')}`).catch(() => null);
+      btn.textContent = res && res.ok ? '⧉ OPEN' : '⧉ NO LUCK';
+    };
   }
   function renderSide() {
     const now = Date.now() / 1000 - serverSkew;

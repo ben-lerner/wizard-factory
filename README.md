@@ -58,6 +58,23 @@ blast anyone, including Earl Grey, but are themselves immune. Earl Grey, the
 dragon barista, brews cafe orders with fire and pours milk for milk drinks.
 The frontend polls `/api/state` every 1.5s.
 
+## The journal: what was said, and getting back to it
+
+Clicking a wizard opens its journal. **Counsel & missives** is the exchange itself — your prompts
+and the agent's replies, oldest first, scrolling like the window you were last looking at — read out
+of the same transcripts as everything else (so it also arrives over SSH for demons). **⧉ open**
+jumps you to that agent's terminal: it raises the Ghostty tab the agent already sits in, or opens a
+window that reattaches to its tmux session, or creates one that resumes the transcript if the
+session is gone — over `ssh -t` for demons.
+
+That button and the link on every end-of-turn push notification both hit
+`GET /open?id=<session>&token=<token>`, which runs `~/.agents/scripts/open-agent` using only the
+fields the notify hooks recorded in `~/.agents/state/agents.json`. The token lives in
+`~/.agents/state/open-token` (mode 0600, created on demand); requests without it are refused, so no
+page you happen to be browsing can raise your terminals. Agents launched outside `code`/`hypercode`
+have no tmux session recorded, so opening them resumes the transcript in a new session instead of
+finding the original tab.
+
 ## Hooks: instant "needs your blessing"
 
 Polling can't always distinguish a long-running Bash spell from a permission

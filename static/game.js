@@ -6,10 +6,10 @@
   const cv = $('#view'), g = cv.getContext('2d');
   const { drawText, textW, rng, hash, PR, drawEmote, WARM_MILK, DRINKS, INFERNAL_DRINKS } = SP;
   const QUOTA_COLORS = { claude: '#bd6fe8', codex: '#58b8e8' }, QUOTA_VATS = [
-    { provider: 'claude', period: 'weekly', x: 188, shape: 'vat', tx: 185, ty: 75 },
-    { provider: 'codex', period: 'weekly', x: 211, shape: 'vat', tx: 207, ty: 75 },
-    { provider: 'codex', period: 'fable', x: 237, shape: 'spiral', tx: 235, ty: 75 },
-    { provider: 'claude', period: 'five_hour', x: 225, shape: 'thin', tx: 218, ty: 86 },
+    { provider: 'claude', period: 'weekly', x: 196, shape: 'vat', tx: 193, ty: 75 },
+    { provider: 'claude', period: 'fable', x: 219, shape: 'spiral', tx: 216, ty: 75 },
+    { provider: 'codex', period: 'weekly', x: 240, shape: 'vat', tx: 238, ty: 75 },
+    { provider: 'claude', period: 'five_hour', x: 211, shape: 'thin', tx: 204, ty: 86 },
   ];
 
   // ---------- stations ----------

@@ -79,15 +79,17 @@ class QuotaTest(unittest.TestCase):
 
         self.assertEqual(server.reset_count(response), 1)
 
-    def test_reads_fable_quota(self):
-        response = {'rateLimitsByLimitId': {'codex_bengalfox': {'primary': {
-            'usedPercent': 25, 'windowDurationMins': 10080, 'resetsAt': 20,
-        }}}}
+    def test_reads_claude_fable_quota_with_weekly_reset_fallback(self):
+        usage = {
+            'seven_day': {'resets_at': '2026-08-11T08:00:00Z'},
+            'limits': [{'percent': 25, 'resets_at': None,
+                        'scope': {'model': {'display_name': 'Fable'}}}],
+        }
 
-        self.assertEqual(server.fable_quota(response), [{
-            'provider': 'codex', 'period': 'fable', 'left': 75,
-            'resets_at': 20, 'resets_left': 0,
-        }])
+        self.assertEqual(server.claude_fable(usage), {
+            'provider': 'claude', 'period': 'fable', 'left': 75,
+            'resets_at': 1786435200.0, 'resets_left': 0,
+        })
 
     def test_rolls_expired_codex_quota_into_a_fresh_week(self):
         quotas = [{'provider': 'codex', 'period': 'weekly', 'left': 8,

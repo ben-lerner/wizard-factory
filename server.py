@@ -53,7 +53,7 @@ REMOTE_AGENTS, REMOTE_SEEN = [], 0
 REGISTRY_MTIME, TOKEN, TOKEN_MTIME = 0.0, None, 0.0
 CLAUDE_USAGE_MTIME, CLAUDE_QUOTAS = 0.0, []
 CODEX_QUOTAS, CODEX_QUOTAS_TS = [], 0
-CODEX_RESETS, CODEX_FABLE, CODEX_ACCOUNT_TS, CODEX_ACCOUNT_REFRESHING = 0, [], 0, False
+CODEX_RESETS, CODEX_RESETS_TS, CODEX_RESETS_REFRESHING = 0, 0, False
 LOCK = threading.Lock()
 
 
@@ -174,7 +174,8 @@ def claude_quotas():
     try:
         usage = json.loads(CLAUDE_STATE.read_text()).get('cachedUsageUtilization', {}).get('utilization', {})
         CLAUDE_QUOTAS = [q for q in (quota('claude', 'weekly', usage.get('seven_day')),
-                                     quota('claude', 'five_hour', usage.get('five_hour'))) if q]
+                                     quota('claude', 'five_hour', usage.get('five_hour')),
+                                     claude_fable(usage)) if q]
         CLAUDE_USAGE_MTIME = mtime
     except (OSError, ValueError, AttributeError):
         pass
@@ -193,17 +194,19 @@ def reset_count(response):
     return max(0, count) if isinstance(count, int) else 0
 
 
-def fable_quota(response):
-    limits = response.get('rateLimitsByLimitId') if isinstance(response, dict) else None
-    fable = limits.get('codex_bengalfox') if isinstance(limits, dict) else None
-    window = fable.get('primary') if isinstance(fable, dict) else None
-    if not isinstance(window, dict):
-        return []
-    normalized = {'used_percent': window.get('usedPercent'), 'resets_at': window.get('resetsAt')}
-    return [q for q in [quota('codex', 'fable', normalized)] if q]
+def claude_fable(usage):
+    limits = usage.get('limits') if isinstance(usage, dict) else None
+    fable = next((x for x in limits or [] if isinstance(x, dict) and
+                  ((x.get('scope') or {}).get('model') or {}).get('display_name') == 'Fable'), None)
+    weekly = usage.get('seven_day') if isinstance(usage, dict) else None
+    if not fable or not isinstance(weekly, dict):
+        return None
+    return quota('claude', 'fable', {
+        'utilization': fable.get('percent'), 'resets_at': fable.get('resets_at') or weekly.get('resets_at'),
+    })
 
 
-def fetch_codex_account():
+def fetch_codex_resets():
     init = {'method': 'initialize', 'id': 1, 'params': {
         'clientInfo': {'name': 'wizard-factory', 'title': 'Wizard Factory', 'version': '1'},
         'capabilities': {'experimentalApi': True, 'requestAttestation': False},
@@ -234,7 +237,7 @@ def fetch_codex_account():
                     proc.stdin.flush()
                 if msg.get('id') == 2:
                     result = msg.get('result')
-                    return (reset_count(result), fable_quota(result)) if isinstance(result, dict) else None
+                    return reset_count(result) if isinstance(result, dict) else None
     except (OSError, ValueError, AttributeError):
         pass
     finally:
@@ -247,22 +250,22 @@ def fetch_codex_account():
     return None
 
 
-def refresh_codex_account():
-    global CODEX_RESETS, CODEX_FABLE, CODEX_ACCOUNT_TS, CODEX_ACCOUNT_REFRESHING
+def refresh_codex_resets():
+    global CODEX_RESETS, CODEX_RESETS_TS, CODEX_RESETS_REFRESHING
     try:
-        account = fetch_codex_account()
-        if account is not None:
-            CODEX_RESETS, CODEX_FABLE = account
+        count = fetch_codex_resets()
+        if count is not None:
+            CODEX_RESETS = count
     finally:
-        CODEX_ACCOUNT_TS, CODEX_ACCOUNT_REFRESHING = time.time(), False
+        CODEX_RESETS_TS, CODEX_RESETS_REFRESHING = time.time(), False
 
 
-def codex_account():
-    global CODEX_ACCOUNT_REFRESHING
-    if time.time() - CODEX_ACCOUNT_TS >= 60 and not CODEX_ACCOUNT_REFRESHING:
-        CODEX_ACCOUNT_REFRESHING = True
-        threading.Thread(target=refresh_codex_account, daemon=True).start()
-    return CODEX_RESETS, advance_quotas(CODEX_FABLE, time.time())
+def codex_resets():
+    global CODEX_RESETS_REFRESHING
+    if time.time() - CODEX_RESETS_TS >= 60 and not CODEX_RESETS_REFRESHING:
+        CODEX_RESETS_REFRESHING = True
+        threading.Thread(target=refresh_codex_resets, daemon=True).start()
+    return CODEX_RESETS
 
 
 def remember_codex_quotas(rate_limits, ts):
@@ -286,10 +289,9 @@ def advance_quotas(quotas, now):
 
 def codex_quotas():
     global CODEX_QUOTAS
-    resets, fable = codex_account()
     if CODEX_QUOTAS:
         CODEX_QUOTAS = advance_quotas(CODEX_QUOTAS, time.time())
-        return [{**q, 'resets_left': resets} for q in CODEX_QUOTAS] + fable
+        return [{**q, 'resets_left': codex_resets()} for q in CODEX_QUOTAS]
     for path in sorted(CODEX.glob('*/*/*/rollout-*.jsonl'), reverse=True)[:20]:
         try:
             lines = path.read_bytes()[-TAIL_BYTES:].splitlines()
@@ -307,7 +309,7 @@ def codex_quotas():
                         return codex_quotas()
             except (ValueError, AttributeError):
                 pass
-    return fable
+    return []
 
 
 class FileState:
@@ -704,7 +706,7 @@ def state_payload(demo):
         quotas = ([{'provider': 'claude', 'period': 'weekly', 'left': 68, 'resets_at': now + 2.4 * 86400, 'resets_left': 3},
                    {'provider': 'claude', 'period': 'five_hour', 'left': 37, 'resets_at': now + 2.2 * 3600, 'resets_left': 1},
                    {'provider': 'codex', 'period': 'weekly', 'left': 81, 'resets_at': now + 5.1 * 86400, 'resets_left': 2},
-                   {'provider': 'codex', 'period': 'fable', 'left': 56, 'resets_at': now + 6.2 * 86400, 'resets_left': 0}]
+                   {'provider': 'claude', 'period': 'fable', 'left': 56, 'resets_at': now + 6.2 * 86400, 'resets_left': 0}]
                   if demo else [*claude_quotas(), *codex_quotas()])
     return {'now': now, 'demo': bool(demo), 'token': TOKEN, 'quotas': quotas,
             'agents': sorted(ags, key=lambda a: a['started'] or 0)}

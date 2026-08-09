@@ -53,11 +53,17 @@ and return to work, followed by a three-to-five-minute cooldown. Agents
 of the opposite rank help their faction in a duel, with only one apprentice
 joining the fray at a time; stronger defending support
 reflects the blast at the aggressor, while a tie still hits the target. Agents
-rarely challenge Earl Grey; those who do bring their supporters too, but he roasts every
+rarely challenge Earl Grey; those who do may bring one supporter, but he roasts each
 assailant into soot in succession. Biggles and Lucipurr bypass duels and can
 blast anyone, including Earl Grey, but are themselves immune. Earl Grey, the
 dragon barista, brews cafe orders with fire and pours milk for milk drinks.
 The frontend polls `/api/state` every 1.5s.
+
+The laboratory's upper-right quota vats show remaining Claude and Codex capacity:
+large vats are weekly windows, the thin vat is Claude's five-hour window, and each
+provider has its own potion color. Liquid height shows quota remaining; hovering
+reveals the exact percentage and full quota name. The countdown shows the next
+reset, with matching floating blobs for any reset credits reported by the provider.
 
 ## The journal: what was said, and getting back to it
 

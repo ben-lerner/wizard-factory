@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, urlsplit
 ROOT = Path(__file__).resolve().parent
 PROJECTS = Path.home() / '.claude' / 'projects'
 CODEX = Path.home() / '.codex' / 'sessions'
+CLAUDE_STATE = Path.home() / '.claude.json'
 SETTINGS = Path.home() / '.claude' / 'settings.json'
 AGENT_STATE = Path.home() / '.agents' / 'state'   # written by the turn-notify hooks
 REGISTRY = AGENT_STATE / 'agents.json'            # session id -> where that agent lives
@@ -47,6 +48,8 @@ AGENTS = {}     # session_id -> registry entry {host, agent, tmux, cwd, resume}
 LAST_OPEN = {}  # agent id (host-prefixed for demons) -> the last registry entry seen for it
 REMOTE_AGENTS, REMOTE_SEEN = [], 0
 REGISTRY_MTIME, TOKEN, TOKEN_MTIME = 0.0, None, 0.0
+CLAUDE_USAGE_MTIME, CLAUDE_QUOTAS = 0.0, []
+CODEX_QUOTAS, CODEX_QUOTAS_TS = [], 0
 LOCK = threading.Lock()
 
 
@@ -136,6 +139,92 @@ def project_of(cwd):
         repo, wt = cwd.split('/.claude/worktrees/', 1)
         return Path(repo).name + '/' + wt.split('/')[0]
     return Path(cwd).name or '/'
+
+
+def quota(provider, period, window):
+    if not isinstance(window, dict):
+        return None
+    used = window.get('utilization', window.get('used_percent'))
+    reset = window.get('resets_at')
+    if not isinstance(used, (int, float)) or not reset:
+        return None
+    if isinstance(reset, str):
+        reset = epoch(reset)
+    if not isinstance(reset, (int, float)):
+        return None
+    resets = next((window[k] for k in ('resets_left', 'remaining_resets', 'reset_count')
+                   if isinstance(window.get(k), int)), 0)
+    return {'provider': provider, 'period': period, 'left': max(0, min(100, 100 - used)),
+            'resets_at': reset, 'resets_left': max(0, resets)}
+
+
+def claude_quotas():
+    global CLAUDE_USAGE_MTIME, CLAUDE_QUOTAS
+    try:
+        mtime = CLAUDE_STATE.stat().st_mtime
+    except OSError:
+        return []
+    if mtime == CLAUDE_USAGE_MTIME:
+        CLAUDE_QUOTAS = advance_quotas(CLAUDE_QUOTAS, time.time())
+        return CLAUDE_QUOTAS
+    try:
+        usage = json.loads(CLAUDE_STATE.read_text()).get('cachedUsageUtilization', {}).get('utilization', {})
+        CLAUDE_QUOTAS = [q for q in (quota('claude', 'weekly', usage.get('seven_day')),
+                                     quota('claude', 'five_hour', usage.get('five_hour'))) if q]
+        CLAUDE_USAGE_MTIME = mtime
+    except (OSError, ValueError, AttributeError):
+        pass
+    return CLAUDE_QUOTAS
+
+
+def codex_quota(rate_limits):
+    windows = [rate_limits.get(k) for k in ('primary', 'secondary')]
+    weekly = next((w for w in windows if isinstance(w, dict) and w.get('window_minutes') == 7 * 24 * 60), None)
+    return [q for q in [quota('codex', 'weekly', weekly)] if q]
+
+
+def remember_codex_quotas(rate_limits, ts):
+    global CODEX_QUOTAS, CODEX_QUOTAS_TS
+    quotas = codex_quota(rate_limits)
+    if quotas and ts >= CODEX_QUOTAS_TS:
+        CODEX_QUOTAS, CODEX_QUOTAS_TS = quotas, ts
+
+
+def advance_quotas(quotas, now):
+    windows = {'weekly': 7 * 86400, 'five_hour': 5 * 3600}
+    out = []
+    for q in quotas:
+        if q['resets_at'] <= now:
+            window = windows[q['period']]
+            elapsed = int((now - q['resets_at']) // window) + 1
+            q = {**q, 'left': 100, 'resets_at': q['resets_at'] + elapsed * window, 'resets_left': 0}
+        out.append(q)
+    return out
+
+
+def codex_quotas():
+    global CODEX_QUOTAS
+    if CODEX_QUOTAS:
+        CODEX_QUOTAS = advance_quotas(CODEX_QUOTAS, time.time())
+        return CODEX_QUOTAS
+    for path in sorted(CODEX.glob('*/*/*/rollout-*.jsonl'), reverse=True)[:20]:
+        try:
+            lines = path.read_bytes()[-TAIL_BYTES:].splitlines()
+        except OSError:
+            continue
+        for line in reversed(lines):
+            if b'"rate_limits"' not in line:
+                continue
+            try:
+                d = json.loads(line)
+                p = d.get('payload') or {}
+                if isinstance(p.get('rate_limits'), dict):
+                    remember_codex_quotas(p['rate_limits'], epoch(d.get('timestamp') or '') or 0)
+                    if CODEX_QUOTAS:
+                        return codex_quotas()
+            except (ValueError, AttributeError):
+                pass
+    return []
 
 
 class FileState:
@@ -231,7 +320,9 @@ class FileState:
             elif pt == 'reasoning':
                 self._mark('thinking', ts)
         elif t == 'event_msg':
-            if pt == 'user_message':
+            if pt == 'token_count' and isinstance(p.get('rate_limits'), dict):
+                remember_codex_quotas(p['rate_limits'], ts or 0)
+            elif pt == 'user_message':
                 msg = p.get('message')
                 msg = msg.strip() if isinstance(msg, str) else ''
                 if msg.startswith('<task>'):
@@ -527,7 +618,11 @@ def state_payload(demo):
         cut = now - FRESH_SEC
         for gone in [k for k, v in LAST_OPEN.items() if v.get('ts', now) < cut]:
             del LAST_OPEN[gone]
-    return {'now': now, 'demo': bool(demo), 'token': TOKEN,
+        quotas = ([{'provider': 'claude', 'period': 'weekly', 'left': 68, 'resets_at': now + 2.4 * 86400, 'resets_left': 3},
+                   {'provider': 'claude', 'period': 'five_hour', 'left': 37, 'resets_at': now + 2.2 * 3600, 'resets_left': 1},
+                   {'provider': 'codex', 'period': 'weekly', 'left': 81, 'resets_at': now + 5.1 * 86400, 'resets_left': 2}]
+                  if demo else [*claude_quotas(), *codex_quotas()])
+    return {'now': now, 'demo': bool(demo), 'token': TOKEN, 'quotas': quotas,
             'agents': sorted(ags, key=lambda a: a['started'] or 0)}
 
 

@@ -5,6 +5,11 @@
   const $ = q => document.querySelector(q);
   const cv = $('#view'), g = cv.getContext('2d');
   const { drawText, textW, rng, hash, PR, drawEmote, WARM_MILK, DRINKS, INFERNAL_DRINKS } = SP;
+  const QUOTA_COLORS = { claude: '#bd6fe8', codex: '#58b8e8' }, QUOTA_VATS = [
+    { provider: 'claude', period: 'weekly', x: 182, weekly: true },
+    { provider: 'claude', period: 'five_hour', x: 212, weekly: false },
+    { provider: 'codex', period: 'weekly', x: 239, weekly: true },
+  ];
 
   // ---------- stations ----------
   const ST = {
@@ -520,7 +525,8 @@
   function castRay(w, target, catCaster = false) {
     const demon = catCaster ? w === demonCat : w.sp.demon, c = demon ? '#f05a3a' : catCaster ? '#d8ff58' : '#8fd0ff';
     const source = catCaster ? w === cat ? 'cat' : 'demon-cat' : w.a.id, targetId = target === dragon ? 'dragon' : target.a.id;
-    const attackers = catCaster ? [] : combatHelpers(w, target), defenders = catCaster || target === dragon ? [] : combatHelpers(target, w);
+    const helpers = catCaster ? [] : combatHelpers(w, target);
+    const attackers = target === dragon ? helpers.slice(0, 1) : helpers, defenders = catCaster || target === dragon ? [] : combatHelpers(target, w);
     w.dir = target.x < w.x ? -1 : 1;
     const sy = w.y - (catCaster ? 8 : 17), ty = target.y - (target === dragon ? 15 : 14);
     SPELLS.push({ kind: 'ray', source, target: targetId, cat: catCaster, attackers, defenders, sx: w.x + w.dir * 7, sy,
@@ -771,6 +777,27 @@
     if (overflow > 0 || (LAB_TABLE && LAB_TABLE.game)) PR.chair(gg, 68, 124, false);
     if (overflow > 1 || (LAB_TABLE && LAB_TABLE.game)) PR.chair(gg, 140, 124, true);
   }
+  function resetIn(q) {
+    if (!q || !q.resets_at) return 'NO SIGIL';
+    const s = Math.max(0, q.resets_at - (Date.now() / 1000 - serverSkew));
+    if (s >= 86400) return `${s / 86400 | 0}D ${s % 86400 / 3600 | 0}H`;
+    return `${s / 3600 | 0}H ${s % 3600 / 60 | 0}M`;
+  }
+  function drawQuotaVats(t) {
+    for (const v of QUOTA_VATS) {
+      const q = quotaFor(v), color = QUOTA_COLORS[v.provider];
+      PR.quotaVat(g, v.x, v.weekly ? 43 : 47, v.weekly, q ? q.left : 0, color, t);
+      drawText(g, v.x + (v.weekly ? -2 : -4), 75, resetIn(q), '#a8a2c8');
+      const resets = q ? q.resets_left || 0 : 0, shown = Math.min(5, resets);
+      for (let i = 0; i < shown; i++) {
+        const bx = v.x + 3 + i % 3 * 4, by = 84 + (i / 3 | 0) * 4 + Math.sin(t * 2 + i) * 1.2;
+        g.fillStyle = color; g.fillRect(bx, Math.round(by), 3, 2); g.fillRect(bx + 1, Math.round(by) - 1, 1, 4);
+      }
+      if (resets > shown) drawText(g, v.x + 14, 84, `+${resets - shown}`, color);
+    }
+  }
+  const quotaFor = v => (lastData.quotas || []).find(q => q.provider === v.provider && q.period === v.period);
+  const quotaVat = id => QUOTA_VATS.find(v => id === `quota:${v.provider}:${v.period}`);
 
   // animated props, y-sorted with sprites: [sortY, drawFn]
   const props = t => [
@@ -1173,6 +1200,7 @@
     drawLightningWindow(g, t);
     PR.torch(g, 24, 14, t); PR.torch(g, 240, 14, t + .5); PR.torch(g, 282, 14, t + .2); PR.torch(g, 444, 14, t + .8);
     PR.circle(g, 160, 152 + 12, t, occupied('circle'));
+    drawQuotaVats(t);
     drawLightningCast(g, t);
     drawBonds(t);
     const dragonFire = SPELLS.find(s => s.kind === 'counterfire' && s.t >= 0), fireVictim = dragonFire && wizards.get(dragonFire.target);
@@ -1271,6 +1299,8 @@
 
   function pickAt(e) {
     const r = cv.getBoundingClientRect(), mx = (e.clientX - r.left - cv.clientLeft) / S, my = (e.clientY - r.top - cv.clientTop) / S;
+    const vat = QUOTA_VATS.find(v => mx >= v.x - 4 && mx <= v.x + (v.weekly ? 20 : 12) && my >= 39 && my <= 94);
+    if (vat) return `quota:${vat.provider}:${vat.period}`;
     for (const w of [...wizards.values()].sort((a, b) => b.y - a.y))
       if (Math.abs(mx - w.x) <= 9 && my >= w.y - 26 && my <= w.y + 3) return w.a.id;
     if (mx >= dragon.x - 25 && mx <= dragon.x + 25 && my >= dragon.y - 40 && my <= dragon.y + 3) return 'barista';
@@ -1284,6 +1314,16 @@
   function showTip(w, left, top) {
     const tip = $('#tip'), stage = $('#stage').getBoundingClientRect();
     tip.innerHTML = tipHTML(w);
+    tip.hidden = false;
+    tip.style.left = Math.max(4, Math.min(left, stage.width - tip.offsetWidth - 4)) + 'px';
+    tip.style.top = Math.max(4, Math.min(top, stage.height - tip.offsetHeight - 4)) + 'px';
+  }
+  function showQuotaTip(v, left, top) {
+    const q = quotaFor(v), tip = $('#tip'), stage = $('#stage').getBoundingClientRect();
+    const provider = v.provider.toUpperCase(), period = v.period === 'weekly' ? 'WEEKLY' : 'FIVE-HOUR';
+    tip.innerHTML = `<div class="tt-name">${provider} <span>${period} QUOTA</span></div>
+      <div class="tt-status">${q ? Math.round(q.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>
+      <div class="tt-age">${q ? 'RESETS IN ' + resetIn(q) + ' · ' + q.resets_left + ' RESET' + (q.resets_left === 1 ? '' : 'S') + ' LEFT' : 'NO USAGE SIGIL FOUND'}</div>`;
     tip.hidden = false;
     tip.style.left = Math.max(4, Math.min(left, stage.width - tip.offsetWidth - 4)) + 'px';
     tip.style.top = Math.max(4, Math.min(top, stage.height - tip.offsetHeight - 4)) + 'px';
@@ -1302,7 +1342,11 @@
     if (w) {
       const sr = $('#stage').getBoundingClientRect();
       showTip(w, e.clientX - sr.left + 14, e.clientY - sr.top + 10);
-    } else $('#tip').hidden = true;
+    } else {
+      const v = quotaVat(hover), sr = $('#stage').getBoundingClientRect();
+      if (v) showQuotaTip(v, e.clientX - sr.left + 14, e.clientY - sr.top + 10);
+      else $('#tip').hidden = true;
+    }
   });
   cv.addEventListener('mouseleave', () => clearHover());
   function selectWizard(id) {

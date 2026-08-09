@@ -26,6 +26,8 @@ from urllib.parse import parse_qs, urlsplit
 ROOT = Path(__file__).resolve().parent
 PROJECTS = Path.home() / '.claude' / 'projects'
 CODEX = Path.home() / '.codex' / 'sessions'
+CODEX_CLI = next((str(p) for p in (Path.home() / '.local/bin/codex', Path('/opt/homebrew/bin/codex'))
+                  if p.is_file()), 'codex')
 CLAUDE_STATE = Path.home() / '.claude.json'
 SETTINGS = Path.home() / '.claude' / 'settings.json'
 AGENT_STATE = Path.home() / '.agents' / 'state'   # written by the turn-notify hooks
@@ -197,7 +199,7 @@ def fetch_codex_resets():
         'capabilities': {'experimentalApi': True, 'requestAttestation': False},
     }}
     try:
-        proc = subprocess.Popen(['codex', 'app-server', '--stdio'], stdin=subprocess.PIPE,
+        proc = subprocess.Popen([CODEX_CLI, 'app-server', '--stdio'], stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
         assert proc.stdin and proc.stdout
         proc.stdin.write((json.dumps(init) + '\n').encode())

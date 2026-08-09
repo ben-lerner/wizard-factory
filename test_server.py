@@ -79,6 +79,16 @@ class QuotaTest(unittest.TestCase):
 
         self.assertEqual(server.reset_count(response), 1)
 
+    def test_reads_fable_quota(self):
+        response = {'rateLimitsByLimitId': {'codex_bengalfox': {'primary': {
+            'usedPercent': 25, 'windowDurationMins': 10080, 'resetsAt': 20,
+        }}}}
+
+        self.assertEqual(server.fable_quota(response), [{
+            'provider': 'codex', 'period': 'fable', 'left': 75,
+            'resets_at': 20, 'resets_left': 0,
+        }])
+
     def test_rolls_expired_codex_quota_into_a_fresh_week(self):
         quotas = [{'provider': 'codex', 'period': 'weekly', 'left': 8,
                    'resets_at': 20, 'resets_left': 2}]

@@ -334,18 +334,22 @@ window.SP = (() => {
     rc(g, x + 5, y + 4 - 0, 2 + pulse, 2, '#e6f6ff');
   };
 
-  PR.quotaVat = (g, x, y, weekly, fill, color, t) => {
-    const rows = weekly ? [3, 3, 4, 6, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 6, 5] :
+  PR.quotaVat = (g, x, y, shape, fill, color, t) => {
+    const big = shape !== 'thin', rows = big ? [3, 3, 4, 6, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 6, 5] :
       [2, 2, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4];
-    const cx = x + (weekly ? 8 : 4), top = y + 3, bottom = top + rows.length - 1;
+    const cx = x + (big ? 8 : 4), top = y + 3, bottom = top + rows.length - 1;
     rows.forEach((half, iy) => {
       const yy = top + iy, edge = iy === 0 || iy === rows.length - 1;
       rc(g, cx - half, yy, half * 2 + 1, 1, edge ? '#30364a' : '#778096');
       if (!edge && yy >= bottom - Math.round((rows.length - 2) * fill / 100))
         rc(g, cx - half + 1, yy, half * 2 - 1, 1, color);
     });
-    rc(g, cx - (weekly ? 4 : 3), y, weekly ? 9 : 7, 2, '#4c5164');
-    rc(g, cx - (weekly ? 3 : 2), y + 2, weekly ? 7 : 5, 1, '#9aa3b8');
+    if (shape === 'spiral') for (let yy = top + 4, right = false; yy < bottom - 2; yy += 3, right = !right) {
+      rc(g, cx - 5, yy, 11, 1, '#b8c2d8');
+      rc(g, cx + (right ? 5 : -5), yy, 1, 3, '#b8c2d8');
+    }
+    rc(g, cx - (big ? 4 : 3), y, big ? 9 : 7, 2, '#4c5164');
+    rc(g, cx - (big ? 3 : 2), y + 2, big ? 7 : 5, 1, '#9aa3b8');
     if (fill > 2) px(g, cx - 2 + ((t * 2 + x) % 3 | 0), bottom - Math.max(1, Math.round((rows.length - 3) * fill / 100)), '#f0ecff');
   };
 

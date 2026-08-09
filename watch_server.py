@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run Wizard Factory and restart it when its source files change."""
+import os
 import signal
 import stat
 import subprocess
@@ -53,7 +54,7 @@ def main():
                 state = new
                 stop(proc)
                 if SELF in changed:
-                    return
+                    os.execv(sys.executable, [sys.executable, str(SELF)])
                 time.sleep(.2)
         except BaseException:
             if proc.poll() is None:

@@ -6,9 +6,10 @@
   const cv = $('#view'), g = cv.getContext('2d');
   const { drawText, textW, rng, hash, PR, drawEmote, WARM_MILK, DRINKS, INFERNAL_DRINKS } = SP;
   const QUOTA_COLORS = { claude: '#bd6fe8', codex: '#58b8e8' }, QUOTA_VATS = [
-    { provider: 'claude', period: 'weekly', x: 182, weekly: true },
-    { provider: 'claude', period: 'five_hour', x: 212, weekly: false },
-    { provider: 'codex', period: 'weekly', x: 239, weekly: true },
+    { provider: 'claude', period: 'weekly', x: 176, shape: 'vat', tx: 174, ty: 75 },
+    { provider: 'codex', period: 'weekly', x: 204, shape: 'vat', tx: 200, ty: 75 },
+    { provider: 'codex', period: 'fable', x: 220, shape: 'spiral', tx: 232, ty: 75 },
+    { provider: 'claude', period: 'five_hour', x: 216, shape: 'thin', tx: 209, ty: 86 },
   ];
 
   // ---------- stations ----------
@@ -785,15 +786,15 @@
   }
   function drawQuotaVats(t) {
     for (const v of QUOTA_VATS) {
-      const q = quotaFor(v), color = QUOTA_COLORS[v.provider];
-      PR.quotaVat(g, v.x, v.weekly ? 43 : 47, v.weekly, q ? q.left : 0, color, t);
-      drawText(g, v.x + (v.weekly ? -2 : -4), 75, resetIn(q), '#a8a2c8');
+      const q = quotaFor(v), color = QUOTA_COLORS[v.provider], thin = v.shape === 'thin';
+      PR.quotaVat(g, v.x, thin ? 47 : 43, v.shape, q ? q.left : 0, color, t);
+      drawText(g, v.tx, v.ty, resetIn(q), '#a8a2c8');
       const resets = q ? q.resets_left || 0 : 0, shown = Math.min(5, resets);
       for (let i = 0; i < shown; i++) {
-        const bx = v.x + 3 + i % 3 * 4, by = 84 + (i / 3 | 0) * 4 + Math.sin(t * 2 + i) * 1.2;
+        const bx = v.x + 3 + i % 3 * 4, by = v.ty + 9 + (i / 3 | 0) * 4 + Math.sin(t * 2 + i) * 1.2;
         g.fillStyle = color; g.fillRect(bx, Math.round(by), 3, 2); g.fillRect(bx + 1, Math.round(by) - 1, 1, 4);
       }
-      if (resets > shown) drawText(g, v.x + 14, 84, `+${resets - shown}`, color);
+      if (resets > shown) drawText(g, v.x + 14, v.ty + 9, `+${resets - shown}`, color);
     }
   }
   const quotaFor = v => (lastData.quotas || []).find(q => q.provider === v.provider && q.period === v.period);
@@ -1299,7 +1300,7 @@
 
   function pickAt(e) {
     const r = cv.getBoundingClientRect(), mx = (e.clientX - r.left - cv.clientLeft) / S, my = (e.clientY - r.top - cv.clientTop) / S;
-    const vat = QUOTA_VATS.find(v => mx >= v.x - 4 && mx <= v.x + (v.weekly ? 20 : 12) && my >= 39 && my <= 94);
+    const vat = [...QUOTA_VATS].reverse().find(v => mx >= v.x - 4 && mx <= v.x + (v.shape === 'thin' ? 12 : 20) && my >= 39 && my <= 98);
     if (vat) return `quota:${vat.provider}:${vat.period}`;
     for (const w of [...wizards.values()].sort((a, b) => b.y - a.y))
       if (Math.abs(mx - w.x) <= 9 && my >= w.y - 26 && my <= w.y + 3) return w.a.id;
@@ -1320,7 +1321,7 @@
   }
   function showQuotaTip(v, left, top) {
     const q = quotaFor(v), tip = $('#tip'), stage = $('#stage').getBoundingClientRect();
-    const provider = v.provider.toUpperCase(), period = v.period === 'weekly' ? 'WEEKLY' : 'FIVE-HOUR';
+    const provider = v.provider.toUpperCase(), period = v.period === 'weekly' ? 'WEEKLY' : v.period === 'fable' ? 'FABLE' : 'FIVE-HOUR';
     tip.innerHTML = `<div class="tt-name">${provider} <span>${period} QUOTA</span></div>
       <div class="tt-status">${q ? Math.round(q.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>
       <div class="tt-age">${q ? 'RESETS IN ' + resetIn(q) + ' · ' + q.resets_left + ' RESET' + (q.resets_left === 1 ? '' : 'S') + ' LEFT' : 'NO USAGE SIGIL FOUND'}</div>`;

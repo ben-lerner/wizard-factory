@@ -6,10 +6,10 @@
   const cv = $('#view'), g = cv.getContext('2d');
   const { drawText, textW, rng, hash, PR, drawEmote, WARM_MILK, DRINKS, INFERNAL_DRINKS } = SP;
   const QUOTA_COLORS = { claude: '#bd6fe8', codex: '#58b8e8' }, QUOTA_VATS = [
-    { provider: 'claude', period: 'weekly', x: 176, shape: 'vat', tx: 174, ty: 75 },
-    { provider: 'codex', period: 'weekly', x: 204, shape: 'vat', tx: 200, ty: 75 },
-    { provider: 'codex', period: 'fable', x: 220, shape: 'spiral', tx: 232, ty: 75 },
-    { provider: 'claude', period: 'five_hour', x: 216, shape: 'thin', tx: 209, ty: 86 },
+    { provider: 'claude', period: 'weekly', x: 188, shape: 'vat', tx: 185, ty: 75 },
+    { provider: 'codex', period: 'weekly', x: 211, shape: 'vat', tx: 207, ty: 75 },
+    { provider: 'codex', period: 'fable', x: 237, shape: 'spiral', tx: 235, ty: 75 },
+    { provider: 'claude', period: 'five_hour', x: 225, shape: 'thin', tx: 218, ty: 86 },
   ];
 
   // ---------- stations ----------
@@ -791,10 +791,10 @@
       drawText(g, v.tx, v.ty, resetIn(q), '#a8a2c8');
       const resets = q ? q.resets_left || 0 : 0, shown = Math.min(5, resets);
       for (let i = 0; i < shown; i++) {
-        const bx = v.x + 3 + i % 3 * 4, by = v.ty + 9 + (i / 3 | 0) * 4 + Math.sin(t * 2 + i) * 1.2;
+        const bx = v.x + 3 + i % 3 * 4, by = (thin ? 42 : 38) - (i / 3 | 0) * 4 + Math.sin(t * 2 + i) * 1.2;
         g.fillStyle = color; g.fillRect(bx, Math.round(by), 3, 2); g.fillRect(bx + 1, Math.round(by) - 1, 1, 4);
       }
-      if (resets > shown) drawText(g, v.x + 14, v.ty + 9, `+${resets - shown}`, color);
+      if (resets > shown) drawText(g, v.x + 14, thin ? 40 : 36, `+${resets - shown}`, color);
     }
   }
   const quotaFor = v => (lastData.quotas || []).find(q => q.provider === v.provider && q.period === v.period);

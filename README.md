@@ -48,8 +48,9 @@ crystal ball · Task/Agent/Skill = summoning circle · approvals = petition boar
 Appearance and name are deterministic per agent id (seeded hats, beards, robes,
 spectacles, staffs, and cafe order), so the same session keeps the same wizard
 across reloads. Long quiet stretches are occasionally interrupted by a brief
-tower-wide ray battle; victims magically reconstitute from their pixel fragments
-and return to work, followed by a three-to-five-minute cooldown. Agents
+tower-wide ray battle; victims burst through faction-colored shock sigils, then
+magically reconstitute amid orbiting motes and reforming circles before returning
+to work, followed by a three-to-five-minute cooldown. Agents
 of the opposite rank help their faction in a duel, with only one apprentice
 joining the fray at a time; stronger defending support
 reflects the blast at the aggressor, while a tie still hits the target. Agents

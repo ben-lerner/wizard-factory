@@ -464,6 +464,13 @@
     if (PARTS.length > 220) return;
     PARTS.push({ x: x + Math.random() * 4 - 2, y, vx: Math.random() * 8 - 4, vy, c, life, t: 0, kind });
   }
+  function radialBurst(x, y, colors, n, speed, life) {
+    for (let i = 0; i < n && PARTS.length <= 220; i++) {
+      const a = i / n * Math.PI * 2 + Math.random() * .25, v = speed * (.65 + Math.random() * .7);
+      PARTS.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 3,
+        c: colors[i % colors.length], life: life * (.7 + Math.random() * .5), t: 0 });
+    }
+  }
   const sparkleAt = (x, y) => { for (let i = 0; i < 6; i++) spark(x, y - 10 - Math.random() * 10, '#ffe89a', -4, .8); };
   function teleportBurst(x, y, c) {
     for (let i = 0; i < 10; i++) spark(x + Math.cos(i) * 5, y - 13 + Math.sin(i * 2) * 5, c, -4 - Math.random() * 7, .55);
@@ -627,14 +634,23 @@
   }
   function explodeWizard(w, t, soot = false) {
     if (!w || w.leaving || w.blast) return;
-    const img = w.sp.frames.idleA;
-    w.blast = { at: t, until: t + 2.4, img, fragments: fragmentImage(img, w.r), soot, ox: -10, oy: -23 };
-    for (let i = 0; i < 18; i++) spark(w.x, w.y - 13, soot ? i % 3 ? '#322c35' : '#77717d' : i % 3 ? w.sp.demon ? '#f08a2a' : '#8fd0ff' : '#ffe89a', -16 + Math.random() * 20, .8);
+    const img = w.sp.frames.idleA, demon = w.sp.demon;
+    w.blast = { at: t, until: t + 2.4, img, fragments: fragmentImage(img, w.r), soot, demon,
+      seed: w.r() * 99, ox: -10, oy: -23 };
+    const colors = soot ? ['#322c35', '#77717d', '#f08a2a'] : demon ? ['#f05a3a', '#f08a2a', '#ffd84a'] : ['#8fd0ff', '#e8f6ff', '#ffe89a'];
+    radialBurst(w.x, w.y - 13, colors, 28, 24, 1.05);
+    for (let i = 0; i < 10; i++) spark(w.x, w.y - 13, colors[i % colors.length], -18 + Math.random() * 14, .9);
+  }
+  function reformWizard(w) {
+    const colors = w.sp.demon ? ['#f05a3a', '#f08a2a', '#ffd84a'] : ['#8fd0ff', '#c8b4ff', '#ffe89a'];
+    radialBurst(w.x, w.y - 13, colors, 18, 13, .8);
+    for (let i = 0; i < 10; i++) spark(w.x + (i % 2 ? -7 : 7), w.y - 4 - i * 2, colors[i % colors.length], -5, .7);
   }
   function explodeDragon(t) {
     if (dragon.blast) return;
     const img = dragon.frames.idleA;
-    dragon.blast = { at: t, until: t + 2.8, img, fragments: fragmentImage(img, dragonR), ox: -15, oy: -25 };
+    dragon.blast = { at: t, until: t + 2.8, img, fragments: fragmentImage(img, dragonR),
+      seed: dragonR() * 99, demon: true, ox: -15, oy: -25 };
     for (let i = 0; i < 24; i++) spark(dragon.x, dragon.y - 14, i % 2 ? '#f08a2a' : '#ffe89a', -18 + Math.random() * 24, 1);
   }
   function castDragonFire(target, delay) {
@@ -785,10 +801,14 @@
     return `${s / 3600 | 0}H ${s % 3600 / 60 | 0}M`;
   }
   function drawQuotaVats(t) {
+    const claudeWeekly = quotaFor(QUOTA_VATS[0]), claudeFable = quotaFor(QUOTA_VATS[1]);
+    const sharedClaudeReset = claudeWeekly && claudeFable && claudeWeekly.resets_at && claudeFable.resets_at &&
+      Math.abs(claudeWeekly.resets_at - claudeFable.resets_at) < 60;
     for (const v of QUOTA_VATS) {
       const q = quotaFor(v), color = QUOTA_COLORS[v.provider], thin = v.shape === 'thin';
       PR.quotaVat(g, v.x, thin ? 47 : 43, v.shape, q ? q.left : 0, color, t);
-      drawText(g, v.tx, v.ty, resetIn(q), '#a8a2c8');
+      if (!(sharedClaudeReset && v.period === 'fable'))
+        drawText(g, sharedClaudeReset && v.provider === 'claude' && v.period === 'weekly' ? 204 : v.tx, v.ty, resetIn(q), '#a8a2c8');
       const resets = q ? q.resets_left || 0 : 0, shown = Math.min(5, resets);
       for (let i = 0; i < shown; i++) {
         const bx = v.x + 3 + i % 3 * 4, by = (thin ? 42 : 38) - (i / 3 | 0) * 4 + Math.sin(t * 2 + i) * 1.2;
@@ -906,7 +926,7 @@
       if (w.blast) {
         if (t < w.blast.until) continue;
         w.blast = null;
-        sparkleAt(w.x, w.y);
+        reformWizard(w);
         if (!w.leaving && w.home) pathTo(w, w.home[0], w.home[1]);
       }
       w.walk = moveAlong(w, dt, SPEED);
@@ -997,6 +1017,35 @@
   }
   function drawBlast(e, blast, t, c) {
     const p = Math.min(1, (t - blast.at) / (blast.until - blast.at)), scatter = Math.sin(p * Math.PI);
+    const cx = e.x, cy = e.y - 13, alpha = e.alpha === undefined ? 1 : e.alpha;
+    g.globalAlpha = alpha;
+    if (p < .32) {
+      const q = p / .32, r = 3 + q * 16 | 0;
+      g.fillStyle = blast.soot ? '#77717d' : c;
+      for (let i = -r; i <= r; i++) if (Math.abs(i) % 2 === 0) {
+        const y = r - Math.abs(i); g.fillRect(cx + i, cy - y, 1, 1); g.fillRect(cx + i, cy + y, 1, 1);
+      }
+      g.globalAlpha = alpha * (1 - q);
+      g.fillRect(cx - r - 4, cy, r * 2 + 9, 1); g.fillRect(cx, cy - r - 4, 1, r * 2 + 9);
+    }
+    g.globalAlpha = alpha * Math.sin(p * Math.PI) * .8;
+    for (let i = 0; i < 10; i++) {
+      const a = i / 10 * Math.PI * 2 + p * (blast.demon ? -8 : 8) + blast.seed, r = 5 + scatter * (8 + i % 3);
+      g.fillStyle = i % 3 ? c : blast.demon ? '#ffd84a' : '#e8dcff';
+      g.fillRect(Math.round(cx + Math.cos(a) * r), Math.round(cy + Math.sin(a) * r), i % 2 + 1, i % 2 + 1);
+    }
+    if (p > .58) {
+      const q = (p - .58) / .42, r = 17 - q * 11 | 0;
+      g.globalAlpha = alpha * q * (.25 + (Math.sin(t * 28 + blast.seed) + 1) * .18);
+      g.drawImage(blast.img, cx + blast.ox, e.y + blast.oy);
+      g.fillStyle = c;
+      for (let i = -r; i <= r; i += 2) {
+        const y = Math.round(Math.sqrt(Math.max(0, r * r - i * i)) * .35);
+        g.fillRect(cx + i, e.y + 1 - y, 1, 1); g.fillRect(cx + i, e.y + 1 + y, 1, 1);
+      }
+      g.globalAlpha = alpha * q * .55;
+      g.fillRect(cx - 9, cy - 12 + q * 10 | 0, 2, 14); g.fillRect(cx + 8, cy - 12 + q * 10 | 0, 2, 14);
+    }
     g.globalAlpha = e.alpha === undefined ? 1 : e.alpha;
     for (const f of blast.fragments) {
       const x = e.x + blast.ox + f.sx + f.dx * scatter, y = e.y + blast.oy + f.sy + f.dy * scatter;

@@ -447,7 +447,8 @@
   const PARTS = [];
   const SPELLS = [];
   const battleR = rng(31337);
-  let nextBattle = 22 + battleR() * 20, battleUntil = 0;
+  const BATTLE_COOLDOWN = 180, BATTLE_COOLDOWN_JITTER = 120, EARL_GREY_TARGET_CHANCE = .08;
+  let nextBattle = 45 + battleR() * 45, battleUntil = 0, battleApprentice = null;
   const SPELL_TARGETS = {
     cauldron: [[68, 154], [80, 154]], shelf: [[24, 68], [24, 104], [24, 140]],
     bench: [[132, 50], [154, 50], [176, 50]], submit: [[112, 118], [84, 126], [140, 126]], labwait: [[112, 118], [92, 130], [132, 130]], desk: [[108, 204], [152, 204]],
@@ -508,12 +509,13 @@
   function rayOpponent(w) {
     const rivals = [...wizards.values()].filter(v => v !== w && v.sp.demon !== w.sp.demon && !v.leaving && !v.walk && !v.game && !v.blast && v.alpha > .8 &&
       !SPELLS.some(s => s.kind === 'ray' && s.target === v.a.id));
-    if (!dragon.blast && !SPELLS.some(s => s.kind === 'ray' && s.target === 'dragon')) rivals.push(dragon);
+    if (dragonAtBar() && w.r() < EARL_GREY_TARGET_CHANCE && !SPELLS.some(s => s.kind === 'ray' && s.target === 'dragon')) rivals.push(dragon);
     return rivals.length ? rivals[w.r() * rivals.length | 0] : null;
   }
   function combatHelpers(w, opponent) {
-    return [...wizards.values()].filter(v => v !== w && v !== opponent && v.sp.demon === w.sp.demon && v.a.kind !== w.a.kind &&
-      !v.leaving && !v.game && !v.blast && v.alpha > .8).map(v => v.a.id);
+    const helpers = [...wizards.values()].filter(v => v !== w && v !== opponent && v.sp.demon === w.sp.demon && v.a.kind !== w.a.kind &&
+      !v.leaving && !v.game && !v.blast && v.alpha > .8);
+    return helpers.filter(v => v.a.kind !== 'sub' || v.a.id === battleApprentice).map(v => v.a.id);
   }
   function castRay(w, target, catCaster = false) {
     const demon = catCaster ? w === demonCat : w.sp.demon, c = demon ? '#f05a3a' : catCaster ? '#d8ff58' : '#8fd0ff';
@@ -529,10 +531,13 @@
     if (battleUntil) {
       if (t < battleUntil) return;
       battleUntil = 0;
-      nextBattle = t + 90 + battleR() * 120;
+      battleApprentice = null;
+      nextBattle = t + BATTLE_COOLDOWN + battleR() * BATTLE_COOLDOWN_JITTER;
     }
     if (t < nextBattle || !wizards.size) return;
-    battleUntil = t + 7 + battleR() * 3;
+    battleUntil = t + 4 + battleR() * 2;
+    const apprentices = [...wizards.values()].filter(w => w.a.kind === 'sub' && !w.leaving && !w.game && !w.blast && w.alpha > .8);
+    battleApprentice = apprentices.length ? apprentices[battleR() * apprentices.length | 0].a.id : null;
     for (const w of wizards.values()) w.rayAt = t + w.r() * 1.2;
     cat.rayAt = t + catR() * 1.2;
     demonCat.rayAt = t + demonCatR() * 1.2;
@@ -541,7 +546,7 @@
     if (!battleUntil || t >= battleUntil) return false;
     if (!w.rayAt) w.rayAt = t + w.r() * 1.2;
     if (t < w.rayAt || w.walk || w.leaving || w.game || w.blast || w.alpha < .8) return false;
-    w.rayAt = t + 1.8 + w.r() * 2;
+    w.rayAt = t + 3 + w.r() * 3;
     const target = rayOpponent(w);
     if (!target) return false;
     castRay(w, target);
@@ -551,10 +556,10 @@
     if (!battleUntil || t >= battleUntil || c === demonCat && !c.active) return false;
     if (!c.rayAt) c.rayAt = t + c.r() * 1.2;
     if (t < c.rayAt || c.path.length || c.game || c.state === 'walk' || c.state === 'sleep' || c.alpha !== undefined && c.alpha < .8) return false;
-    c.rayAt = t + 2.2 + c.r() * 2;
+    c.rayAt = t + 3.5 + c.r() * 3;
     const targets = [...wizards.values()].filter(w => !w.leaving && !w.walk && !w.game && !w.blast && w.alpha > .8 &&
       !SPELLS.some(s => s.kind === 'ray' && s.target === w.a.id));
-    if (!dragon.blast && !SPELLS.some(s => s.kind === 'ray' && s.target === 'dragon')) targets.push(dragon);
+    if (dragonAtBar() && c.r() < EARL_GREY_TARGET_CHANCE && !SPELLS.some(s => s.kind === 'ray' && s.target === 'dragon')) targets.push(dragon);
     if (!targets.length) return false;
     castRay(c, targets[c.r() * targets.length | 0], true);
     return true;

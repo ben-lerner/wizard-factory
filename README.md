@@ -49,10 +49,11 @@ Appearance and name are deterministic per agent id (seeded hats, beards, robes,
 spectacles, staffs, and cafe order), so the same session keeps the same wizard
 across reloads. Long quiet stretches are occasionally interrupted by a brief
 tower-wide ray battle; victims magically reconstitute from their pixel fragments
-and return to work. Agents
-of the opposite rank help their faction in a duel; stronger defending support
+and return to work, followed by a three-to-five-minute cooldown. Agents
+of the opposite rank help their faction in a duel, with only one apprentice
+joining the fray at a time; stronger defending support
 reflects the blast at the aggressor, while a tie still hits the target. Agents
-who challenge Earl Grey bring their supporters too, but he roasts every
+rarely challenge Earl Grey; those who do bring their supporters too, but he roasts every
 assailant into soot in succession. Biggles and Lucipurr bypass duels and can
 blast anyone, including Earl Grey, but are themselves immune. Earl Grey, the
 dragon barista, brews cafe orders with fire and pours milk for milk drinks.

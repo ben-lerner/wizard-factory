@@ -13,6 +13,7 @@ import json
 import os
 import random
 import secrets
+import select
 import subprocess
 import threading
 import time
@@ -50,6 +51,7 @@ REMOTE_AGENTS, REMOTE_SEEN = [], 0
 REGISTRY_MTIME, TOKEN, TOKEN_MTIME = 0.0, None, 0.0
 CLAUDE_USAGE_MTIME, CLAUDE_QUOTAS = 0.0, []
 CODEX_QUOTAS, CODEX_QUOTAS_TS = [], 0
+CODEX_RESETS, CODEX_RESETS_TS, CODEX_RESETS_REFRESHING = 0, 0, False
 LOCK = threading.Lock()
 
 
@@ -183,6 +185,74 @@ def codex_quota(rate_limits):
     return [q for q in [quota('codex', 'weekly', weekly)] if q]
 
 
+def reset_count(response):
+    resets = response.get('rateLimitResetCredits') if isinstance(response, dict) else None
+    count = resets.get('availableCount') if isinstance(resets, dict) else 0
+    return max(0, count) if isinstance(count, int) else 0
+
+
+def fetch_codex_resets():
+    init = {'method': 'initialize', 'id': 1, 'params': {
+        'clientInfo': {'name': 'wizard-factory', 'title': 'Wizard Factory', 'version': '1'},
+        'capabilities': {'experimentalApi': True, 'requestAttestation': False},
+    }}
+    try:
+        proc = subprocess.Popen(['codex', 'app-server', '--stdio'], stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+        assert proc.stdin and proc.stdout
+        proc.stdin.write((json.dumps(init) + '\n').encode())
+        proc.stdin.flush()
+        deadline, buf = time.monotonic() + 5, b''
+        while time.monotonic() < deadline:
+            ready, _, _ = select.select([proc.stdout], [], [], max(0, deadline - time.monotonic()))
+            if not ready:
+                break
+            chunk = os.read(proc.stdout.fileno(), 65536)
+            if not chunk:
+                break
+            buf += chunk
+            lines = buf.split(b'\n')
+            buf = lines.pop()
+            for line in lines:
+                msg = json.loads(line)
+                if msg.get('id') == 1:
+                    ready = {'method': 'initialized', 'params': {}}
+                    request = {'method': 'account/rateLimits/read', 'id': 2}
+                    proc.stdin.write((json.dumps(ready) + '\n' + json.dumps(request) + '\n').encode())
+                    proc.stdin.flush()
+                if msg.get('id') == 2:
+                    result = msg.get('result')
+                    return reset_count(result) if isinstance(result, dict) else None
+    except (OSError, ValueError, AttributeError):
+        pass
+    finally:
+        if 'proc' in locals():
+            proc.terminate()
+            try:
+                proc.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+    return None
+
+
+def refresh_codex_resets():
+    global CODEX_RESETS, CODEX_RESETS_TS, CODEX_RESETS_REFRESHING
+    try:
+        count = fetch_codex_resets()
+        if count is not None:
+            CODEX_RESETS = count
+    finally:
+        CODEX_RESETS_TS, CODEX_RESETS_REFRESHING = time.time(), False
+
+
+def codex_resets():
+    global CODEX_RESETS_REFRESHING
+    if time.time() - CODEX_RESETS_TS >= 60 and not CODEX_RESETS_REFRESHING:
+        CODEX_RESETS_REFRESHING = True
+        threading.Thread(target=refresh_codex_resets, daemon=True).start()
+    return CODEX_RESETS
+
+
 def remember_codex_quotas(rate_limits, ts):
     global CODEX_QUOTAS, CODEX_QUOTAS_TS
     quotas = codex_quota(rate_limits)
@@ -206,7 +276,7 @@ def codex_quotas():
     global CODEX_QUOTAS
     if CODEX_QUOTAS:
         CODEX_QUOTAS = advance_quotas(CODEX_QUOTAS, time.time())
-        return CODEX_QUOTAS
+        return [{**q, 'resets_left': codex_resets()} for q in CODEX_QUOTAS]
     for path in sorted(CODEX.glob('*/*/*/rollout-*.jsonl'), reverse=True)[:20]:
         try:
             lines = path.read_bytes()[-TAIL_BYTES:].splitlines()

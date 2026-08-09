@@ -74,6 +74,11 @@ class QuotaTest(unittest.TestCase):
             'resets_at': 20, 'resets_left': 0,
         }])
 
+    def test_reads_codex_reset_credit_count(self):
+        response = {'rateLimitResetCredits': {'availableCount': 1, 'credits': []}}
+
+        self.assertEqual(server.reset_count(response), 1)
+
     def test_rolls_expired_codex_quota_into_a_fresh_week(self):
         quotas = [{'provider': 'codex', 'period': 'weekly', 'left': 8,
                    'resets_at': 20, 'resets_left': 2}]

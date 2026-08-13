@@ -477,7 +477,7 @@
   }
   function castTeleport(e, tx, ty, r, color) {
     const catBlink = !e.sp, c = color || (catBlink ? '#d8ff58' : '#c8b4ff');
-    SPELLS.push({ kind: 'teleport', sx: e.x, sy: e.y - (catBlink ? 8 : 18), tx, ty: ty - (catBlink ? 8 : 18), t: 0, life: .75, seed: r() * 99 | 0, c });
+    SPELLS.push({ kind: 'teleport', source: catBlink ? null : e.a.id, sx: e.x, sy: e.y - (catBlink ? 8 : 18), tx, ty: ty - (catBlink ? 8 : 18), t: 0, life: .75, seed: r() * 99 | 0, c });
     teleportBurst(e.x, e.y, c);
     teleportBurst(tx, ty, c);
   }
@@ -500,11 +500,11 @@
     const kind = kinds[w.r() * kinds.length | 0];
     const [tx, ty] = spellTarget(w), sx = w.x + (w.dir > 0 ? 7 : -7), sy = w.y - 17;
     if (kind === 'rain') {
-      SPELLS.push({ kind, id: w.a.id, sx: w.x, sy: w.y - 34, t: 0, life: 2.4 + w.r() * 1.2, seed: w.r() * 99 | 0 });
+      SPELLS.push({ kind, source: w.a.id, sx: w.x, sy: w.y - 34, t: 0, life: 2.4 + w.r() * 1.2, seed: w.r() * 99 | 0 });
       spark(w.x, w.y - 30, '#8fd0ff', -4, .4);
       return;
     }
-    SPELLS.push({ kind, sx, sy, tx, ty, t: 0, life: kind === 'bolt' ? .24 : .65 + w.r() * .35, seed: w.r() * 99 | 0 });
+    SPELLS.push({ kind, source: w.a.id, sx, sy, tx, ty, t: 0, life: kind === 'bolt' ? .24 : .65 + w.r() * .35, seed: w.r() * 99 | 0 });
     spark(sx, sy, ['hellfire', 'brimstone'].includes(kind) ? '#f05a3a' : kind === 'fireball' ? '#ffd84a' : kind === 'bolt' ? '#e8f6ff' : '#c8b4ff', -5, .35);
   }
   function castCatSpell(t) {
@@ -994,6 +994,17 @@
   }
 
   // ---------- draw ----------
+  const SPELL_EYES = { fireball: '#f05a3a', bolt: '#e8f6ff', missile: '#9a7cf0', spark: '#d8ff58', rune: '#58d878', rain: '#8fd0ff',
+    hellfire: '#f05a3a', brimstone: '#f08a2a', hex: '#c8b4ff', void: '#8a4fc8' };
+  function drawCastingEyes(w, frame, t) {
+    const s = SPELLS.find(s => s.source === w.a.id || (s.attackers || []).includes(w.a.id) || (s.defenders || []).includes(w.a.id));
+    if (!s || frame.startsWith('sleep') || (t * 12 | 0) % 2) return;
+    const c = s.kind === 'ray' ? (w.sp.demon ? '#f08a2a' : '#8fd0ff') : s.c || SPELL_EYES[s.kind];
+    if (!c) return;
+    const b = (w.sp.sub ? 2 : 0) + (frame.endsWith('B') ? 1 : 0);
+    g.fillStyle = c;
+    g.fillRect(8, 8 + b, 1, 1); g.fillRect(w.sp.glasses ? 12 : 11, 8 + b, 1, 1);
+  }
   function drawWizardSprite(w, t) {
     if (w.blast) {
       drawBlast(w, w.blast, t, w.sp.demon ? '#f08a2a' : '#8fd0ff');
@@ -1005,8 +1016,9 @@
     const img = w.sp.frames[f];
     g.globalAlpha = .3 * w.alpha; g.fillStyle = '#0a0810'; g.fillRect(w.x - 5, w.y - 1, 10, 2);
     g.globalAlpha = w.alpha;
-    if (w.dir < 0) { g.save(); g.translate(w.x + 10, w.y - 23); g.scale(-1, 1); g.drawImage(img, 0, 0); g.restore(); }
-    else g.drawImage(img, w.x - 10, w.y - 23);
+    g.save(); g.translate(w.x + (w.dir < 0 ? 10 : -10), w.y - 23);
+    if (w.dir < 0) g.scale(-1, 1);
+    g.drawImage(img, 0, 0); drawCastingEyes(w, f, t); g.restore();
     if (w.a.id === sel || w.a.id === hover || w.a.status === 'attention') {
       const c = w.a.status === 'attention' ? '#ff5a5a' : '#ffd84a';
       g.globalAlpha = (Math.sin(t * 5) + 1.6) / 3;
@@ -1137,7 +1149,7 @@
   }
   function rainAnchor(s) {
     if (s.cat) return [cat.x, cat.y - 25];
-    const w = wizards.get(s.id);
+    const w = wizards.get(s.source);
     return w && !w.leaving ? [w.x, w.y - 35] : [s.sx, s.sy];
   }
   function drawRainSpell(s, t) {

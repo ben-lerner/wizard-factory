@@ -97,7 +97,7 @@ window.SP = (() => {
       P(cx - 2, 8 + b, '#cfe3ff'); P(cx + 1, 8 + b, '#cfe3ff'); P(cx - 3, 8 + b, '#1c1430'); P(cx + 2, 8 + b, '#1c1430');
       R(cx - 3, 9 + b, 3, 1, '#1c1430'); R(cx + 1, 9 + b, 2, 1, '#1c1430');
     } else if (sleeping) { R(cx - 3, 9 + b, 2, 1, '#1c1430'); R(cx + 1, 9 + b, 2, 1, '#1c1430'); }
-    else if (o.glasses) { P(cx - 3, 8 + b, '#cfe3ff'); P(cx + 1, 8 + b, '#cfe3ff'); P(cx - 2, 8 + b, '#1c1430'); P(cx + 2, 8 + b, '#1c1430'); }
+    else if (o.glasses) { P(cx - 3, 8 + b, '#cfe3ff'); P(cx, 8 + b, '#cfe3ff'); P(cx - 2, 8 + b, '#1c1430'); P(cx + 1, 8 + b, '#1c1430'); }
     else { P(cx - 2, 8 + b, '#1c1430'); P(cx + 1, 8 + b, '#1c1430'); }
     // beard
     const bc = o.beardC, bh = shade(bc, 1.2);
@@ -179,7 +179,7 @@ window.SP = (() => {
     const pc = document.createElement('canvas'); pc.width = 42; pc.height = 42;
     const pg = pc.getContext('2d'); pg.imageSmoothingEnabled = false;
     pg.drawImage(frames.idleA, 3, sub ? 1 : 0, 14, 14, 0, 0, 42, 42);
-    return { name, epithet, frames, portrait: pc.toDataURL(), hue, sub, demon, glasses: o.glasses, drink: drinkFor(id, demon) };
+    return { name, epithet, frames, portrait: pc.toDataURL(), hue, sub, demon, drink: drinkFor(id, demon) };
   }
 
   // ---------- the staff cat ----------

@@ -996,14 +996,14 @@
   // ---------- draw ----------
   const SPELL_EYES = { fireball: '#f05a3a', bolt: '#e8f6ff', missile: '#9a7cf0', spark: '#d8ff58', rune: '#58d878', rain: '#8fd0ff',
     hellfire: '#f05a3a', brimstone: '#f08a2a', hex: '#c8b4ff', void: '#8a4fc8' };
-  function drawCastingEyes(w, frame, t) {
+  function drawCastingEyes(w, frame) {
     const s = SPELLS.find(s => s.source === w.a.id || (s.attackers || []).includes(w.a.id) || (s.defenders || []).includes(w.a.id));
-    if (!s || frame.startsWith('sleep') || (t * 12 | 0) % 2) return;
+    if (!s || frame.startsWith('sleep')) return;
     const c = s.kind === 'ray' ? (w.sp.demon ? '#f08a2a' : '#8fd0ff') : s.c || SPELL_EYES[s.kind];
     if (!c) return;
     const b = (w.sp.sub ? 2 : 0) + (frame.endsWith('B') ? 1 : 0);
     g.fillStyle = c;
-    g.fillRect(8, 8 + b, 1, 1); g.fillRect(w.sp.glasses ? 12 : 11, 8 + b, 1, 1);
+    g.fillRect(8, 8 + b, 1, 1); g.fillRect(11, 8 + b, 1, 1);
   }
   function drawWizardSprite(w, t) {
     if (w.blast) {
@@ -1018,7 +1018,7 @@
     g.globalAlpha = w.alpha;
     g.save(); g.translate(w.x + (w.dir < 0 ? 10 : -10), w.y - 23);
     if (w.dir < 0) g.scale(-1, 1);
-    g.drawImage(img, 0, 0); drawCastingEyes(w, f, t); g.restore();
+    g.drawImage(img, 0, 0); drawCastingEyes(w, f); g.restore();
     if (w.a.id === sel || w.a.id === hover || w.a.status === 'attention') {
       const c = w.a.status === 'attention' ? '#ff5a5a' : '#ffd84a';
       g.globalAlpha = (Math.sin(t * 5) + 1.6) / 3;

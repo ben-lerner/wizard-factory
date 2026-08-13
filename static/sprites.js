@@ -98,7 +98,7 @@ window.SP = (() => {
       R(cx - 3, 9 + b, 3, 1, '#1c1430'); R(cx + 1, 9 + b, 2, 1, '#1c1430');
     } else if (sleeping) { R(cx - 3, 9 + b, 2, 1, '#1c1430'); R(cx + 1, 9 + b, 2, 1, '#1c1430'); }
     else if (o.glasses) { P(cx - 2, 8 + b, '#cfe3ff'); P(cx + 1, 8 + b, '#cfe3ff'); P(cx - 3, 8 + b, '#1c1430'); P(cx + 2, 8 + b, '#1c1430'); }
-    else { P(cx - 2, 8 + b, '#1c1430'); P(cx + 1, 8 + b, '#1c1430'); }
+    else { P(cx - 3, 8 + b, '#1c1430'); P(cx + 2, 8 + b, '#1c1430'); }
     // beard
     const bc = o.beardC, bh = shade(bc, 1.2);
     if (o.beardType === 'stache') { R(cx - 3, 10 + b, 2, 1, bc); R(cx + 1, 10 + b, 2, 1, bc); P(cx, 11 + b, bc); }

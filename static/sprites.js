@@ -93,11 +93,7 @@ window.SP = (() => {
     R(cx + feet[0], 22, 2, 2, '#241a2e'); R(cx + feet[1], 22, 2, 2, '#241a2e');
     // head
     R(cx - 3, 5 + b, 6, 6, o.skin); R(cx + 2, 5 + b, 1, 6, o.skinD);
-    if (sleeping && o.glasses) {
-      P(cx - 2, 8 + b, '#cfe3ff'); P(cx + 1, 8 + b, '#cfe3ff'); P(cx - 3, 8 + b, '#1c1430'); P(cx + 2, 8 + b, '#1c1430');
-      R(cx - 3, 9 + b, 3, 1, '#1c1430'); R(cx + 1, 9 + b, 2, 1, '#1c1430');
-    } else if (sleeping) { R(cx - 3, 9 + b, 2, 1, '#1c1430'); R(cx + 1, 9 + b, 2, 1, '#1c1430'); }
-    else if (o.glasses) { P(cx - 3, 8 + b, '#cfe3ff'); P(cx, 8 + b, '#cfe3ff'); P(cx - 2, 8 + b, '#1c1430'); P(cx + 1, 8 + b, '#1c1430'); }
+    if (sleeping) { R(cx - 3, 9 + b, 2, 1, '#1c1430'); R(cx + 1, 9 + b, 2, 1, '#1c1430'); }
     else { P(cx - 2, 8 + b, '#1c1430'); P(cx + 1, 8 + b, '#1c1430'); }
     // beard
     const bc = o.beardC, bh = shade(bc, 1.2);
@@ -162,10 +158,11 @@ window.SP = (() => {
       hatType: demon ? 'bare' : codex ? 'hood' : sub ? pick(r, ['cap', 'bare', 'pointy', 'cap']) : pick(r, ['pointy', 'pointy', 'pointy', 'bent', 'wide', 'hood', 'bare']),
       beardType: sub ? 'none' : pick(r, ['long', 'long', 'short', 'short', 'forked', 'stache', 'none']),
       acc: pick(r, sub ? ['none', 'tome', 'wand', 'none'] : ['staff', 'staff', 'wand', 'tome', 'none']),
-      glasses: r() < .22, decal: r() < .5 ? (r() < .5 ? 'star' : 'moon') : null,
       accC: hsl((hue + 90) % 360, 45, 45),
     };
-    if (demon) Object.assign(o, { demon, skin: '#b84a48', beardC: '#241622', robe: '#542238', robeD: '#321424', trim: '#f08a2a', glasses: false });
+    r(); // preserve seeded appearances after retiring glasses
+    o.decal = r() < .5 ? (r() < .5 ? 'star' : 'moon') : null;
+    if (demon) Object.assign(o, { demon, skin: '#b84a48', beardC: '#241622', robe: '#542238', robeD: '#321424', trim: '#f08a2a' });
     o.skinD = shade(o.skin, .82);
     let name = sub ? (demon ? 'DEMON ' : 'APPRENTICE ') + pick(r, APPRENTICE) : pick(r, N1) + pick(r, N2) + pick(r, N3);
     for (let i = 0; !sub && name.length > 11 && i < 4; i++) name = pick(r, N1) + pick(r, N2) + pick(r, N3);

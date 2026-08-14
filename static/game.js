@@ -996,10 +996,14 @@
   // ---------- draw ----------
   const SPELL_EYES = { fireball: '#f05a3a', bolt: '#e8f6ff', missile: '#9a7cf0', spark: '#d8ff58', rune: '#58d878', rain: '#8fd0ff',
     hellfire: '#f05a3a', brimstone: '#f08a2a', hex: '#c8b4ff', void: '#8a4fc8' };
-  function drawCastingEyes(w, frame) {
+  function drinkEyeColor(d) {
+    return d.potion || (d.key === 'antimatter' ? '#d8ff58' : d.key === 'warm-milk' ? '#f7f3e8' : d.milk ? '#f0e6d0' : '#e8a44a');
+  }
+  function drawGlowingEyes(w, frame, t) {
     const s = SPELLS.find(s => s.source === w.a.id || (s.attackers || []).includes(w.a.id) || (s.defenders || []).includes(w.a.id));
-    if (!s || frame.startsWith('sleep')) return;
-    const c = s.kind === 'ray' ? (w.sp.demon ? '#f08a2a' : '#8fd0ff') : s.c || SPELL_EYES[s.kind];
+    const o = w.order, sipping = o && o.stage === 'served' && (t - o.servedAt + 4) % 5 < 1.2;
+    if ((!s && !sipping) || frame.startsWith('sleep')) return;
+    const c = s ? (s.kind === 'ray' ? (w.sp.demon ? '#f08a2a' : '#8fd0ff') : s.c || SPELL_EYES[s.kind]) : drinkEyeColor(o.drink);
     if (!c) return;
     const b = (w.sp.sub ? 2 : 0) + (frame.endsWith('B') ? 1 : 0);
     g.fillStyle = c;
@@ -1018,7 +1022,7 @@
     g.globalAlpha = w.alpha;
     g.save(); g.translate(w.x + (w.dir < 0 ? 10 : -10), w.y - 23);
     if (w.dir < 0) g.scale(-1, 1);
-    g.drawImage(img, 0, 0); drawCastingEyes(w, f); g.restore();
+    g.drawImage(img, 0, 0); drawGlowingEyes(w, f, t); g.restore();
     if (w.a.id === sel || w.a.id === hover || w.a.status === 'attention') {
       const c = w.a.status === 'attention' ? '#ff5a5a' : '#ffd84a';
       g.globalAlpha = (Math.sin(t * 5) + 1.6) / 3;

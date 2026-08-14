@@ -46,7 +46,7 @@ Read/Grep/Glob = bookshelves · Edit/Write/Plan/Todo = writing desks · Web/MCP 
 crystal ball · Task/Agent/Skill = summoning circle · approvals = petition board.
 
 Appearance and name are deterministic per agent id (seeded hats, beards, robes,
-spectacles, staffs, and cafe order), so the same session keeps the same wizard
+staffs, and cafe order), so the same session keeps the same wizard
 across reloads. Long quiet stretches are occasionally interrupted by a brief
 tower-wide ray battle; victims burst through faction-colored shock sigils, then
 magically reconstitute amid orbiting motes and reforming circles before returning

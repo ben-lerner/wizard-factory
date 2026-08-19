@@ -37,7 +37,7 @@ OPEN_AGENT = Path.home() / '.agents' / 'scripts' / 'open-agent'
 HOOK_MARK = '#wizard-factory'
 HOOK_EVENTS = ['Notification', 'Stop', 'UserPromptSubmit', 'SessionStart', 'SessionEnd']
 SCAN_SEC, FRESH_SEC, TAIL_BYTES = 1.0, 3 * 3600, 512 * 1024
-REMOTE_SCAN_SEC, REMOTE_STALE_SEC = 3.0, 15
+REMOTE_SCAN_SEC, REMOTE_STALE_SEC, REMOTE_USAGE_SEC = 3.0, 15, 60
 RESPONDING_SEC, IDLE_SEC, GONE_SEC = 6, 15 * 60, 45 * 60
 ABANDON_SEC, SUB_GONE_SEC = 2 * 3600, 150
 CHAT_TURNS, CHAT_CHARS = 30, 700
@@ -49,7 +49,7 @@ OVERRIDES = {}  # session_id -> latest hook event {event, ts, msg}
 DEAD = {}       # session_id -> epoch of SessionEnd hook
 AGENTS = {}     # session_id -> registry entry {host, agent, tmux, cwd, resume}
 LAST_OPEN = {}  # agent id (host-prefixed for demons) -> the last registry entry seen for it
-REMOTE_AGENTS, REMOTE_SEEN = [], 0
+REMOTE_AGENTS, REMOTE_QUOTAS, REMOTE_SEEN, REMOTE_USAGE_SEEN = [], [], 0, 0
 REGISTRY_MTIME, TOKEN, TOKEN_MTIME = 0.0, None, 0.0
 CLAUDE_USAGE_MTIME, CLAUDE_QUOTAS = 0.0, []
 CODEX_QUOTAS, CODEX_QUOTAS_TS = [], 0
@@ -256,6 +256,7 @@ def refresh_codex_resets():
         count = fetch_codex_resets()
         if count is not None:
             CODEX_RESETS = count
+        return count is not None
     finally:
         CODEX_RESETS_TS, CODEX_RESETS_REFRESHING = time.time(), False
 
@@ -287,11 +288,11 @@ def advance_quotas(quotas, now):
     return out
 
 
-def codex_quotas():
+def codex_quotas(include_resets=True):
     global CODEX_QUOTAS
     if CODEX_QUOTAS:
         CODEX_QUOTAS = advance_quotas(CODEX_QUOTAS, time.time())
-        return [{**q, 'resets_left': codex_resets()} for q in CODEX_QUOTAS]
+        return [{**q, 'resets_left': codex_resets()} for q in CODEX_QUOTAS] if include_resets else CODEX_QUOTAS
     for path in sorted(CODEX.glob('*/*/*/rollout-*.jsonl'), reverse=True)[:20]:
         try:
             lines = path.read_bytes()[-TAIL_BYTES:].splitlines()
@@ -306,7 +307,7 @@ def codex_quotas():
                 if isinstance(p.get('rate_limits'), dict):
                     remember_codex_quotas(p['rate_limits'], epoch(d.get('timestamp') or '') or 0)
                     if CODEX_QUOTAS:
-                        return codex_quotas()
+                        return codex_quotas(include_resets)
             except (ValueError, AttributeError):
                 pass
     return []
@@ -676,18 +677,48 @@ def remote_agents(host, payload):
             for a in agents if isinstance(a, dict) and isinstance(a.get('id'), str)]
 
 
-def scan_remote(host):
+def remote_snapshot(host, payload):
+    quotas = payload.get('quotas', []) if isinstance(payload, dict) else []
+    return remote_agents(host, payload), [
+        {**q, 'origin': 'remote'} for q in quotas
+        if isinstance(q, dict) and q.get('provider') == 'codex'
+    ]
+
+
+def scan_remote(host, refresh_usage=False):
     source = Path(__file__).read_bytes()
+    args = ['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=3', host,
+            'python3', '-', '--debug-scan']
+    if refresh_usage:
+        args.append('--refresh-usage')
     proc = subprocess.run(
-        ['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=3', host,
-         'python3', '-', '--debug-scan'],
-        input=source, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10,
+        args,
+        input=source, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        timeout=20 if refresh_usage else 10,
     )
     proc.check_returncode()
-    return remote_agents(host, json.loads(proc.stdout))
+    return remote_snapshot(host, json.loads(proc.stdout))
 
 
-def state_payload(demo):
+def preserve_reset_credits(quotas, cached):
+    resets = {(q.get('provider'), q.get('period')): q.get('resets_left')
+              for q in cached if isinstance(q, dict) and isinstance(q.get('resets_left'), int)}
+    return [{**q, 'resets_left': resets.get((q.get('provider'), q.get('period')),
+                                             q.get('resets_left', 0))}
+            for q in quotas]
+
+
+def poll_remote(host, refresh_usage):
+    try:
+        return scan_remote(host, refresh_usage)
+    except Exception:
+        if not refresh_usage:
+            raise
+        agents, quotas = scan_remote(host)
+        return agents, preserve_reset_credits(quotas, REMOTE_QUOTAS)
+
+
+def state_payload(demo, include_resets=True):
     now = time.time()
     with LOCK:
         if demo:
@@ -703,11 +734,12 @@ def state_payload(demo):
         cut = now - FRESH_SEC
         for gone in [k for k, v in LAST_OPEN.items() if v.get('ts', now) < cut]:
             del LAST_OPEN[gone]
-        quotas = ([{'provider': 'claude', 'period': 'weekly', 'left': 68, 'resets_at': now + 2.4 * 86400, 'resets_left': 3},
-                   {'provider': 'claude', 'period': 'five_hour', 'left': 37, 'resets_at': now + 2.2 * 3600, 'resets_left': 1},
-                   {'provider': 'codex', 'period': 'weekly', 'left': 81, 'resets_at': now + 5.1 * 86400, 'resets_left': 2},
-                   {'provider': 'claude', 'period': 'fable', 'left': 56, 'resets_at': now + 6.2 * 86400, 'resets_left': 0}]
-                  if demo else [*claude_quotas(), *codex_quotas()])
+        quotas = ([{'provider': 'codex', 'origin': 'local', 'period': 'weekly', 'left': 81,
+                    'resets_at': now + 5.1 * 86400, 'resets_left': 2},
+                   {'provider': 'codex', 'origin': 'remote', 'period': 'weekly', 'left': 54,
+                    'resets_at': now + 3.3 * 86400, 'resets_left': 1}]
+                  if demo else [{**q, 'origin': 'local'} for q in codex_quotas(include_resets)] +
+                  (REMOTE_QUOTAS if now - REMOTE_SEEN < REMOTE_STALE_SEC else []))
     return {'now': now, 'demo': bool(demo), 'token': TOKEN, 'quotas': quotas,
             'agents': sorted(ags, key=lambda a: a['started'] or 0)}
 
@@ -843,6 +875,7 @@ def main():
     ap.add_argument('--port', type=int, default=7777)
     ap.add_argument('--demo', action='store_true', help='populate the tower with fake wizards')
     ap.add_argument('--debug-scan', action='store_true', help='print inferred agents as JSON and exit')
+    ap.add_argument('--refresh-usage', action='store_true', help=argparse.SUPPRESS)
     ap.add_argument('--remote-host', default='mage-tower', help='SSH host to scan (empty to disable)')
     ap.add_argument('--install-hooks', action='store_true', help='add optional hooks to ~/.claude/settings.json')
     ap.add_argument('--uninstall-hooks', action='store_true', help='remove those hooks')
@@ -852,7 +885,9 @@ def main():
     if a.debug_scan:
         with LOCK:
             scan_once(time.time())
-        return print(json.dumps(state_payload(None), indent=2))
+        if a.refresh_usage and not refresh_codex_resets():
+            raise RuntimeError('unable to refresh Codex reset credits')
+        return print(json.dumps(state_payload(None, a.refresh_usage), indent=2))
     demo = Demo() if a.demo else None
     if not demo:
         def local_loop():
@@ -867,13 +902,18 @@ def main():
         threading.Thread(target=local_loop, daemon=True).start()
         if a.remote_host:
             def remote_loop():
-                global REMOTE_AGENTS, REMOTE_SEEN
+                global REMOTE_AGENTS, REMOTE_QUOTAS, REMOTE_SEEN, REMOTE_USAGE_SEEN
                 while True:
                     t = time.time()
                     try:
-                        agents = scan_remote(a.remote_host)
+                        refresh_usage = t - REMOTE_USAGE_SEEN >= REMOTE_USAGE_SEC
+                        agents, quotas = poll_remote(a.remote_host, refresh_usage)
                         with LOCK:
                             REMOTE_AGENTS, REMOTE_SEEN = agents, time.time()
+                            if refresh_usage:
+                                REMOTE_USAGE_SEEN = REMOTE_SEEN
+                                if quotas is not None:
+                                    REMOTE_QUOTAS = quotas
                     except Exception:
                         pass
                     time.sleep(max(0.1, REMOTE_SCAN_SEC - (time.time() - t)))

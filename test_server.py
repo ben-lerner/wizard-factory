@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import MagicMock, patch
 
 import server
 
@@ -31,6 +32,36 @@ class RemoteAgentsTest(unittest.TestCase):
 
         self.assertEqual(agents[0]['open'], {'host': 'mage-tower', 'tmux': 'claude'})
         self.assertIsNone(agents[1]['open'])
+
+    def test_extracts_only_codex_quota_for_remote_usage_probe(self):
+        payload = {'agents': [], 'quotas': [
+            {'provider': 'claude', 'period': 'weekly', 'left': 30},
+            {'provider': 'codex', 'period': 'weekly', 'left': 60},
+        ]}
+
+        agents, quotas = server.remote_snapshot('mage-tower', payload)
+
+        self.assertEqual(agents, [])
+        self.assertEqual(quotas, [{
+            'provider': 'codex', 'period': 'weekly', 'left': 60, 'origin': 'remote',
+        }])
+
+    def test_usage_failure_falls_back_to_fast_agent_scan(self):
+        fresh = [{'provider': 'codex', 'period': 'weekly', 'left': 42, 'resets_left': 0}]
+        cached = [{'provider': 'codex', 'period': 'weekly', 'left': 50, 'resets_left': 3}]
+        with patch.object(server, 'scan_remote', side_effect=[TimeoutError, (['agent'], fresh)]) as scan, \
+             patch.object(server, 'REMOTE_QUOTAS', cached):
+            self.assertEqual(server.poll_remote('mage-tower', True), (['agent'], [{
+                'provider': 'codex', 'period': 'weekly', 'left': 42, 'resets_left': 3,
+            }]))
+            self.assertEqual([c.args for c in scan.call_args_list], [('mage-tower', True), ('mage-tower',)])
+
+    def test_usage_refresh_has_a_larger_remote_timeout(self):
+        proc = MagicMock(stdout=b'{"agents": [], "quotas": []}')
+        with patch.object(server.subprocess, 'run', return_value=proc) as run:
+            server.scan_remote('mage-tower', True)
+
+        self.assertEqual(run.call_args.kwargs['timeout'], 20)
 
 
 class ChatLogTest(unittest.TestCase):
@@ -78,6 +109,31 @@ class QuotaTest(unittest.TestCase):
         response = {'rateLimitResetCredits': {'availableCount': 1, 'credits': []}}
 
         self.assertEqual(server.reset_count(response), 1)
+
+    def test_synchronous_refresh_primes_reset_credits_for_remote_snapshot(self):
+        with patch.object(server, 'fetch_codex_resets', return_value=3), \
+             patch.object(server, 'CODEX_RESETS', 0), \
+             patch.object(server, 'CODEX_RESETS_TS', 0):
+            self.assertTrue(server.refresh_codex_resets())
+
+            self.assertEqual(server.CODEX_RESETS, 3)
+            self.assertGreater(server.CODEX_RESETS_TS, 0)
+
+    def test_failed_reset_refresh_is_reported_without_overwriting_cached_count(self):
+        with patch.object(server, 'fetch_codex_resets', return_value=None), \
+             patch.object(server, 'CODEX_RESETS', 4), \
+             patch.object(server, 'CODEX_RESETS_TS', 0):
+            self.assertFalse(server.refresh_codex_resets())
+
+            self.assertEqual(server.CODEX_RESETS, 4)
+            self.assertGreater(server.CODEX_RESETS_TS, 0)
+
+    def test_fast_remote_scan_does_not_fetch_reset_credits(self):
+        quota = {'provider': 'codex', 'period': 'weekly', 'left': 60,
+                 'resets_at': 9999999999, 'resets_left': 0}
+        with patch.object(server, 'CODEX_QUOTAS', [quota]), \
+             patch.object(server, 'codex_resets', side_effect=AssertionError):
+            self.assertEqual(server.codex_quotas(False), [quota])
 
     def test_reads_claude_fable_quota_with_weekly_reset_fallback(self):
         usage = {

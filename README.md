@@ -60,12 +60,10 @@ blast anyone, including Earl Grey, but are themselves immune. Earl Grey, the
 dragon barista, brews cafe orders with fire and pours milk for milk drinks.
 The frontend polls `/api/state` every 1.5s.
 
-The laboratory's upper-right quota vats show remaining Claude and Codex capacity:
-large vats are weekly windows, the thin vat is Claude's five-hour window, and each
-provider has its own potion color. Claude's Fable quota coils through a spiral vat
-the size of a weekly one. Liquid height shows quota remaining; hovering
-reveals the exact percentage and full quota name. The countdown shows the next
-reset, with matching floating blobs for any reset credits reported by the provider.
+The laboratory's upper-right usage probes show remaining Codex capacity on both
+machines: local usage is blue and remote `mage-tower` usage is red. Liquid height
+shows quota remaining; hovering reveals the exact percentage and machine. The
+countdown shows the next reset, with matching floating blobs for any reset credits.
 
 ## The journal: what was said, and getting back to it
 

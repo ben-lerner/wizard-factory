@@ -752,6 +752,8 @@ def open_agent(entry):
     for flag in ('tmux', 'resume'):
         if entry.get(flag):
             args += [f'--{flag}', str(entry[flag])]
+    if entry.get('tmux_auto'):
+        args.append('--auto-tmux')
     try:
         subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          start_new_session=True)

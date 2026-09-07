@@ -1496,7 +1496,7 @@
     const a = w.a, now = Date.now() / 1000 - serverSkew, history = [...(a.history || [])].reverse();
     // Rebuilding wipes both scroll positions, so do it only on a change or once ages go stale.
     const sig = JSON.stringify([a.id, a.status, a.tool, a.detail, a.title, a.quest, a.project,
-      a.branch, !!a.open, a.chat, history.map(h => h.text)]);
+      a.branch, a.chat, history.map(h => h.text)]);
     if (sig === journalSig && now - journalAt < JOURNAL_STALE && !panel.hidden) return;
     const fresh = journalId !== a.id;
     journalId = a.id;
@@ -1506,7 +1506,7 @@
     const chatKeep = chatBox ? chatBox.scrollTop : 0;
     journalSig = sig;
     journalAt = now;
-    body.innerHTML = `<div class="j-head">${esc(w.sp.name)}${a.open ? '<button id="journalOpen" title="open this agent\'s terminal">⧉ OPEN</button>' : ''}</div>
+    body.innerHTML = `<div class="j-head">${esc(w.sp.name)}</div>
       <div class="j-ep">${esc(w.sp.epithet)} · ${esc(a.project || '?')}${a.branch ? ' · ' + esc(a.branch) : ''}</div>
       <div class="j-summary">${esc(journalSummary(a, w))}</div>
       <div class="j-title">COUNSEL &amp; MISSIVES</div>
@@ -1518,13 +1518,6 @@
     panel.scrollTop = keep;
     const box = $('.j-chat');
     if (box) box.scrollTop = pinned ? box.scrollHeight : chatKeep;
-    const btn = $('#journalOpen');
-    if (btn) btn.onclick = async e => {
-      e.stopPropagation();
-      btn.textContent = '⧉ …';
-      const res = await fetch(`/open?id=${encodeURIComponent(a.id)}&token=${encodeURIComponent(lastData.token || '')}`).catch(() => null);
-      btn.textContent = res && res.ok ? '⧉ OPEN' : '⧉ NO LUCK';
-    };
   }
   function renderSide() {
     const now = Date.now() / 1000 - serverSkew;

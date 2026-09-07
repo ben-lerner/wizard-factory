@@ -12,7 +12,6 @@ import argparse
 import json
 import os
 import random
-import secrets
 import select
 import subprocess
 import threading
@@ -21,7 +20,7 @@ from collections import deque
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent
 PROJECTS = Path.home() / '.claude' / 'projects'
@@ -30,10 +29,6 @@ CODEX_CLI = next((str(p) for p in (Path.home() / '.local/bin/codex', Path('/opt/
                   if p.is_file()), 'codex')
 CLAUDE_STATE = Path.home() / '.claude.json'
 SETTINGS = Path.home() / '.claude' / 'settings.json'
-AGENT_STATE = Path.home() / '.agents' / 'state'   # written by the turn-notify hooks
-REGISTRY = AGENT_STATE / 'agents.json'            # session id -> where that agent lives
-OPEN_TOKEN = AGENT_STATE / 'open-token'
-OPEN_AGENT = Path.home() / '.agents' / 'scripts' / 'open-agent'
 HOOK_MARK = '#wizard-factory'
 HOOK_EVENTS = ['Notification', 'Stop', 'UserPromptSubmit', 'SessionStart', 'SessionEnd']
 SCAN_SEC, FRESH_SEC, TAIL_BYTES = 1.0, 3 * 3600, 512 * 1024
@@ -47,10 +42,7 @@ MIME = {'.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.pn
 FILES = {}      # path -> FileState
 OVERRIDES = {}  # session_id -> latest hook event {event, ts, msg}
 DEAD = {}       # session_id -> epoch of SessionEnd hook
-AGENTS = {}     # session_id -> registry entry {host, agent, tmux, cwd, resume}
-LAST_OPEN = {}  # agent id (host-prefixed for demons) -> the last registry entry seen for it
 REMOTE_AGENTS, REMOTE_QUOTAS, REMOTE_SEEN, REMOTE_USAGE_SEEN = [], [], 0, 0
-REGISTRY_MTIME, TOKEN, TOKEN_MTIME = 0.0, None, 0.0
 CLAUDE_USAGE_MTIME, CLAUDE_QUOTAS = 0.0, []
 CODEX_QUOTAS, CODEX_QUOTAS_TS = [], 0
 CODEX_RESETS, CODEX_RESETS_TS, CODEX_RESETS_REFRESHING = 0, 0, False
@@ -75,45 +67,6 @@ def snip(s, n=CHAT_CHARS):
     while '\n\n\n' in s:
         s = s.replace('\n\n\n', '\n\n')
     return s[:n] + ('…' if len(s) > n else '')
-
-
-def load_registry():
-    """Where each agent lives, as recorded by the turn-notify hooks; reread when it changes."""
-    global AGENTS, REGISTRY_MTIME
-    try:
-        mtime = REGISTRY.stat().st_mtime
-    except OSError:
-        return
-    if mtime == REGISTRY_MTIME:
-        return
-    try:
-        entries = json.loads(REGISTRY.read_text())
-        AGENTS = entries if isinstance(entries, dict) else {}
-        REGISTRY_MTIME = mtime
-    except (OSError, ValueError):
-        pass
-
-
-def open_token():
-    """Shared secret for /open, so no random page in the browser can raise your terminals.
-
-    Only the serving paths ask for it, so scanning a remote host never leaves a token file behind
-    on it. Rereading on change matters because deleting the file rotates the secret: the hooks would
-    write a new one and every notification link would 403 against a cached copy.
-    """
-    global TOKEN, TOKEN_MTIME
-    AGENT_STATE.mkdir(parents=True, exist_ok=True)
-    try:  # O_EXCL so a hook minting one at the same moment wins outright instead of both writing
-        fd = os.open(OPEN_TOKEN, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-    except FileExistsError:
-        pass
-    else:
-        with os.fdopen(fd, 'w') as f:
-            f.write(secrets.token_urlsafe(16))
-    mtime = OPEN_TOKEN.stat().st_mtime
-    if mtime != TOKEN_MTIME:
-        TOKEN, TOKEN_MTIME = OPEN_TOKEN.read_text().strip(), mtime
-    return TOKEN
 
 
 def tool_detail(name, inp):
@@ -510,7 +463,7 @@ class FileState:
                 'status': self.status, 'tool': self.tool, 'detail': self.detail,
                 'since': self.since, 'last': max(self.last_ts or 0, self.mtime) or None, 'started': self.started,
                 'msg': ov.get('msg') if self.status == 'attention' else None, 'history': history,
-                'chat': list(self.chat), 'open': AGENTS.get(self.sid)}
+                'chat': list(self.chat)}
 
 
 def retail(fs, size):
@@ -521,7 +474,6 @@ def retail(fs, size):
 
 
 def scan_once(now):
-    load_registry()
     seen = set()
     files = list(PROJECTS.glob('*/*.jsonl')) + list(PROJECTS.glob('*/*/subagents/*.jsonl'))
     if CODEX.is_dir():
@@ -625,7 +577,7 @@ class Demo:
             'chat': [{'ts': now - 90, 'role': 'user', 'text': self.rng.choice(self.QUESTS) + ', please.'},
                      {'ts': now - 30, 'role': 'agent', 'text': 'Aye. Reading the scrolls first:\n\n- the '
                       'cauldron logs\n- the questbook\n\nI will report once the rite holds.'}],
-            'open': None, '_next': now + self.rng.uniform(2, 5)}
+            '_next': now + self.rng.uniform(2, 5)}
 
     def step(self, a, now):
         r = self.rng
@@ -671,8 +623,6 @@ def remote_agents(host, payload):
     agents = payload.get('agents', []) if isinstance(payload, dict) else []
     return [{**a, 'id': f"{host}:{a['id']}",
              'parent': f"{host}:{a['parent']}" if a.get('parent') else None,
-             # the remote registry names its own host, but this ssh alias is what we can reach
-             'open': {**a['open'], 'host': host} if isinstance(a.get('open'), dict) else None,
              'origin': 'remote', 'host': host}
             for a in agents if isinstance(a, dict) and isinstance(a.get('id'), str)]
 
@@ -728,38 +678,14 @@ def state_payload(demo, include_resets=True):
                    if fs.status and fs.status != 'gone']
             if now - REMOTE_SEEN < REMOTE_STALE_SEC:
                 ags += REMOTE_AGENTS
-        # Remembered past the agent's own lifetime: a notification link is often clicked long after
-        # the wizard left the tower, and for demons the remote registry is out of reach from here.
-        LAST_OPEN.update({a['id']: a['open'] for a in ags if isinstance(a.get('open'), dict)})
-        cut = now - FRESH_SEC
-        for gone in [k for k, v in LAST_OPEN.items() if v.get('ts', now) < cut]:
-            del LAST_OPEN[gone]
         quotas = ([{'provider': 'codex', 'origin': 'local', 'period': 'weekly', 'left': 81,
                     'resets_at': now + 5.1 * 86400, 'resets_left': 2},
                    {'provider': 'codex', 'origin': 'remote', 'period': 'weekly', 'left': 54,
                     'resets_at': now + 3.3 * 86400, 'resets_left': 1}]
                   if demo else [{**q, 'origin': 'local'} for q in codex_quotas(include_resets)] +
                   (REMOTE_QUOTAS if now - REMOTE_SEEN < REMOTE_STALE_SEC else []))
-    return {'now': now, 'demo': bool(demo), 'token': TOKEN, 'quotas': quotas,
+    return {'now': now, 'demo': bool(demo), 'quotas': quotas,
             'agents': sorted(ags, key=lambda a: a['started'] or 0)}
-
-
-def open_agent(entry):
-    """Raise, reattach, or resume the agent an entry points at. Only registry values are passed."""
-    args = [str(OPEN_AGENT), '--host', str(entry.get('host') or 'local'),
-            '--agent', str(entry.get('agent') or 'claude'), '--sid', str(entry.get('sid') or ''),
-            '--cwd', str(entry.get('cwd') or Path.home())]
-    for flag in ('tmux', 'resume'):
-        if entry.get(flag):
-            args += [f'--{flag}', str(entry[flag])]
-    if entry.get('tmux_auto'):
-        args.append('--auto-tmux')
-    try:
-        subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         start_new_session=True)
-        return True
-    except OSError:
-        return False  # no open-agent script on this machine
 
 
 def make_handler(demo):
@@ -784,10 +710,7 @@ def make_handler(demo):
             url = urlsplit(self.path)
             p = url.path
             if p == '/api/state':
-                open_token()  # the page carries it back to /open, so keep the payload's copy fresh
                 return self._send(200, json.dumps(state_payload(demo)).encode(), 'application/json')
-            if p == '/open':
-                return self.open_wizard(parse_qs(url.query))
             try:
                 f = (ROOT / 'static' / ('index.html' if p == '/' else p.lstrip('/'))).resolve()
                 if f.is_file() and (ROOT / 'static') in f.parents:
@@ -795,25 +718,6 @@ def make_handler(demo):
             except (ValueError, OSError):
                 pass
             self._send(404, b'lost in the void', 'text/plain')
-
-        def open_wizard(self, q):
-            """Land in the agent this wizard is: the notification link and the tower's ⧉ button."""
-            got = (q.get('token') or [''])[0]
-            # bytes, because compare_digest refuses non-ASCII strings outright
-            if not secrets.compare_digest(got.encode(), open_token().encode()):
-                return self._send(403, b'the tower knows no such sigil', 'text/plain')
-            wanted = (q.get('id') or [''])[0]
-            entry = next((a['open'] for a in state_payload(demo)['agents']
-                          if a['id'] == wanted and isinstance(a.get('open'), dict)), None)
-            if not entry:  # a notification outlives the wizard; these remember it for longer
-                with LOCK:
-                    load_registry()
-                    entry = LAST_OPEN.get(wanted) or AGENTS.get(wanted)
-            if not entry:
-                return self._send(404, b'no such wizard, or nowhere to open it', 'text/plain')
-            if not open_agent(entry):
-                return self._send(500, b'no open-agent script to run', 'text/plain')
-            self._send(200, b'{"ok":true}', 'application/json')
 
         def do_POST(self):
             if self.path != '/hook':

@@ -24,15 +24,6 @@ class RemoteAgentsTest(unittest.TestCase):
     def test_ignores_malformed_remote_agents(self):
         self.assertEqual(server.remote_agents('mage-tower', {'agents': [None, {}]}), [])
 
-    def test_points_remote_open_at_the_host_we_can_reach(self):
-        payload = {'agents': [{'id': 'a', 'open': {'host': 'local', 'tmux': 'claude'}},
-                              {'id': 'b', 'open': 'not a dict'}]}
-
-        agents = server.remote_agents('mage-tower', payload)
-
-        self.assertEqual(agents[0]['open'], {'host': 'mage-tower', 'tmux': 'claude'})
-        self.assertIsNone(agents[1]['open'])
-
     def test_extracts_only_codex_quota_for_remote_usage_probe(self):
         payload = {'agents': [], 'quotas': [
             {'provider': 'claude', 'period': 'weekly', 'left': 30},

@@ -514,12 +514,12 @@
   }
   function castSpell(w, t) {
     if (SPELLS.length > 36) return;
-    const kinds = w.sp.demon ? ['hellfire', 'brimstone', 'hex', 'void'] : ['fireball', 'bolt', 'missile', 'spark', 'rune', 'rain'];
+    const kinds = w.sp.demon ? ['hellfire', 'brimstone', 'hex', 'void'] : ['fireball', 'bolt', 'missile', 'spark', 'rune', 'rain', 'storm'];
     const kind = kinds[w.r() * kinds.length | 0];
     const [tx, ty] = spellTarget(w), sx = w.x + (w.dir > 0 ? 7 : -7), sy = w.y - 17;
-    if (kind === 'rain') {
+    if (kind === 'rain' || kind === 'storm') {
       SPELLS.push({ kind, source: w.a.id, sx: w.x, sy: w.y - 34, t: 0, life: 2.4 + w.r() * 1.2, seed: w.r() * 99 | 0 });
-      spark(w.x, w.y - 30, '#8fd0ff', -4, .4);
+      spark(w.x, w.y - 30, SPELL_EYES[kind], -4, .4);
       return;
     }
     SPELLS.push({ kind, source: w.a.id, sx, sy, tx, ty, t: 0, life: kind === 'bolt' ? .24 : .65 + w.r() * .35, seed: w.r() * 99 | 0 });
@@ -527,11 +527,11 @@
   }
   function castCatSpell(t) {
     if (SPELLS.length > 36) return;
-    const kinds = ['missile', 'spark', 'rune', 'bolt', 'rain'], kind = kinds[catR() * kinds.length | 0];
+    const kinds = ['missile', 'spark', 'rune', 'bolt', 'rain', 'storm'], kind = kinds[catR() * kinds.length | 0];
     const [tx, ty] = catSpellTarget(), sx = cat.x + (cat.dir > 0 ? 7 : -7), sy = cat.y - 8;
-    if (kind === 'rain') {
+    if (kind === 'rain' || kind === 'storm') {
       SPELLS.push({ kind, cat: true, sx: cat.x, sy: cat.y - 24, t: 0, life: 2 + catR() * 1, seed: catR() * 99 | 0 });
-      spark(cat.x, cat.y - 20, '#8fd0ff', -4, .4);
+      spark(cat.x, cat.y - 20, SPELL_EYES[kind], -4, .4);
       return;
     }
     SPELLS.push({ kind, sx, sy, tx, ty, t: 0, life: kind === 'bolt' ? .24 : .55 + catR() * .3, seed: catR() * 99 | 0 });
@@ -699,7 +699,7 @@
         if (target) { s.tx = target.x; s.ty = target.y - 13; explodeWizard(target, t, true); }
       } else if (s.kind === 'teleport') spark(s.tx, s.ty, s.c, -4, .4);
       else if (s.kind === 'fireball') sparkleAt(s.tx, s.ty);
-      else if (s.kind !== 'rain') {
+      else if (s.kind !== 'rain' && s.kind !== 'storm') {
         if (s.cat) burnGameAt(s.tx, s.ty, t);
         spark(s.tx, s.ty, ['hellfire', 'brimstone'].includes(s.kind) ? '#f05a3a' : s.kind === 'bolt' ? '#e8f6ff' : '#c8b4ff', -4, .4);
       }
@@ -953,6 +953,7 @@
       }
       w.walk = moveAlong(w, dt, SPEED);
       unstickWizard(w, t);
+      if (atDesk(w)) { w.x = w.desk.x; w.y = w.desk.y; w.walk = false; }
       w.alpha = Math.max(0, Math.min(1, w.alpha + (w.leaving && !w.path.length ? -3 : w.leaving && w.y > 252 ? -1.2 : 3) * dt));
       if (w.leaving && w.alpha <= 0) { wizards.delete(id); continue; }
       if (w.a.status === 'idle' && Math.random() < dt * .5) spark(w.x + 6, w.y - 24, '#a8a2c8', -6, 1.4, 'z');
@@ -1012,7 +1013,7 @@
   }
 
   // ---------- draw ----------
-  const SPELL_EYES = { fireball: '#f05a3a', bolt: '#e8f6ff', missile: '#9a7cf0', spark: '#d8ff58', rune: '#58d878', rain: '#8fd0ff',
+  const SPELL_EYES = { fireball: '#f05a3a', bolt: '#e8f6ff', missile: '#9a7cf0', spark: '#d8ff58', rune: '#58d878', rain: '#8fd0ff', storm: '#ffd84a',
     hellfire: '#f05a3a', brimstone: '#f08a2a', hex: '#c8b4ff', void: '#8a4fc8' };
   function drinkEyeColor(d) {
     return d.potion || (d.key === 'antimatter' ? '#d8ff58' : d.key === 'warm-milk' ? '#f7f3e8' : d.milk ? '#f0e6d0' : '#e8a44a');
@@ -1040,6 +1041,7 @@
     g.globalAlpha = w.alpha;
     g.save(); g.translate(w.x + (w.dir < 0 ? 10 : -10), w.y - 23 + (atDesk(w) ? 3 : 0));
     if (w.dir < 0) g.scale(-1, 1);
+    if (atDesk(w)) { g.beginPath(); g.rect(0, 0, 20, 16); g.clip(); }
     g.drawImage(img, 0, 0); drawGlowingEyes(w, f, t); g.restore();
     if (w.a.id === sel || w.a.id === hover || w.a.status === 'attention') {
       const c = w.a.status === 'attention' ? '#ff5a5a' : '#ffd84a';
@@ -1169,24 +1171,39 @@
     drawPortal(s.tx, s.ty, 1 - k, s.c, s.seed, true);
     if (k < .85) pixLine(s.sx, s.sy, s.tx, s.ty, s.c, 8);
   }
-  function rainAnchor(s) {
+  function cloudAnchor(s) {
     if (s.cat) return [cat.x, cat.y - 25];
     const w = wizards.get(s.source);
     return w && !w.leaving ? [w.x, w.y - 35] : [s.sx, s.sy];
   }
-  function drawRainSpell(s, t) {
-    const [cx, cy] = rainAnchor(s), fade = Math.min(1, s.t * 2, (s.life - s.t) * 2);
+  function drawCloudSpell(s, t) {
+    const [cx, cy] = cloudAnchor(s), fade = Math.min(1, s.t * 2, (s.life - s.t) * 2);
     g.globalAlpha = Math.max(0, fade);
-    g.fillStyle = '#c8d0dc';
+    g.fillStyle = s.kind === 'storm' ? '#9297b0' : '#c8d0dc';
     g.fillRect(Math.round(cx - 9), Math.round(cy), 18, 4);
     g.fillRect(Math.round(cx - 6), Math.round(cy - 3), 10, 4);
     g.fillStyle = '#8a93a8';
     g.fillRect(Math.round(cx - 7), Math.round(cy + 4), 14, 2);
     g.globalAlpha = Math.max(0, fade * .9);
-    g.fillStyle = '#8fd0ff';
-    for (let i = 0; i < 9; i++) {
-      const dx = -8 + i * 2, fall = (t * 38 + s.seed * 3 + i * 7) % 20;
-      g.fillRect(Math.round(cx + dx), Math.round(cy + 7 + fall), 1, 4);
+    if (s.kind === 'storm') {
+      const pulse = s.t * 5 + s.seed;
+      if (pulse % 1 < .65) {
+        for (const side of [-1, 1]) {
+          const x = cx + side * (6 + (pulse | 0) % 3);
+          const points = [[x, cy + 6], [x - side * 3, cy + 13], [x + side * 3, cy + 12], [x, cy + 24]];
+          for (let i = 1; i < points.length; i++) {
+            const [ax, ay] = points[i - 1], [bx, by] = points[i];
+            pixLine(ax, ay, bx, by, '#ffd84a', 1);
+            pixLine(ax + 1, ay, bx + 1, by, '#fff6bd', 1);
+          }
+        }
+      }
+    } else {
+      g.fillStyle = '#8fd0ff';
+      for (let i = 0; i < 9; i++) {
+        const dx = -8 + i * 2, fall = (t * 38 + s.seed * 3 + i * 7) % 20;
+        g.fillRect(Math.round(cx + dx), Math.round(cy + 7 + fall), 1, 4);
+      }
     }
     g.globalAlpha = 1;
   }
@@ -1227,7 +1244,7 @@
       return;
     }
     if (s.kind === 'teleport') { drawTeleportSpell(s); return; }
-    if (s.kind === 'rain') { drawRainSpell(s, t); return; }
+    if (s.kind === 'rain' || s.kind === 'storm') { drawCloudSpell(s, t); return; }
     const k = Math.min(1, s.t / s.life);
     if (s.kind === 'bolt') {
       let px = s.sx, py = s.sy;
@@ -1370,7 +1387,7 @@
     }
     g.globalAlpha = 1;
     for (const w of wizards.values()) {
-      if (w.emote && !w.walk && !w.blast && w.alpha > .8) drawEmote(g, w.x, w.y - 26, w.emote, t + w.ph);
+      if (w.emote && !w.walk && !w.blast && w.alpha > .8 && !SPELLS.some(s => s.source === w.a.id && (s.kind === 'rain' || s.kind === 'storm'))) drawEmote(g, w.x, w.y - 26, w.emote, t + w.ph);
       if (w.order && w.order.stage === 'served' && !atDesk(w) && !w.walk && !w.blast && w.alpha > .8) PR.cup(g, w.x + (w.dir < 0 ? -14 : 4), w.y - 11, w.order.drink.key, t + w.ph);
       if (w.order && w.order.stage !== 'served' && !w.walk && !w.blast && w.alpha > .8 && ((t + w.ph) % 6) < 2.4) tag(w.x, w.y - 45, w.order.drink.name);
       if ((hover === w.a.id || sel === w.a.id) && !w.blast && w.alpha > .5) tag(w.x, w.y - 38, w.sp.name);

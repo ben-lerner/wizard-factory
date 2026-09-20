@@ -16,7 +16,7 @@ function scene() {
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, showUsageTip, setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, showUsageTip, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
@@ -119,4 +119,45 @@ test('desk decorations are stable per wizard and vary between wizards', () => {
   const first = render('one');
   assert.equal(render('one'), first);
   assert.notEqual(render('two'), first);
+});
+
+
+test('cloud lightning follows its caster, lights yellow eyes, and expires without an impact', () => {
+  const s = scene();
+  s.reconcile({ agents: [agent('storm')] });
+  const w = s.wizards.get('storm');
+  w.r = () => .99;
+  s.castSpell(w, 0);
+  const spell = s.SPELLS[0];
+  assert.equal(spell.kind, 'storm');
+  w.x = 120; w.y = 180;
+  assert.deepEqual([...s.cloudAnchor(spell)], [120, 145]);
+  s.drawGlowingEyes(w, 'idleA', 1);
+  assert.equal(s.ctx.fillStyle, '#ffd84a');
+  w.path = []; w.walk = false; w.alpha = 1;
+  s.calls.length = 0;
+  s.draw(1);
+  assert.equal(s.calls.some(c => c[0] === 'drawEmote'), false);
+  const particles = s.PARTS.length;
+  s.updateSpells(spell.life + .1, 4);
+  assert.equal(s.SPELLS.length, 0);
+  assert.equal(s.PARTS.length, particles);
+});
+
+
+test('arriving wizards sit exactly behind the desk with their lower body hidden', () => {
+  const s = scene();
+  s.reconcile({ agents: [agent('seated', 'thinking')] });
+  const w = s.wizards.get('seated');
+  w.x = w.desk.x; w.y = w.desk.y + 2; w.path = []; w.alpha = 1;
+  s.update(.1, 0);
+  assert.deepEqual([w.x, w.y], [w.desk.x, w.desk.y]);
+  assert.equal(w.walk, false);
+  s.calls.length = 0;
+  s.draw(1);
+  const clip = s.calls.findIndex(c => c[0] === 'rect' && c[3] === 20 && c[4] === 16);
+  const sprite = s.calls.findIndex((c, i) => i > clip && c[0] === 'drawImage');
+  const desktop = s.calls.findIndex(c => c[0] === 'fillRect' && c[1] === w.desk.x - 24 && c[2] === w.desk.y - 7 && c[3] === 48 && c[4] === 8);
+  assert.ok(sprite >= 0 && desktop > sprite);
+  assert.ok(clip >= 0 && sprite > clip);
 });

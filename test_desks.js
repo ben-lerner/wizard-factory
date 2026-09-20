@@ -6,7 +6,7 @@ const vm = require('node:vm');
 function scene() {
   const calls = [];
   const ctx = new Proxy({}, { get: (target, key) => key in target ? target[key] : (...args) => calls.push([key, ...args]) });
-  const element = { getContext: () => ctx, toDataURL: () => '', addEventListener() {}, style: {}, getBoundingClientRect: () => ({ width: 960, height: 544 }), offsetWidth: 200, offsetHeight: 80 };
+  const element = { getContext: () => ctx, toDataURL: () => '', addEventListener() {}, style: {}, getBoundingClientRect: () => ({ left: 0, top: 0, width: 960, height: 544 }), clientLeft: 0, clientTop: 0, offsetWidth: 200, offsetHeight: 80 };
   const sandbox = { console, ResizeObserver: class { observe() {} }, document: { querySelector: () => element, createElement: () => element }, window: { addEventListener() {} } };
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync('static/sprites.js', 'utf8'), sandbox);
@@ -16,7 +16,7 @@ function scene() {
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, showUsageTip, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, startGame, updateRally, rallyPosition, setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, startGame, updateRally, rallyPosition, setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
@@ -107,6 +107,30 @@ test('usage tooltips omit zero resets and retain positive or unknown credits', (
     s.showUsageTip({ i: 0, q: {name:'Test', origins:[], left:50, resets_at:Date.now()/1000+864000, resets_left:count}}, 0, 0);
     if (count === 0) assert.doesNotMatch(s.element.innerHTML, /RESETS? LEFT/);
     else assert.match(s.element.innerHTML, new RegExp((count ?? '\\?') + ' RESETS? LEFT'));
+  }
+});
+test('additional quota accounts render distinct bottles and remain hoverable', () => {
+  const s = scene(), bottles = [];
+  s.SP.PR.quotaVat = (g, x, y, shape, fill) => bottles.push({ x, y, fill });
+  for (const count of [3, 4, 5]) {
+    const quotas = Array.from({ length: count }, (_, i) => ({
+      id: `account-${i}`, name: `Account ${i + 1}`, origins: i === 0 ? ['remote'] : [],
+      left: 10 + i * 15, resets_at: Date.now() / 1000 + 864000, resets_left: i,
+    }));
+    s.setData({ quotas });
+    bottles.length = 0;
+    s.draw(1);
+    assert.equal(bottles.length, count);
+    assert.equal(new Set(bottles.map(b => `${b.x},${b.y}`)).size, count);
+    bottles.forEach((b, i) => {
+      assert.equal(b.fill, quotas[i].left);
+      assert.ok(b.x >= 8 && b.x + 20 <= 264 && b.y - 12 >= 0 && b.y + 44 <= 260);
+      const id = s.pickAt({ clientX: b.x + 8, clientY: b.y + 14 });
+      assert.equal(id, `usage:${quotas[i].id}`);
+      s.showUsageTip(s.usageProbe(id), 0, 0);
+      assert.ok(s.element.innerHTML.includes(quotas[i].name));
+      assert.ok(s.element.innerHTML.includes(`${quotas[i].left}% REMAINING`));
+    });
   }
 });
 test('desk decorations are stable per wizard and vary between wizards', () => {

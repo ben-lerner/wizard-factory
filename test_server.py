@@ -96,6 +96,18 @@ class QuotaTest(unittest.TestCase):
             qs = server.account_quotas(True)
         self.assertEqual([(q['name'], q['origins'], q['left']) for q in qs], [('Listed', ['local'], 75)])
 
+    def test_added_account_appears_on_next_refresh(self):
+        with patch.object(server, 'collect', side_effect=self.collect):
+            before = server.account_quotas(True)
+            (self.root / 'codex-quota/accounts.json').write_text(
+                json.dumps({'Listed': '../a', 'Additional': '../b'}))
+            after = server.account_quotas(True)
+        self.assertEqual(len(before), 1)
+        self.assertEqual([(q['name'], q['origins'], q['left']) for q in after],
+                         [('Listed', ['local'], 75), ('Additional', [], 75)])
+        self.assertEqual(after[0]['id'], before[0]['id'])
+        self.assertNotEqual(after[0]['id'], after[1]['id'])
+
     def test_unlisted_active_account_is_added(self):
         with patch.dict(server.os.environ, {'CODEX_HOME': str(self.b)}), patch.object(server, 'collect', side_effect=self.collect):
             qs = server.account_quotas(True)

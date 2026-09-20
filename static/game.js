@@ -161,11 +161,13 @@
     } else w.path = path;
     w.stuckAt = 0; w.lastX = w.x; w.lastY = w.y;
   }
+  const COURT_SPACE = { x: 294, y: 140, w: 150, h: 46 };
+  const deskBlocked = (x, y) => blocked(x, y, 16) || hitRect(x, y, 22, COURT_SPACE);
   function makeDesk(w) {
     const parent = wizards.get(w.a.parent), anchor = parent && parent.home || [100, 80];
     const candidates = [];
     for (let y = 76; y <= 244; y += 42) for (let x = 56; x <= 440; x += 64) {
-      if (blocked(x, y, WIZ_R) || BLOCKERS.some(b => hitRect(x, y - 5, 22, b))) continue;
+      if (deskBlocked(x, y) || BLOCKERS.some(b => hitRect(x, y - 5, 22, b))) continue;
       candidates.push([x, y]);
     }
     const active = desks.filter(d => d.active);
@@ -175,7 +177,7 @@
     // In a crowded tower, choose the least crowded open seat instead of stacking desks.
     if (!pos) {
       for (let y = 64; y <= 244; y += 20) for (let x = 44; x <= 440; x += 28)
-        if (!blocked(x, y, 16)) candidates.push([x, y]);
+        if (!deskBlocked(x, y)) candidates.push([x, y]);
       const clearance = p => Math.min(...active.map(d => Math.hypot(d.x - p[0], d.y - p[1])));
       candidates.sort((a, b) => clearance(b) - clearance(a));
       pos = candidates[0];
@@ -376,13 +378,15 @@
   }
 
   // ---------- table games ----------
+  const COURT = { id: 'court', x: 368, y: 164, seats: [[310, 170], [426, 170]], types: ['badminton', 'pingpong'], game: null, burnUntil: 0 };
   const TABLES = [
+    COURT,
     { id: 't1', x: 313, y: 101, seats: [[292, 112], [332, 112], [313, 84]], game: null, burnUntil: 0 },
     { id: 't2', x: 373, y: 121, seats: [[352, 132], [392, 132], [373, 104]], game: null, burnUntil: 0 },
   ];
   const GAME_TYPES = ['magic', 'chess', 'go'], tableR = rng(4242);
   const tableById = id => TABLES.find(t => t.id === id);
-  const gameName = g => g === 'magic' ? 'MAGIC THE GATHERING' : g.toUpperCase();
+  const gameName = g => g === 'magic' ? 'MAGIC THE GATHERING' : g === 'pingpong' ? 'PING PONG' : g.toUpperCase();
   const gameHas = (table, kind, id) => !!table.game && table.game.players.some(p => p.kind === kind && (!id || p.id === id));
   function waitingForGame(w) {
     return cafeReady(w) && !w.game && w.order && w.order.stage === 'served';
@@ -413,6 +417,7 @@
     if (!table.game) return;
     const players = table.game.players.slice();
     table.game = null;
+    table.nextAt = t + 8;
     if (burn) table.burnUntil = t + 2;
     players.forEach(p => releaseGamePlayer(p, t));
   }
@@ -432,12 +437,13 @@
     return !cat.game && !cat.path.length && cat.state !== 'walk' && cat.state !== 'sleep' && cat.state !== 'cafe';
   }
   function startGame(table, players, t) {
-    table.game = { type: GAME_TYPES[tableR() * GAME_TYPES.length | 0], players, until: t + 28 + tableR() * 28 };
+    const types = table.types || GAME_TYPES;
+    table.game = { type: types[tableR() * types.length | 0], players, until: t + 28 + tableR() * 28 };
     table.game.players = players.filter((p, i) => seatPlayer(table, p, i, t));
     if (table.game.players.length < 2) endGame(table, t, false);
   }
   function updateTableGames(t) {
-    for (const table of TABLES) {
+    for (const table of (tableR() < .5 ? TABLES : [...TABLES].reverse())) {
       if (table.game) {
         table.game.players = table.game.players.filter(p => {
           if (p.kind === 'wizard') {
@@ -448,16 +454,80 @@
           return false;
         });
         if (table.game.players.length < 2 || t > table.game.until) endGame(table, t, false);
+        else if (table === COURT) updateRally(table, t);
       }
-      if (table.game || t < table.burnUntil) continue;
+      if (table.game || t < table.burnUntil || t < (table.nextAt || 0)) continue;
       const ws = [...wizards.values()].filter(w => waitingForGame(w)).sort((a, b) => (a.a.started || 0) - (b.a.started || 0));
-      if (!ws.length) continue;
+      if (!ws.length || (table === COURT && ws.length < 2)) continue;
       const players = [{ kind: 'wizard', id: ws[0].a.id }];
       if (ws[1]) players.push({ kind: 'wizard', id: ws[1].a.id });
-      if (canUseCat()) players.push({ kind: 'cat' });
-      if (players.length > 1 && players.length < 3 && !players.some(p => p.kind === 'cat') && canUseCat() && tableR() < .35) players.push({ kind: 'cat' });
+      if (table !== COURT && canUseCat()) players.push({ kind: 'cat' });
+      if (table !== COURT && players.length > 1 && players.length < 3 && !players.some(p => p.kind === 'cat') && canUseCat() && tableR() < .35) players.push({ kind: 'cat' });
       if (players.length > 1) startGame(table, players, t);
     }
+  }
+  function updateRally(table, t) {
+    const game = table.game, ws = game.players.map(p => wizards.get(p.id));
+    ws.forEach((w, i) => { if (w) w.dir = i ? -1 : 1; });
+    if (ws.some(w => !w || w.blast || w.path.length)) return;
+    ws.forEach(w => { [w.x, w.y] = w.home; });
+    if (game.rally && t < game.rally.start + game.rally.duration) return;
+    const hitter = game.rally ? game.rally.receiver : 0, receiver = 1 - hitter;
+    const w = ws[hitter], other = ws[receiver], seat = table.seats[receiver];
+    const x = seat[0] + (tableR() * 8 - 4), y = seat[1] + (tableR() * 20 - 10);
+    other.home = [x, y]; other.path = route(other.x, other.y, x, y, WIZ_R);
+    game.rally = { start: t, duration: game.type === 'badminton' ? 1.35 : .85, receiver,
+      from: [w.x + (hitter ? -10 : 10), w.y - 14], to: [x + (receiver ? -10 : 10), y - 14],
+      hits: (game.rally ? game.rally.hits : 0) + 1 };
+    game.players[hitter].hitAt = t;
+  }
+  function rallyPosition(game, t) {
+    const r = game.rally, k = Math.max(0, Math.min(1, (t - r.start) / r.duration));
+    const arc = game.type === 'badminton' ? Math.sin(k * Math.PI) * 28 :
+      k < .75 ? Math.sin(k / .75 * Math.PI) * 12 : Math.sin((k - .75) / .25 * Math.PI) * 5;
+    return [r.from[0] + (r.to[0] - r.from[0]) * k, r.from[1] + (r.to[1] - r.from[1]) * k - arc];
+  }
+  function drawCourt(gg) {
+    if (!COURT.game) return;
+    const { x, y } = COURT, badminton = COURT.game.type === 'badminton';
+    gg.fillStyle = badminton ? '#34584c' : '#315b7c';
+    gg.fillRect(x - 44, y - 18, 88, 30);
+    gg.strokeStyle = '#c4d7cc'; gg.lineWidth = 1;
+    gg.strokeRect(x - 43.5, y - 17.5, 87, 29);
+    gg.fillStyle = '#c4d7cc'; gg.fillRect(x - 43, y - 3, 86, 1);
+    if (badminton) { gg.fillRect(x - 23, y - 17, 1, 28); gg.fillRect(x + 23, y - 17, 1, 28); }
+    else { gg.fillStyle = '#263645'; gg.fillRect(x - 39, y + 12, 3, 5); gg.fillRect(x + 36, y + 12, 3, 5); }
+    gg.fillStyle = '#e0d7bd'; gg.fillRect(x - 1, y - 24, 2, 36);
+    gg.fillStyle = '#8ca5ad';
+    for (let ny = y - 22; ny < y + 10; ny += 3) gg.fillRect(x - 2, ny, 4, 1);
+    drawText(gg, x - textW(gameName(COURT.game.type)) / 2, y + 19, gameName(COURT.game.type), '#c4d7cc');
+  }
+  function drawRally(t) {
+    const game = COURT.game;
+    if (!game || !game.rally) return;
+    const badminton = game.type === 'badminton';
+    for (const [i, p] of game.players.entries()) {
+      const w = wizards.get(p.id);
+      if (!w || w.blast) continue;
+      const side = i ? -1 : 1, swing = Math.max(0, 1 - (t - (p.hitAt ?? -1)) / .22);
+      g.save(); g.translate(Math.round(w.x + side * 10), Math.round(w.y - 14)); g.rotate(side * swing * .8);
+      g.fillStyle = '#c8a678'; g.fillRect(-1, 2, 2, 6);
+      if (badminton) {
+        g.strokeStyle = '#eee6c6'; g.lineWidth = 1; g.strokeRect(-3.5, -5.5, 7, 8);
+        g.fillStyle = '#a4c5cf'; g.fillRect(-2, -2, 5, 1); g.fillRect(0, -4, 1, 6);
+      } else { g.fillStyle = i ? '#6c9ade' : '#e77568'; g.fillRect(-3, -4, 6, 6); }
+      g.restore();
+    }
+    const [x, y] = rallyPosition(game, t), r = game.rally;
+    g.save(); g.translate(Math.round(x), Math.round(y));
+    if (badminton) {
+      const [nx, ny] = rallyPosition(game, Math.min(t + .02, r.start + r.duration));
+      g.rotate(Math.atan2(ny - y, nx - x));
+      g.fillStyle = '#f7f3e8';
+      g.fillRect(-6, -3, 2, 7); g.fillRect(-4, -2, 2, 5); g.fillRect(-2, -1, 2, 3);
+      g.fillStyle = '#d9b77d'; g.fillRect(0, -1, 3, 3);
+    } else { g.fillStyle = '#fff5d6'; g.fillRect(-1, -1, 3, 3); }
+    g.restore();
   }
   function burnGameAt(x, y, t) {
     const table = TABLES.find(tb => tb.game && !gameHas(tb, 'cat') && Math.abs(x - tb.x) < 20 && Math.abs(y - tb.y) < 16);
@@ -852,7 +922,7 @@
     [62, gg => PR.bench(gg, 120, 42, t)],
     [120, gg => PR.crystal(gg, 216, 98, occupied('crystal') ? t : 0)],
     [29, gg => PR.board(gg, 300, 8)],
-    ...TABLES.map(table => [table.y + 5, gg => { PR.gameTable(gg, table.x, table.y); drawTableGame(gg, table, t); }]),
+    ...TABLES.filter(table => table !== COURT).map(table => [table.y + 5, gg => { PR.gameTable(gg, table.x, table.y); drawTableGame(gg, table, t); }]),
     [94, gg => PR.hearth(gg, 440, 70, t)],
     [95, gg => PR.chair(gg, 418, 82, false)], [117, gg => PR.chair(gg, 418, 104, false)],
     [214.5, gg => PR.counter(gg, 296, 196)], [215, gg => PR.espresso(gg, 306, 186, t)],
@@ -1332,6 +1402,7 @@
     drawUsageProbes(t);
     drawLightningCast(g, t);
     drawBonds(t);
+    drawCourt(g);
     const dragonFire = SPELLS.find(s => s.kind === 'counterfire' && s.t >= 0), fireVictim = dragonFire && wizards.get(dragonFire.target);
     const fireX = fireVictim ? fireVictim.x : dragonFire && dragonFire.tx;
     const items = props(t).map(([y, f]) => ({ y, f: () => f(g) }));
@@ -1388,10 +1459,11 @@
     g.globalAlpha = 1;
     for (const w of wizards.values()) {
       if (w.emote && !w.walk && !w.blast && w.alpha > .8 && !SPELLS.some(s => s.source === w.a.id && (s.kind === 'rain' || s.kind === 'storm'))) drawEmote(g, w.x, w.y - 26, w.emote, t + w.ph);
-      if (w.order && w.order.stage === 'served' && !atDesk(w) && !w.walk && !w.blast && w.alpha > .8) PR.cup(g, w.x + (w.dir < 0 ? -14 : 4), w.y - 11, w.order.drink.key, t + w.ph);
+      if (w.order && w.order.stage === 'served' && !atDesk(w) && w.game !== COURT.id && !w.walk && !w.blast && w.alpha > .8) PR.cup(g, w.x + (w.dir < 0 ? -14 : 4), w.y - 11, w.order.drink.key, t + w.ph);
       if (w.order && w.order.stage !== 'served' && !w.walk && !w.blast && w.alpha > .8 && ((t + w.ph) % 6) < 2.4) tag(w.x, w.y - 45, w.order.drink.name);
       if ((hover === w.a.id || sel === w.a.id) && !w.blast && w.alpha > .5) tag(w.x, w.y - 38, w.sp.name);
     }
+    drawRally(t);
     drawCafeChat(t);
     if (cat.order && cat.order.stage === 'served') PR.cup(g, cat.x + 5, cat.y - 6, cat.order.drink.key, t);
     if (cat.order && cat.order.stage !== 'served' && ((t + 1.7) % 6) < 2.4) tag(cat.x, cat.y - 25, cat.order.drink.name);

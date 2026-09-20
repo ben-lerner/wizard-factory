@@ -16,7 +16,7 @@ function scene() {
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, showUsageTip, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, showUsageTip, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, startGame, updateRally, rallyPosition, setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
@@ -160,4 +160,57 @@ test('arriving wizards sit exactly behind the desk with their lower body hidden'
   const desktop = s.calls.findIndex(c => c[0] === 'fillRect' && c[1] === w.desk.x - 24 && c[2] === w.desk.y - 7 && c[3] === 48 && c[4] === 8);
   assert.ok(sprite >= 0 && desktop > sprite);
   assert.ok(clip >= 0 && sprite > clip);
+});
+
+
+function racketGame(type) {
+  const s = scene(), agents = [agent('left', 'waiting'), agent('right', 'waiting')];
+  s.reconcile({ agents });
+  s.COURT.types = [type];
+  s.startGame(s.COURT, agents.map(a => ({ kind: 'wizard', id: a.id })), 0);
+  for (const w of s.wizards.values()) {
+    [w.x, w.y] = w.home; w.path = []; w.walk = false; w.alpha = 1;
+    w.order = { stage: 'served', drink: w.sp.drink, servedAt: 0 };
+  }
+  s.updateRally(s.COURT, 0);
+  return s;
+}
+for (const type of ['badminton', 'pingpong']) {
+  test(`${type} rallies alternate sides while both players move to return shots`, () => {
+    const s = racketGame(type), ys = [new Set(), new Set()], directions = new Set();
+    for (let i = 1; i <= 120; i++) {
+      const t = i / 10;
+      s.update(.1, t);
+      const game = s.COURT.game, r = game.rally;
+      assert.equal(game.type, type);
+      directions.add(Math.sign(r.to[0] - r.from[0]));
+      const pos = s.rallyPosition(game, t);
+      assert.ok(pos.every(Number.isFinite));
+      [...s.wizards.values()].forEach((w, j) => ys[j].add(Math.round(w.y)));
+    }
+    assert.equal(directions.size, 2);
+    assert.ok(s.COURT.game.rally.hits >= 6);
+    assert.ok(ys.every(values => values.size > 5));
+    s.calls.length = 0;
+    s.draw(12);
+    assert.ok(s.calls.some(c => c[0] === 'fillRect' && c.slice(1).every(Number.isFinite)));
+  });
+}
+test('racket games end and release the opponent when a wizard resumes work', () => {
+  const s = racketGame('pingpong');
+  s.reconcile({ agents: [agent('left', 'working'), agent('right', 'waiting')] });
+  s.update(.1, .1);
+  assert.equal(s.COURT.game, null);
+  assert.equal(s.wizards.get('left').station, 'work');
+  assert.ok(s.wizards.get('left').desk);
+  assert.equal(s.wizards.get('right').game, null);
+  assert.equal(s.wizards.get('right').station, 'cafe');
+});
+test('badminton flies higher than ping pong and both meet the rackets', () => {
+  const s = racketGame('badminton'), game = s.COURT.game, r = game.rally;
+  assert.deepEqual([...s.rallyPosition(game, 0)], [...r.from]);
+  assert.deepEqual([...s.rallyPosition(game, r.duration)].map(Math.round), [...r.to].map(Math.round));
+  const birdie = s.rallyPosition(game, r.duration / 2);
+  const ball = s.rallyPosition({ ...game, type: 'pingpong' }, r.duration / 2);
+  assert.ok(birdie[1] < ball[1] - 10);
 });

@@ -8,6 +8,7 @@
 
   // ---------- stations ----------
   const ST = {
+    work:     { spots: [], emote: 'write' },
     cauldron: { spots: [[50, 162], [94, 162]], emote: 'brew' },
     shelf:    { spots: [[40, 78], [40, 114], [40, 148]], emote: 'book' },
     bench:    { spots: [[132, 68], [152, 68], [172, 68]], emote: 'flask' },
@@ -125,7 +126,7 @@
     return t === 'request_user_input' || /(^|[_-])ask[_-]?user/.test(t) || /question/.test(t);
   }
   function cafeWait(a) {
-    return a && (a.status === 'waiting' || (a.status === 'working' && (waitingOnRun(a) || waitingOnQuestion(a))));
+    return a && (a.status === 'waiting' || (a.status === 'working' && waitingOnQuestion(a)));
   }
   function toolStation(a) {
     const t = ((a && a.tool) || '').toLowerCase();
@@ -143,6 +144,8 @@
 
   // ---------- entities ----------
   const wizards = new Map();
+  const desks = [];
+  const atDesk = w => w.desk && !w.path.length && !w.leaving && !w.blast;
   let sel = null, hover = null, cafeChat = null, nextCafeChat = 10;
   let offline = false, isDemo = false, serverSkew = 0, lastData = { agents: [] };
 
@@ -160,7 +163,32 @@
     } else w.path = path;
     w.stuckAt = 0; w.lastX = w.x; w.lastY = w.y;
   }
+  function makeDesk(w) {
+    const parent = wizards.get(w.a.parent), anchor = parent && parent.home || [100, 80];
+    const candidates = [];
+    for (let y = 76; y <= 244; y += 42) for (let x = 56; x <= 440; x += 64) {
+      if (blocked(x, y, WIZ_R) || BLOCKERS.some(b => hitRect(x, y - 5, 22, b))) continue;
+      candidates.push([x, y]);
+    }
+    const active = desks.filter(d => d.active);
+    const distance = p => Math.hypot(p[0] - anchor[0], p[1] - anchor[1]);
+    candidates.sort((a, b) => distance(a) - distance(b));
+    let pos = candidates.find(p => !active.some(d => Math.abs(d.x - p[0]) < 60 && Math.abs(d.y - p[1]) < 40));
+    // In a crowded tower, choose the least crowded open seat instead of stacking desks.
+    if (!pos) {
+      for (let y = 64; y <= 244; y += 20) for (let x = 44; x <= 440; x += 28)
+        if (!blocked(x, y, 16)) candidates.push([x, y]);
+      const clearance = p => Math.min(...active.map(d => Math.hypot(d.x - p[0], d.y - p[1])));
+      candidates.sort((a, b) => clearance(b) - clearance(a));
+      pos = candidates[0];
+    }
+    const [x, y] = pos;
+    w.desk = { x, y, active: true, alpha: 0, w };
+    desks.push(w.desk);
+    return pos;
+  }
   function release(w) {
+    if (w.desk) { w.desk.active = false; w.desk = null; }
     if (w.station && w.spotI >= 0) ST[w.station].occ[w.spotI] = null;
     w.spotI = -1;
   }
@@ -170,7 +198,8 @@
     release(w);
     const st = ST[key], i = st.occ.findIndex(o => !o);
     let pos;
-    if (i >= 0) { st.occ[i] = w.a.id; w.spotI = i; pos = st.spots[i]; }
+    if (key === 'work') pos = makeDesk(w);
+    else if (i >= 0) { st.occ[i] = w.a.id; w.spotI = i; pos = st.spots[i]; }
     else pos = clampZone(st.spots[0][0] + ((w.r() * 56 - 28) | 0), st.spots[0][1] + ((w.r() * 22 - 6) | 0));
     w.station = key; w.home = pos;
     pathTo(w, pos[0], pos[1]);
@@ -179,7 +208,7 @@
   function placeFor(w) {
     const s = w.a.status;
     if (cafeWait(w.a)) return 'cafe';
-    if (s === 'working') return toolStation(w.a);
+    if (['working', 'thinking', 'responding'].includes(s)) return 'work';
     if (s === 'attention') return 'board';
     if (s === 'idle') return 'hearth';
     if (s === 'done') return 'door';
@@ -188,20 +217,20 @@
   function emoteFor(w) {
     const s = w.a.status;
     if (cafeWait(w.a)) return w.station === 'cafe' ? 'drink:' + ((w.order && w.order.drink || w.sp.drink).key) : null;
-    if (s === 'working') return TOOL_EMOTE[(w.a.tool || '').toLowerCase()] || ST[w.station].emote || 'flask';
+    if (s === 'working') return TOOL_EMOTE[(w.a.tool || '').toLowerCase()] || ST[toolStation(w.a)].emote || 'flask';
     return { attention: 'alert', thinking: 'think', responding: 'write', done: 'star',
              waiting: w.station === 'cafe' ? 'drink:' + ((w.order && w.order.drink || w.sp.drink).key) : null }[s] || null;
   }
 
   function reconcile(data) {
     const seen = new Set();
-    for (const a of data.agents) {
+    for (const a of [...data.agents].sort((a, b) => Number(!!a.parent) - Number(!!b.parent))) {
       seen.add(a.id);
       let w = wizards.get(a.id);
       const demon = a.origin === 'remote';
       if (!w) {
         w = { a, sp: SP.makeWizard(a.id, a.kind, a.engine, demon), x: 436 + ((hash(a.id) % 9) - 4), y: 250, dir: -1, path: [], walk: false,
-              station: null, spotI: -1, home: null, order: null, game: null, paceAt: 0, castAt: 0, rayAt: 0, blast: null, leaving: false,
+              station: null, spotI: -1, home: null, order: null, game: null, castAt: 0, rayAt: 0, blast: null, leaving: false,
               stuckAt: 0, lastX: 436, lastY: 250, alpha: 0, ph: (hash(a.id) % 100) / 16, r: rng(hash(a.id) ^ 0xbeef), emote: null };
         wizards.set(a.id, w);
         sparkleAt(436, 252);
@@ -908,7 +937,7 @@
     else if (!blocked(e.x, y, a.r)) e.y = y;
   }
   function collisionActors() {
-    const a = [...wizards.values()].filter(w => w.alpha > .25 && !w.blast).map(w => ({ e: w, r: WIZ_R + 1 }));
+    const a = [...wizards.values()].filter(w => w.alpha > .25 && !w.blast).map(w => ({ e: w, r: WIZ_R + 1, fixed: !!atDesk(w) }));
     a.push({ e: cat, r: CAT_R + 1 });
     return a;
   }
@@ -925,6 +954,8 @@
   }
 
   function update(dt, t) {
+    for (const d of desks) d.alpha = Math.max(0, Math.min(1, d.alpha + (d.active ? 3 : -2) * dt));
+    for (let i = desks.length - 1; i >= 0; i--) if (!desks[i].active && !desks[i].alpha) desks.splice(i, 1);
     updateBattle(t);
     for (const [id, w] of wizards) {
       if (w.blast) {
@@ -937,10 +968,6 @@
       unstickWizard(w, t);
       w.alpha = Math.max(0, Math.min(1, w.alpha + (w.leaving && !w.path.length ? -3 : w.leaving && w.y > 252 ? -1.2 : 3) * dt));
       if (w.leaving && w.alpha <= 0) { wizards.delete(id); continue; }
-      if (!w.walk && !w.leaving && (w.a.status === 'thinking') && t > w.paceAt) {
-        w.paceAt = t + 2.5 + w.r() * 3;
-        if (w.home && w.r() < .7) { const [hx, hy] = w.home; pathTo(w, hx + ((w.r() * 14 - 7) | 0), hy + ((w.r() * 6 - 3) | 0)); }
-      }
       if (w.a.status === 'idle' && Math.random() < dt * .5) spark(w.x + 6, w.y - 24, '#a8a2c8', -6, 1.4, 'z');
       if (w.a.status === 'attention' && Math.random() < dt * 2) spark(w.x, w.y - 26, '#ff5a5a', -10, .5);
       if (!maybeRay(w, t)) maybeCast(w, t);
@@ -1024,7 +1051,7 @@
     const img = w.sp.frames[f];
     g.globalAlpha = .3 * w.alpha; g.fillStyle = '#0a0810'; g.fillRect(w.x - 5, w.y - 1, 10, 2);
     g.globalAlpha = w.alpha;
-    g.save(); g.translate(w.x + (w.dir < 0 ? 10 : -10), w.y - 23);
+    g.save(); g.translate(w.x + (w.dir < 0 ? 10 : -10), w.y - 23 + (atDesk(w) ? 3 : 0));
     if (w.dir < 0) g.scale(-1, 1);
     g.drawImage(img, 0, 0); drawGlowingEyes(w, f, t); g.restore();
     if (w.a.id === sel || w.a.id === hover || w.a.status === 'attention') {
@@ -1264,6 +1291,26 @@
       if (s.kind === 'rune') { g.fillRect(Math.round(x) - 2, Math.round(y) - 2, 2, 2); g.fillRect(Math.round(x) + 3, Math.round(y) + 3, 2, 2); }
     }
   }
+  function drawWorkDesk(d, front) {
+    const { x, y, w } = d, width = w.sp.sub ? 30 : 48;
+    g.save(); g.globalAlpha = d.alpha;
+    if (!front) {
+      PR.chair(g, x - 7, y - 13, false);
+    } else {
+      g.fillStyle = '#493025'; g.fillRect(x - width / 2 + 3, y - 1, 3, 10); g.fillRect(x + width / 2 - 6, y - 1, 3, 10);
+      g.fillStyle = '#986b45'; g.fillRect(x - width / 2, y - 7, width, 8);
+      g.fillStyle = '#c49560'; g.fillRect(x - width / 2, y - 7, width, 2);
+      g.fillStyle = '#eee1b5'; g.fillRect(x - 6, y - 6, 10, 5);
+      g.fillStyle = '#795d68'; g.fillRect(x - 4, y - 5, 6, 1);
+      const title = String(w.a.title || w.a.quest || w.a.project || w.sp.name).toUpperCase();
+      const lines = title.match(/.{1,12}(?:\s|$)|.{1,12}/g) || ['UNTITLED'];
+      for (let i = 0; i < Math.min(2, lines.length); i++) {
+        const line = lines[i].trim();
+        tag(x, y + 4 + i * 9, i === 1 && lines.length > 2 ? line.slice(0, 9) + '...' : line);
+      }
+    }
+    g.restore();
+  }
   function draw(t) {
     g.drawImage(bg, 0, 0);
     for (let i = 0; i < 5; i++) PR.window(g, WIN_X[i], 8, t, i * 7 + 3);
@@ -1276,6 +1323,10 @@
     const dragonFire = SPELLS.find(s => s.kind === 'counterfire' && s.t >= 0), fireVictim = dragonFire && wizards.get(dragonFire.target);
     const fireX = fireVictim ? fireVictim.x : dragonFire && dragonFire.tx;
     const items = props(t).map(([y, f]) => ({ y, f: () => f(g) }));
+    for (const d of desks) {
+      items.push({ y: d.y - 1, f: () => drawWorkDesk(d, false) });
+      items.push({ y: d.y + 1, f: () => drawWorkDesk(d, true) });
+    }
     for (const w of wizards.values()) items.push({ y: w.y, f: () => drawWizardSprite(w, t) });
     items.push({ y: dragon.y, f: () => {
       if (dragon.blast) { drawBlast(dragon, dragon.blast, t, '#f08a2a'); return; }

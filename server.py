@@ -164,6 +164,7 @@ class FileState:
         self.id = '-'.join(path.stem.split('-')[6:]) or path.stem if self.engine == 'codex' else path.stem
         self.sid = self.parent or self.id  # session whose hook events apply
         self.cwd = self.branch = self.model = self.title = self.quest = None
+        self.custom_title = None
         self.last_kind = self.tool = self.detail = self.last_ts = self.started = None
         self.status = self.since = None
         self.history = deque(maxlen=24)
@@ -174,7 +175,9 @@ class FileState:
             return self.feed_codex(d)
         t, m, ts = d.get('type'), d.get('message') or {}, epoch(d.get('timestamp') or '')
         self.cwd, self.branch = d.get('cwd') or self.cwd, d.get('gitBranch') or self.branch
-        if t == 'ai-title':
+        if t == 'custom-title':
+            self.custom_title = clean(d.get('customTitle') or '', 90) or None
+        elif t == 'ai-title':
             self.title = clean(d.get('aiTitle') or '', 90) or self.title
         elif t == 'summary':
             self.title = self.title or clean(d.get('summary') or '', 90)
@@ -343,7 +346,7 @@ class FileState:
             history.append({'ts': self.last_ts, 'kind': 'tool_use', 'tool': 'exec',
                             'text': clean(f'exec running: {self.detail or ""}', 120)})
         return {'id': self.id, 'kind': self.kind, 'engine': self.engine, 'parent': self.parent, 'project': project_of(self.cwd),
-                'branch': self.branch, 'title': self.title, 'quest': self.quest, 'model': self.model,
+                'branch': self.branch, 'title': self.custom_title or self.title, 'quest': self.quest, 'model': self.model,
                 'status': self.status, 'tool': self.tool, 'detail': self.detail,
                 'since': self.since, 'last': max(self.last_ts or 0, self.mtime) or None, 'started': self.started,
                 'msg': ov.get('msg') if self.status == 'attention' else None, 'history': history,
@@ -357,7 +360,43 @@ def retail(fs, size):
     fs.rem, fs.skip_first = b'', fs.offset > 0
 
 
+def restore_claude_title(fs):
+    try:
+        with open(fs.path, 'rb') as f:
+            while f.tell() <= fs.offset:
+                line = f.readline()
+                if not line:
+                    break
+                if b'"custom-title"' not in line:
+                    continue
+                try:
+                    event = json.loads(line)
+                    if event.get('type') == 'custom-title':
+                        fs.feed(event)
+                except (ValueError, AttributeError):
+                    continue
+    except OSError:
+        pass
+
+
+def codex_titles():
+    titles = {}
+    try:
+        with open(CODEX.parent / 'session_index.jsonl') as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                    if isinstance(entry, dict) and entry.get('id') and isinstance(entry.get('thread_name'), str):
+                        titles[entry['id']] = clean(entry['thread_name'], 90)
+                except (ValueError, TypeError):
+                    continue
+    except OSError:
+        pass
+    return titles
+
+
 def scan_once(now):
+    titles = codex_titles()
     seen = set()
     files = list(PROJECTS.glob('*/*.jsonl')) + list(PROJECTS.glob('*/*/subagents/*.jsonl'))
     if CODEX.is_dir():
@@ -376,6 +415,8 @@ def scan_once(now):
             fs = FILES[f] = FileState(f)
             fs.ino = st.st_ino
             retail(fs, st.st_size)
+            if fs.engine == 'claude' and fs.offset:
+                restore_claude_title(fs)
             if fs.engine == 'codex' and fs.offset:  # session_meta is line 1; don't lose it to tailing
                 try:
                     with open(f, 'rb') as fh:
@@ -418,6 +459,8 @@ def scan_once(now):
             elif first_ok is False and rem_empty and now - fs.retailed > 30:  # desynced by a rewrite
                 fs.retailed = now
                 retail(fs, st.st_size)
+        if fs.engine == 'codex':
+            fs.custom_title = titles.get(fs.id)
         fs.derive(now)
     for f in set(FILES) - seen:
         FILES.pop(f)

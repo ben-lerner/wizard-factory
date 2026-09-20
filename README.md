@@ -2,7 +2,7 @@
 
 A retro 8-bit dashboard that shows every running coding agent in a shared tower.
 Local sessions are pixel wizards, agents running remotely on `mage-tower` are demons,
-and subagents are apprentices. They move between stations based on what they're doing,
+and subagents are apprentices. They work at desks labeled with their task names,
 and wait for you at the café with a fresh drink when their turn is done.
 
 ![demo](assets/demo.gif)
@@ -36,18 +36,20 @@ last few events it infers a status for each agent:
 
 | status     | meaning                                   | where the wizard goes        |
 |------------|-------------------------------------------|------------------------------|
-| working    | a tool call is in flight                  | laboratory station for that tool |
-| thinking   | tool result landed / prompt being chewed  | stays put, `…` bubble        |
-| responding | writing the final answer                  | stays put, quill bubble      |
+| working    | a tool call is in flight                  | a personal task desk |
+| thinking   | tool result landed / prompt being chewed  | task desk, `…` bubble        |
+| responding | writing the final answer                  | task desk, quill bubble      |
 | waiting    | turn ended, your move                     | café, fresh drink in hand    |
 | attention  | needs permission (hooks mode only)        | petition board, red `!`      |
 | idle       | waiting 15+ min                           | hearth armchairs, `Z`        |
 | done       | subagent finished                         | celebrates, exits the door   |
 
-Long-running command/test runs and explicit questions wait in the café even while
-their transcript status is still `working`. Tool → station: Bash = cauldron ·
-Read/Grep/Glob = bookshelves · Edit/Write/Plan/Todo = writing desks · Web/MCP =
-crystal ball · Task/Agent/Skill = summoning circle · approvals = petition board.
+Working wizards summon a desk and remain seated through tool calls, thinking, and
+replies, including long-running commands and tests. The desk dissolves when they
+leave to wait or finish. Labels use the session name set by `/rename`, falling back
+to the task or project; hover over a wizard to read a longer label. Apprentices get
+smaller desks in the nearest available space to their parent. Explicit questions
+send wizards to the café while they wait for an answer.
 
 Appearance and name are deterministic per agent id (seeded hats, beards, robes,
 staffs, and cafe order), so the same session keeps the same wizard

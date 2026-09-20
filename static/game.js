@@ -831,7 +831,6 @@
   function drawUsageLabels() {
     for (const v of usageProbes()) {
       const q = v.q, color = v.color;
-      drawText(g, v.x + 8 - textW(String(v.i + 1)) / 2, v.y - 12, String(v.i + 1), color);
       drawText(g, v.x + 8 - textW(v.label) / 2, v.y + 37, v.label, color);
       drawText(g, v.x + 8 - textW(resetIn(q)) / 2, v.y + 30, resetIn(q), '#a8a2c8');
       if (q.resets_left > 5) drawText(g, v.x + 14, v.y - 7, `+${q.resets_left - 5}`, color);

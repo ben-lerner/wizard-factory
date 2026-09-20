@@ -214,3 +214,25 @@ test('badminton flies higher than ping pong and both meet the rackets', () => {
   const ball = s.rallyPosition({ ...game, type: 'pingpong' }, r.duration / 2);
   assert.ok(birdie[1] < ball[1] - 10);
 });
+
+
+test('desk decorations include regular and rotating black holes', () => {
+  const s = scene(), variants = new Set();
+  s.SP.PR.blackHole = (g, x, y, rotating) => variants.add(rotating);
+  for (let seed = 1; seed <= 100; seed++) s.SP.PR.deskDecor(s.ctx, 100, 100, 48, seed, null, 1);
+  assert.deepEqual([...variants].sort(), [false, true]);
+});
+test('only rotating black holes have an animated white ring', () => {
+  const s = scene();
+  const render = (rotating, angle) => {
+    const pixels = [], ctx = { fillStyle: '', fillRect(...args) { pixels.push([this.fillStyle, ...args]); } };
+    s.SP.PR.blackHole(ctx, 30, 30, rotating, angle);
+    return pixels;
+  };
+  const regular = render(false, 0), rotating = render(true, 0);
+  assert.ok(regular.some(p => p[0] === '#030208'));
+  assert.equal(regular.some(p => p[0] === '#ffffff'), false);
+  assert.deepEqual(regular, render(false, 1));
+  assert.ok(rotating.some(p => p[0] === '#ffffff'));
+  assert.notDeepEqual(rotating, render(true, 1));
+});

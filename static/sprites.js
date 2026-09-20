@@ -321,21 +321,43 @@ window.SP = (() => {
     rc(g, x - 14, y - 7, 28, 12, '#a27a50'); rc(g, x - 17, y - 4, 34, 6, '#a27a50');
   };
 
+  PR.blackHole = (g, cx, cy, rotating, angle) => {
+    const ring = front => {
+      const tilt = .3 + Math.sin(angle * .6) * .25;
+      for (let i = 0; i < 64; i++) {
+        const a = i * Math.PI / 32;
+        if ((Math.sin(a) >= 0) !== front) continue;
+        const x = Math.cos(a) * 7, y = Math.sin(a) * 2.5;
+        px(g, Math.round(cx + x * Math.cos(tilt) - y * Math.sin(tilt)),
+          Math.round(cy + x * Math.sin(tilt) + y * Math.cos(tilt)), Math.cos(a - angle * 2) > .2 ? '#ffffff' : '#d8dce8');
+      }
+    };
+    if (rotating) ring(false);
+    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+      const radius = dx * dx + dy * dy;
+      if (radius <= 20) px(g, Math.round(cx) + dx, Math.round(cy) + dy, radius > 13 ? '#756b88' : '#030208');
+    }
+    if (rotating) ring(true);
+  };
+
   PR.deskDecor = (g, x, y, width, seed, drink, t) => {
     const r = rng(seed), color = pick(r, ['#88d8d0', '#b9a0eb', '#e9ba69', '#91c978', '#e998bc']);
-    const kind = Math.floor(r() * 3), angle = t * (.35 + r() * .3) + r() * Math.PI * 2;
+    const kind = Math.floor(r() * 5), angle = t * (.35 + r() * .3) + r() * Math.PI * 2;
     const cx = x - width / 2 + 7, cy = y - 16 + Math.sin(t * 1.5 + seed % 13) * 1.5;
-    const vertices = kind === 0 ? [[1,1,1],[1,-1,-1],[-1,1,-1],[-1,-1,1]] : kind === 1 ?
-      [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]] :
-      [[-1,-1,-1],[1,-1,-1],[-1,1,-1],[1,1,-1],[-1,-1,1],[1,-1,1],[-1,1,1],[1,1,1]];
-    const points = vertices.map(([a,b,c]) => [Math.round(cx + (a * Math.cos(angle) - c * Math.sin(angle)) * 3),
-      Math.round(cy + b * 3 + (a * Math.sin(angle) + c * Math.cos(angle)) * 1.5)]);
-    g.strokeStyle = color; g.lineWidth = 1; g.beginPath();
-    vertices.forEach((v, i) => vertices.slice(i + 1).forEach((w, j) => {
-      if (v.reduce((sum, n, k) => sum + (n - w[k]) ** 2, 0) !== (kind === 0 ? 8 : kind === 1 ? 2 : 4)) return;
-      g.moveTo(...points[i]); g.lineTo(...points[i + j + 1]);
-    }));
-    g.stroke();
+    if (kind >= 3) PR.blackHole(g, cx, cy, kind === 4, angle);
+    else {
+      const vertices = kind === 0 ? [[1,1,1],[1,-1,-1],[-1,1,-1],[-1,-1,1]] : kind === 1 ?
+        [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]] :
+        [[-1,-1,-1],[1,-1,-1],[-1,1,-1],[1,1,-1],[-1,-1,1],[1,-1,1],[-1,1,1],[1,1,1]];
+      const points = vertices.map(([a,b,c]) => [Math.round(cx + (a * Math.cos(angle) - c * Math.sin(angle)) * 3),
+        Math.round(cy + b * 3 + (a * Math.sin(angle) + c * Math.cos(angle)) * 1.5)]);
+      g.strokeStyle = color; g.lineWidth = 1; g.beginPath();
+      vertices.forEach((v, i) => vertices.slice(i + 1).forEach((w, j) => {
+        if (v.reduce((sum, n, k) => sum + (n - w[k]) ** 2, 0) !== (kind === 0 ? 8 : kind === 1 ? 2 : 4)) return;
+        g.moveTo(...points[i]); g.lineTo(...points[i + j + 1]);
+      }));
+      g.stroke();
+    }
     rc(g, cx - 4, y - 7, 9, 1, '#6b5378'); px(g, cx, y - 8, color);
     const fx = x + width / 2 - 9;
     if (drink) PR.cup(g, fx - 4, y - 15, drink, t);

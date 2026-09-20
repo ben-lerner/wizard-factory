@@ -1399,7 +1399,6 @@
     drawLightningWindow(g, t);
     PR.torch(g, 24, 14, t); PR.torch(g, 240, 14, t + .5); PR.torch(g, 282, 14, t + .2); PR.torch(g, 444, 14, t + .8);
     PR.circle(g, 160, 152 + 12, t, occupied('circle'));
-    drawUsageProbes(t);
     drawLightningCast(g, t);
     drawBonds(t);
     drawCourt(g);
@@ -1475,6 +1474,7 @@
     drawText(g, 320, 240, 'MANA CAFE', '#ffd84a');
     drawText(g, 60, 240, 'LABORATORIVM', '#8a84a0');
     for (const d of desks) drawTaskLabel(d);
+    drawUsageProbes(t);
     drawUsageLabels();
     if (!wizards.size) {
       g.fillStyle = 'rgba(12,9,20,.55)'; g.fillRect(90, 110, 300, 44);

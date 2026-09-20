@@ -16,7 +16,11 @@ python3 server.py --demo           # fake wizards, for kicking the tires
 python3 server.py --port N         # different port
 ```
 
-No Python dependencies (remote polling also requires the system `ssh` command).
+Agent polling has no Python dependencies and uses the system `ssh` command.
+Usage displays require `~/token-quota` and an authenticated Codex CLI on each
+machine. Configure the accounts to display in
+`~/.config/codex-quota/accounts.json` on `mage-tower` (or locally when remote
+polling is disabled).
 
 ## How it works
 
@@ -60,10 +64,13 @@ blast anyone, including Earl Grey, but are themselves immune. Earl Grey, the
 dragon barista, brews cafe orders with fire and pours milk for milk drinks.
 The frontend polls `/api/state` every 1.5s.
 
-The laboratory's upper-right usage probes show remaining Codex capacity on both
-machines: local usage is blue and remote `mage-tower` usage is red. Liquid height
-shows quota remaining; hovering reveals the exact percentage and machine. The
-countdown shows the next reset, with matching floating blobs for any reset credits.
+The laboratory's usage bottles show all configured Codex accounts, plus any active
+account missing from the list. Blue `LOC` and red `REM` labels mark the accounts
+in use locally and remotely; purple `L/R` marks an account used on both machines.
+Hover over a numbered bottle for its account name, remaining quota, and reset credits.
+Reset times above 24 hours round to the nearest day. Missing usage or reset data
+shows a floating ∅ inside the bottle. Usage refreshes once a minute independently
+of agent polling; these checks never send prompts or redeem reset credits.
 
 ## The journal: what was said
 

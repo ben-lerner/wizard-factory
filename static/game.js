@@ -5,10 +5,6 @@
   const $ = q => document.querySelector(q);
   const cv = $('#view'), g = cv.getContext('2d');
   const { drawText, textW, rng, hash, PR, drawEmote, WARM_MILK, DRINKS, INFERNAL_DRINKS } = SP;
-  const USAGE_PROBES = [
-    { provider: 'codex', origin: 'local', x: 208, tx: 205, color: '#58b8e8' },
-    { provider: 'codex', origin: 'remote', x: 240, tx: 237, color: '#e85858' },
-  ];
 
   // ---------- stations ----------
   const ST = {
@@ -793,26 +789,40 @@
     if (overflow > 1 || (LAB_TABLE && LAB_TABLE.game)) PR.chair(gg, 140, 124, true);
   }
   function resetIn(q) {
-    if (!q || !q.resets_at) return 'NO SIGIL';
+    if (!q || !q.resets_at) return '';
     const s = Math.max(0, q.resets_at - (Date.now() / 1000 - serverSkew));
-    if (s >= 86400) return `${s / 86400 | 0}D ${s % 86400 / 3600 | 0}H`;
+    if (s > 86400) return `${Math.round(s / 86400)}D`;
     return `${s / 3600 | 0}H ${s % 3600 / 60 | 0}M`;
   }
   function drawUsageProbes(t) {
-    for (const v of USAGE_PROBES) {
-      const q = quotaFor(v), color = v.color;
-      PR.quotaVat(g, v.x, 43, 'vat', q ? q.left : 0, color, t);
-      drawText(g, v.tx, 75, resetIn(q), '#a8a2c8');
-      const resets = q ? q.resets_left || 0 : 0, shown = Math.min(5, resets);
+    for (const v of usageProbes()) {
+      const q = v.q, color = v.color;
+      PR.quotaVat(g, v.x, v.y, 'vat', q.left ?? 0, color, t);
+      if (q.left == null || !q.resets_at) {
+        const cy = Math.round(v.y + 14 + Math.sin(t * 2 + v.i) * 2);
+        g.strokeStyle = '#dcd8ee'; g.lineWidth = 1;
+        g.beginPath(); g.arc(v.x + 8, cy, 4, 0, Math.PI * 2); g.stroke();
+        g.beginPath(); g.moveTo(v.x + 4, cy + 4); g.lineTo(v.x + 12, cy - 4); g.stroke();
+      }
+      drawText(g, v.x + 8 - textW(String(v.i + 1)) / 2, v.y - 12, String(v.i + 1), color);
+      drawText(g, v.x + 8 - textW(v.label) / 2, v.y + 37, v.label, color);
+      drawText(g, v.x + 8 - textW(resetIn(q)) / 2, v.y + 30, resetIn(q), '#a8a2c8');
+      const resets = q.resets_left || 0, shown = Math.min(5, resets);
       for (let i = 0; i < shown; i++) {
-        const bx = v.x + 3 + i % 3 * 4, by = 38 - (i / 3 | 0) * 4 + Math.sin(t * 2 + i) * 1.2;
+        const bx = v.x + 3 + i % 3 * 4, by = v.y - 5 - (i / 3 | 0) * 4 + Math.sin(t * 2 + i) * 1.2;
         g.fillStyle = color; g.fillRect(bx, Math.round(by), 3, 2); g.fillRect(bx + 1, Math.round(by) - 1, 1, 4);
       }
-      if (resets > shown) drawText(g, v.x + 14, 36, `+${resets - shown}`, color);
+      if (resets > shown) drawText(g, v.x + 14, v.y - 7, `+${resets - shown}`, color);
     }
   }
-  const quotaFor = v => (lastData.quotas || []).find(q => q.provider === v.provider && q.origin === v.origin);
-  const usageProbe = id => USAGE_PROBES.find(v => id === `usage:${v.origin}`);
+  const usageProbes = () => (lastData.quotas || []).map((q, i) => {
+    const local = q.origins.includes('local'), remote = q.origins.includes('remote');
+    return { q, i, x: i < 3 ? 184 + i * 28 : 184 + (i - 3) % 2 * 56,
+      y: i < 3 ? 43 : 101 + Math.floor((i - 3) / 2) * 60,
+      label: local && remote ? 'L/R' : local ? 'LOC' : remote ? 'REM' : '',
+      color: local && remote ? '#bd8bea' : local ? '#58b8e8' : remote ? '#e85858' : '#70c89b' };
+  });
+  const usageProbe = id => usageProbes().find(v => id === `usage:${v.q.id}`);
 
   // animated props, y-sorted with sprites: [sortY, drawFn]
   const props = t => [
@@ -1359,8 +1369,8 @@
 
   function pickAt(e) {
     const r = cv.getBoundingClientRect(), mx = (e.clientX - r.left - cv.clientLeft) / S, my = (e.clientY - r.top - cv.clientTop) / S;
-    const vat = [...USAGE_PROBES].reverse().find(v => mx >= v.x - 4 && mx <= v.x + 20 && my >= 39 && my <= 98);
-    if (vat) return `usage:${vat.origin}`;
+    const vat = usageProbes().reverse().find(v => mx >= v.x - 4 && mx <= v.x + 20 && my >= v.y - 12 && my <= v.y + 44);
+    if (vat) return `usage:${vat.q.id}`;
     for (const w of [...wizards.values()].sort((a, b) => b.y - a.y))
       if (Math.abs(mx - w.x) <= 9 && my >= w.y - 26 && my <= w.y + 3) return w.a.id;
     if (mx >= dragon.x - 25 && mx <= dragon.x + 25 && my >= dragon.y - 40 && my <= dragon.y + 3) return 'barista';
@@ -1379,10 +1389,12 @@
     tip.style.top = Math.max(4, Math.min(top, stage.height - tip.offsetHeight - 4)) + 'px';
   }
   function showUsageTip(v, left, top) {
-    const q = quotaFor(v), tip = $('#tip'), stage = $('#stage').getBoundingClientRect();
-    tip.innerHTML = `<div class="tt-name">${v.origin.toUpperCase()} <span>CODEX USAGE</span></div>
-      <div class="tt-status">${q ? Math.round(q.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>
-      <div class="tt-age">${q ? 'RESETS IN ' + resetIn(q) + ' · ' + q.resets_left + ' RESET' + (q.resets_left === 1 ? '' : 'S') + ' LEFT' : 'NO USAGE SIGIL FOUND'}</div>`;
+    const q = v.q, tip = $('#tip'), stage = $('#stage').getBoundingClientRect();
+    tip.innerHTML = `<div class="tt-name">${v.i + 1}. ${esc(q.name)} <span>CODEX USAGE</span></div>
+      <div class="tt-meta">${q.origins.length ? esc(q.origins.join(' + ').toUpperCase()) : 'NOT IN USE'}</div>
+      <div class="tt-status">${q.left != null ? Math.round(q.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>
+      <div class="tt-age">${q.resets_at ? 'RESETS IN ' + resetIn(q) : 'RESET TIME UNAVAILABLE'} · ${q.resets_left ?? '?'} RESETS LEFT</div>
+      ${q.error ? `<div class="tt-age">${esc(q.error)}</div>` : ''}`;
     tip.hidden = false;
     tip.style.left = Math.max(4, Math.min(left, stage.width - tip.offsetWidth - 4)) + 'px';
     tip.style.top = Math.max(4, Math.min(top, stage.height - tip.offsetHeight - 4)) + 'px';

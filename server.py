@@ -9,11 +9,13 @@ the tower at http://127.0.0.1:7777. No registration needed.
   python3 server.py --install-hooks  # optional: instant permission/stop events via hooks
 """
 import argparse
+import base64
+import hashlib
 import json
 import os
 import random
-import select
 import subprocess
+import sys
 import threading
 import time
 from collections import deque
@@ -22,12 +24,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
+sys.path.insert(0, str(Path.home() / 'token-quota'))
+try:
+    from bridge.quota import collect as collect_accounts
+    collect = collect_accounts
+except ImportError:
+    collect = None
+
 ROOT = Path(__file__).resolve().parent
 PROJECTS = Path.home() / '.claude' / 'projects'
 CODEX = Path.home() / '.codex' / 'sessions'
-CODEX_CLI = next((str(p) for p in (Path.home() / '.local/bin/codex', Path('/opt/homebrew/bin/codex'))
-                  if p.is_file()), 'codex')
-CLAUDE_STATE = Path.home() / '.claude.json'
 SETTINGS = Path.home() / '.claude' / 'settings.json'
 HOOK_MARK = '#wizard-factory'
 HOOK_EVENTS = ['Notification', 'Stop', 'UserPromptSubmit', 'SessionStart', 'SessionEnd']
@@ -42,10 +48,8 @@ MIME = {'.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.pn
 FILES = {}      # path -> FileState
 OVERRIDES = {}  # session_id -> latest hook event {event, ts, msg}
 DEAD = {}       # session_id -> epoch of SessionEnd hook
-REMOTE_AGENTS, REMOTE_QUOTAS, REMOTE_SEEN, REMOTE_USAGE_SEEN = [], [], 0, 0
-CLAUDE_USAGE_MTIME, CLAUDE_QUOTAS = 0.0, []
-CODEX_QUOTAS, CODEX_QUOTAS_TS = [], 0
-CODEX_RESETS, CODEX_RESETS_TS, CODEX_RESETS_REFRESHING = 0, 0, False
+REMOTE_AGENTS, REMOTE_QUOTAS, REMOTE_SEEN = [], [], 0
+LOCAL_QUOTAS = []
 LOCK = threading.Lock()
 
 
@@ -98,172 +102,54 @@ def project_of(cwd):
     return Path(cwd).name or '/'
 
 
-def quota(provider, period, window):
-    if not isinstance(window, dict):
-        return None
-    used = window.get('utilization', window.get('used_percent'))
-    reset = window.get('resets_at')
-    if not isinstance(used, (int, float)) or not reset:
-        return None
-    if isinstance(reset, str):
-        reset = epoch(reset)
-    if not isinstance(reset, (int, float)):
-        return None
-    resets = next((window[k] for k in ('resets_left', 'remaining_resets', 'reset_count')
-                   if isinstance(window.get(k), int)), 0)
-    return {'provider': provider, 'period': period, 'left': max(0, min(100, 100 - used)),
-            'resets_at': reset, 'resets_left': max(0, resets)}
+def active_home():
+    return Path(os.environ.get('CODEX_HOME') or Path.home() / '.codex').expanduser().resolve()
 
 
-def claude_quotas():
-    global CLAUDE_USAGE_MTIME, CLAUDE_QUOTAS
+def account_id(home):
     try:
-        mtime = CLAUDE_STATE.stat().st_mtime
-    except OSError:
-        return []
-    if mtime == CLAUDE_USAGE_MTIME:
-        CLAUDE_QUOTAS = advance_quotas(CLAUDE_QUOTAS, time.time())
-        return CLAUDE_QUOTAS
-    try:
-        usage = json.loads(CLAUDE_STATE.read_text()).get('cachedUsageUtilization', {}).get('utilization', {})
-        CLAUDE_QUOTAS = [q for q in (quota('claude', 'weekly', usage.get('seven_day')),
-                                     quota('claude', 'five_hour', usage.get('five_hour')),
-                                     claude_fable(usage)) if q]
-        CLAUDE_USAGE_MTIME = mtime
-    except (OSError, ValueError, AttributeError):
-        pass
-    return CLAUDE_QUOTAS
-
-
-def codex_quota(rate_limits):
-    windows = [rate_limits.get(k) for k in ('primary', 'secondary')]
-    weekly = next((w for w in windows if isinstance(w, dict) and w.get('window_minutes') == 7 * 24 * 60), None)
-    return [q for q in [quota('codex', 'weekly', weekly)] if q]
-
-
-def reset_count(response):
-    resets = response.get('rateLimitResetCredits') if isinstance(response, dict) else None
-    count = resets.get('availableCount') if isinstance(resets, dict) else 0
-    return max(0, count) if isinstance(count, int) else 0
-
-
-def claude_fable(usage):
-    limits = usage.get('limits') if isinstance(usage, dict) else None
-    fable = next((x for x in limits or [] if isinstance(x, dict) and
-                  ((x.get('scope') or {}).get('model') or {}).get('display_name') == 'Fable'), None)
-    weekly = usage.get('seven_day') if isinstance(usage, dict) else None
-    if not fable or not isinstance(weekly, dict):
+        tokens = json.loads((home / 'auth.json').read_text()).get('tokens') or {}
+        token = tokens['id_token'].split('.')[1]
+        claims = json.loads(base64.urlsafe_b64decode(token + '=' * (-len(token) % 4)))
+        identity = [tokens['account_id'], claims['sub']]
+        return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+    except (OSError, ValueError, KeyError, IndexError, TypeError):
         return None
-    return quota('claude', 'fable', {
-        'utilization': fable.get('percent'), 'resets_at': fable.get('resets_at') or weekly.get('resets_at'),
-    })
 
 
-def fetch_codex_resets():
-    init = {'method': 'initialize', 'id': 1, 'params': {
-        'clientInfo': {'name': 'wizard-factory', 'title': 'Wizard Factory', 'version': '1'},
-        'capabilities': {'experimentalApi': True, 'requestAttestation': False},
-    }}
-    try:
-        proc = subprocess.Popen([CODEX_CLI, 'app-server', '--stdio'], stdin=subprocess.PIPE,
-                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
-        assert proc.stdin and proc.stdout
-        proc.stdin.write((json.dumps(init) + '\n').encode())
-        proc.stdin.flush()
-        deadline, buf = time.monotonic() + 5, b''
-        while time.monotonic() < deadline:
-            ready, _, _ = select.select([proc.stdout], [], [], max(0, deadline - time.monotonic()))
-            if not ready:
-                break
-            chunk = os.read(proc.stdout.fileno(), 65536)
-            if not chunk:
-                break
-            buf += chunk
-            lines = buf.split(b'\n')
-            buf = lines.pop()
-            for line in lines:
-                msg = json.loads(line)
-                if msg.get('id') == 1:
-                    ready = {'method': 'initialized', 'params': {}}
-                    request = {'method': 'account/rateLimits/read', 'id': 2}
-                    proc.stdin.write((json.dumps(ready) + '\n' + json.dumps(request) + '\n').encode())
-                    proc.stdin.flush()
-                if msg.get('id') == 2:
-                    result = msg.get('result')
-                    return reset_count(result) if isinstance(result, dict) else None
-    except (OSError, ValueError, AttributeError):
-        pass
-    finally:
-        if 'proc' in locals():
-            proc.terminate()
-            try:
-                proc.wait(timeout=1)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-    return None
+def account_quotas(listed):
+    if collect is None:
+        raise RuntimeError('token-quota library is unavailable')
+    config = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config') / 'codex-quota/accounts.json'
+    accounts = json.loads(config.read_text()) if listed and config.exists() else {}
+    homes = {name: (config.parent / Path(home).expanduser()).resolve() for name, home in accounts.items()}
+    active = account_id(active_home())
+    identities = {name: account_id(home) for name, home in homes.items()}
+    if active_home() not in homes.values() and (not active or active not in identities.values()):
+        name = 'In use'
+        while name in homes:
+            name += ' (active)'
+        homes[name], identities[name] = active_home(), active
+    readings = collect(homes)['accounts']
+    return [{'id': identities[r['name']] or 'unknown:' + r['name'], 'name': r['name'],
+             'provider': 'codex', 'period': 'weekly',
+             'origins': ['local'] if homes[r['name']] == active_home() or
+                        (active and identities[r['name']] == active) else [],
+             'left': max(0, min(100, 100 - r['weeklyUsedPercent'])) if r['weeklyUsedPercent'] is not None else None,
+             'resets_at': r['weeklyResetsAt'], 'resets_left': r['availableResets'], 'error': r['error']}
+            for r in readings]
 
 
-def refresh_codex_resets():
-    global CODEX_RESETS, CODEX_RESETS_TS, CODEX_RESETS_REFRESHING
-    try:
-        count = fetch_codex_resets()
-        if count is not None:
-            CODEX_RESETS = count
-        return count is not None
-    finally:
-        CODEX_RESETS_TS, CODEX_RESETS_REFRESHING = time.time(), False
-
-
-def codex_resets():
-    global CODEX_RESETS_REFRESHING
-    if time.time() - CODEX_RESETS_TS >= 60 and not CODEX_RESETS_REFRESHING:
-        CODEX_RESETS_REFRESHING = True
-        threading.Thread(target=refresh_codex_resets, daemon=True).start()
-    return CODEX_RESETS
-
-
-def remember_codex_quotas(rate_limits, ts):
-    global CODEX_QUOTAS, CODEX_QUOTAS_TS
-    quotas = codex_quota(rate_limits)
-    if quotas and ts >= CODEX_QUOTAS_TS:
-        CODEX_QUOTAS, CODEX_QUOTAS_TS = quotas, ts
-
-
-def advance_quotas(quotas, now):
-    windows = {'weekly': 7 * 86400, 'five_hour': 5 * 3600, 'fable': 7 * 86400}
-    out = []
-    for q in quotas:
-        if q['resets_at'] <= now:
-            window = windows[q['period']]
-            elapsed = int((now - q['resets_at']) // window) + 1
-            q = {**q, 'left': 100, 'resets_at': q['resets_at'] + elapsed * window, 'resets_left': 0}
-        out.append(q)
-    return out
-
-
-def codex_quotas(include_resets=True):
-    global CODEX_QUOTAS
-    if CODEX_QUOTAS:
-        CODEX_QUOTAS = advance_quotas(CODEX_QUOTAS, time.time())
-        return [{**q, 'resets_left': codex_resets()} for q in CODEX_QUOTAS] if include_resets else CODEX_QUOTAS
-    for path in sorted(CODEX.glob('*/*/*/rollout-*.jsonl'), reverse=True)[:20]:
-        try:
-            lines = path.read_bytes()[-TAIL_BYTES:].splitlines()
-        except OSError:
-            continue
-        for line in reversed(lines):
-            if b'"rate_limits"' not in line:
-                continue
-            try:
-                d = json.loads(line)
-                p = d.get('payload') or {}
-                if isinstance(p.get('rate_limits'), dict):
-                    remember_codex_quotas(p['rate_limits'], epoch(d.get('timestamp') or '') or 0)
-                    if CODEX_QUOTAS:
-                        return codex_quotas(include_resets)
-            except (ValueError, AttributeError):
-                pass
-    return []
+def merge_quotas(remote, local):
+    accounts = {q['id']: {**q, 'origins': list(q['origins'])} for q in remote}
+    for q in local:
+        if q['id'] in accounts:
+            existing = accounts[q['id']]
+            accounts[q['id']] = {**(existing if q.get('error') else q), 'name': existing['name'],
+                                 'origins': list(dict.fromkeys(existing['origins'] + q['origins']))}
+        else:
+            accounts[q['id']] = q
+    return list(accounts.values())
 
 
 class FileState:
@@ -359,9 +245,7 @@ class FileState:
             elif pt == 'reasoning':
                 self._mark('thinking', ts)
         elif t == 'event_msg':
-            if pt == 'token_count' and isinstance(p.get('rate_limits'), dict):
-                remember_codex_quotas(p['rate_limits'], ts or 0)
-            elif pt == 'user_message':
+            if pt == 'user_message':
                 msg = p.get('message')
                 msg = msg.strip() if isinstance(msg, str) else ''
                 if msg.startswith('<task>'):
@@ -630,7 +514,8 @@ def remote_agents(host, payload):
 def remote_snapshot(host, payload):
     quotas = payload.get('quotas', []) if isinstance(payload, dict) else []
     return remote_agents(host, payload), [
-        {**q, 'origin': 'remote'} for q in quotas
+        {**q, 'id': 'remote:' + q['id'] if q['id'].startswith('unknown:') else q['id'],
+         'origins': ['remote'] if q.get('origins') else []} for q in quotas
         if isinstance(q, dict) and q.get('provider') == 'codex'
     ]
 
@@ -638,37 +523,20 @@ def remote_snapshot(host, payload):
 def scan_remote(host, refresh_usage=False):
     source = Path(__file__).read_bytes()
     args = ['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=3', host,
+            'env', 'PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"',
             'python3', '-', '--debug-scan']
     if refresh_usage:
         args.append('--refresh-usage')
     proc = subprocess.run(
         args,
         input=source, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-        timeout=20 if refresh_usage else 10,
+        timeout=90 if refresh_usage else 10,
     )
     proc.check_returncode()
     return remote_snapshot(host, json.loads(proc.stdout))
 
 
-def preserve_reset_credits(quotas, cached):
-    resets = {(q.get('provider'), q.get('period')): q.get('resets_left')
-              for q in cached if isinstance(q, dict) and isinstance(q.get('resets_left'), int)}
-    return [{**q, 'resets_left': resets.get((q.get('provider'), q.get('period')),
-                                             q.get('resets_left', 0))}
-            for q in quotas]
-
-
-def poll_remote(host, refresh_usage):
-    try:
-        return scan_remote(host, refresh_usage)
-    except Exception:
-        if not refresh_usage:
-            raise
-        agents, quotas = scan_remote(host)
-        return agents, preserve_reset_credits(quotas, REMOTE_QUOTAS)
-
-
-def state_payload(demo, include_resets=True):
+def state_payload(demo):
     now = time.time()
     with LOCK:
         if demo:
@@ -678,12 +546,13 @@ def state_payload(demo, include_resets=True):
                    if fs.status and fs.status != 'gone']
             if now - REMOTE_SEEN < REMOTE_STALE_SEC:
                 ags += REMOTE_AGENTS
-        quotas = ([{'provider': 'codex', 'origin': 'local', 'period': 'weekly', 'left': 81,
-                    'resets_at': now + 5.1 * 86400, 'resets_left': 2},
-                   {'provider': 'codex', 'origin': 'remote', 'period': 'weekly', 'left': 54,
-                    'resets_at': now + 3.3 * 86400, 'resets_left': 1}]
-                  if demo else [{**q, 'origin': 'local'} for q in codex_quotas(include_resets)] +
-                  (REMOTE_QUOTAS if now - REMOTE_SEEN < REMOTE_STALE_SEC else []))
+        quotas = ([{'id': 'demo-local', 'name': 'Espresso', 'provider': 'codex', 'origins': ['local'],
+                    'period': 'weekly', 'left': 81, 'resets_at': now + 5.1 * 86400, 'resets_left': 2},
+                   {'id': 'demo-remote', 'name': 'Mirasume', 'provider': 'codex', 'origins': ['remote'],
+                    'period': 'weekly', 'left': 54, 'resets_at': now + 3.3 * 86400, 'resets_left': 1},
+                   {'id': 'demo-spare', 'name': 'Caffeinated', 'provider': 'codex', 'origins': [],
+                    'period': 'weekly', 'left': 100, 'resets_at': now + 7 * 86400, 'resets_left': 0}]
+                  if demo else merge_quotas(REMOTE_QUOTAS, LOCAL_QUOTAS))
     return {'now': now, 'demo': bool(demo), 'quotas': quotas,
             'agents': sorted(ags, key=lambda a: a['started'] or 0)}
 
@@ -791,11 +660,29 @@ def main():
     if a.debug_scan:
         with LOCK:
             scan_once(time.time())
-        if a.refresh_usage and not refresh_codex_resets():
-            raise RuntimeError('unable to refresh Codex reset credits')
-        return print(json.dumps(state_payload(None, a.refresh_usage), indent=2))
+        payload = state_payload(None)
+        payload['quotas'] = account_quotas(True) if a.refresh_usage else []
+        return print(json.dumps(payload, indent=2))
     demo = Demo() if a.demo else None
     if not demo:
+        def usage_loop():
+            global LOCAL_QUOTAS, REMOTE_QUOTAS
+            while True:
+                try:
+                    quotas = account_quotas(not a.remote_host)
+                    with LOCK:
+                        LOCAL_QUOTAS = quotas
+                except Exception as e:
+                    print('usage error:', repr(e), flush=True)
+                if a.remote_host:
+                    try:
+                        _, quotas = scan_remote(a.remote_host, True)
+                        with LOCK:
+                            REMOTE_QUOTAS = quotas
+                    except Exception as e:
+                        print('remote usage error:', repr(e), flush=True)
+                time.sleep(REMOTE_USAGE_SEC)
+        threading.Thread(target=usage_loop, daemon=True).start()
         def local_loop():
             while True:
                 t = time.time()
@@ -808,18 +695,13 @@ def main():
         threading.Thread(target=local_loop, daemon=True).start()
         if a.remote_host:
             def remote_loop():
-                global REMOTE_AGENTS, REMOTE_QUOTAS, REMOTE_SEEN, REMOTE_USAGE_SEEN
+                global REMOTE_AGENTS, REMOTE_SEEN
                 while True:
                     t = time.time()
                     try:
-                        refresh_usage = t - REMOTE_USAGE_SEEN >= REMOTE_USAGE_SEC
-                        agents, quotas = poll_remote(a.remote_host, refresh_usage)
+                        agents, _ = scan_remote(a.remote_host)
                         with LOCK:
                             REMOTE_AGENTS, REMOTE_SEEN = agents, time.time()
-                            if refresh_usage:
-                                REMOTE_USAGE_SEEN = REMOTE_SEEN
-                                if quotas is not None:
-                                    REMOTE_QUOTAS = quotas
                     except Exception:
                         pass
                     time.sleep(max(0.1, REMOTE_SCAN_SEC - (time.time() - t)))

@@ -4,15 +4,20 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 function scene() {
-  const ctx = new Proxy({}, { get: () => () => {} });
-  const element = { getContext: () => ctx, toDataURL: () => '', addEventListener() {}, style: {} };
+  const calls = [];
+  const ctx = new Proxy({}, { get: (target, key) => key in target ? target[key] : (...args) => calls.push([key, ...args]) });
+  const element = { getContext: () => ctx, toDataURL: () => '', addEventListener() {}, style: {}, getBoundingClientRect: () => ({ width: 960, height: 544 }), offsetWidth: 200, offsetHeight: 80 };
   const sandbox = { console, ResizeObserver: class { observe() {} }, document: { querySelector: () => element, createElement: () => element }, window: { addEventListener() {} } };
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync('static/sprites.js', 'utf8'), sandbox);
   sandbox.SP = sandbox.window.SP;
+  for (const name of ['drawText', 'drawEmote']) {
+    const draw = sandbox.SP[name];
+    sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
+  }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors }; })();', sandbox);
-  return sandbox.window.test;
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, showUsageTip, setData: data => { lastData = data; } }; })();', sandbox);
+  return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
 test('work keeps its seat through tool changes and renames, then dissolves', () => {
@@ -62,4 +67,56 @@ test('crowded scenes allocate distinct desks', () => {
   const s = scene();
   s.reconcile({ agents: Array.from({ length: 30 }, (_, i) => agent(String(i))) });
   assert.equal(new Set(s.desks.map(d => `${d.x},${d.y}`)).size, 30);
+});
+
+test('served drinks follow wizards back to their desks; unfinished orders are cancelled', () => {
+  const s = scene(), a = agent('coffee', 'waiting');
+  s.reconcile({ agents: [a] });
+  const w = s.wizards.get(a.id), order = { stage: 'served', drink: w.sp.drink, servedAt: 0 };
+  w.order = order;
+  s.reconcile({ agents: [{ ...a, status: 'working' }] });
+  assert.equal(w.order, order);
+  [w.x, w.y] = w.home; w.path = []; w.alpha = 1;
+  const cups = [];
+  s.SP.PR.cup = (...args) => cups.push(args);
+  s.drawWorkDesk(w.desk, true, 1);
+  assert.equal(cups.length, 1);
+  assert.equal(cups[0][3], w.sp.drink.key);
+  assert.ok(Math.abs(cups[0][1] - w.desk.x) < 24);
+  w.order = { ...order, stage: 'brewing' };
+  s.reconcile({ agents: [{ ...a, status: 'working' }] });
+  assert.equal(w.order, null);
+});
+test('task and bottle labels render after sprites and thought bubbles', () => {
+  const s = scene(), a = agent('label');
+  s.reconcile({ agents: [a] });
+  const w = s.wizards.get(a.id);
+  [w.x, w.y] = w.home; w.path = []; w.walk = false; w.alpha = 1; w.desk.alpha = 1;
+  s.setData({ quotas: [{ id: 'a', origins: ['local'], left: 50, resets_at: Date.now()/1000 + 864000, resets_left: 0 }] });
+  s.calls.length = 0;
+  s.draw(1);
+  const bubble = s.calls.findIndex(c => c[0] === 'drawEmote');
+  const title = s.calls.findIndex(c => c[0] === 'drawText' && c[3] === 'FIX WIZARD');
+  const bottle = s.calls.findIndex(c => c[0] === 'drawText' && c[3] === 'LOC');
+  assert.ok(bubble >= 0 && title > bubble && bottle > title);
+  assert.equal(s.calls.slice(bottle).some(c => c[0] === 'drawImage'), false);
+});
+test('usage tooltips omit zero resets and retain positive or unknown credits', () => {
+  const s = scene();
+  for (const count of [0, 1, 2, null]) {
+    s.showUsageTip({ i: 0, q: {name:'Test', origins:[], left:50, resets_at:Date.now()/1000+864000, resets_left:count}}, 0, 0);
+    if (count === 0) assert.doesNotMatch(s.element.innerHTML, /RESETS? LEFT/);
+    else assert.match(s.element.innerHTML, new RegExp((count ?? '\\?') + ' RESETS? LEFT'));
+  }
+});
+test('desk decorations are stable per wizard and vary between wizards', () => {
+  const s = scene();
+  const render = id => {
+    s.calls.length = 0;
+    s.SP.PR.deskDecor(s.ctx, 100, 100, 48, s.SP.hash(id + ':desk'), null, 1);
+    return JSON.stringify(s.calls);
+  };
+  const first = render('one');
+  assert.equal(render('one'), first);
+  assert.notEqual(render('two'), first);
 });

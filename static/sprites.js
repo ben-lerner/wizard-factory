@@ -315,12 +315,40 @@ window.SP = (() => {
     }
   };
 
-  PR.desk = (g, x, y, t) => {
-    rc(g, x, y, 26, 8, '#7d5636'); rc(g, x, y + 8, 26, 3, '#5e3e26');
-    rc(g, x + 1, y + 11, 3, 3, '#4a3220'); rc(g, x + 22, y + 11, 3, 3, '#4a3220');
-    rc(g, x + 4, y + 2, 8, 4, '#ece3c4'); px(g, x + 6, y + 3, '#a89878'); px(g, x + 9, y + 4, '#a89878');
-    px(g, x + 16, y + 3, '#30364a'); px(g, x + 17, y + 2, '#d8def0');
-    px(g, x + 22, y + 2, '#e8e0c8'); px(g, x + 22, y + 1, (t * 5 | 0) % 2 ? '#ffd84a' : '#f08a2a');
+  PR.gameTable = (g, x, y) => {
+    rc(g, x - 3, y + 3, 6, 12, '#4a3220'); rc(g, x - 9, y + 13, 18, 2, '#4a3220');
+    rc(g, x - 14, y - 6, 28, 14, '#6b4932'); rc(g, x - 17, y - 3, 34, 8, '#6b4932');
+    rc(g, x - 14, y - 7, 28, 12, '#a27a50'); rc(g, x - 17, y - 4, 34, 6, '#a27a50');
+  };
+
+  PR.deskDecor = (g, x, y, width, seed, drink, t) => {
+    const r = rng(seed), color = pick(r, ['#88d8d0', '#b9a0eb', '#e9ba69', '#91c978', '#e998bc']);
+    const kind = Math.floor(r() * 3), angle = t * (.35 + r() * .3) + r() * Math.PI * 2;
+    const cx = x - width / 2 + 7, cy = y - 16 + Math.sin(t * 1.5 + seed % 13) * 1.5;
+    const vertices = kind === 0 ? [[1,1,1],[1,-1,-1],[-1,1,-1],[-1,-1,1]] : kind === 1 ?
+      [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]] :
+      [[-1,-1,-1],[1,-1,-1],[-1,1,-1],[1,1,-1],[-1,-1,1],[1,-1,1],[-1,1,1],[1,1,1]];
+    const points = vertices.map(([a,b,c]) => [Math.round(cx + (a * Math.cos(angle) - c * Math.sin(angle)) * 3),
+      Math.round(cy + b * 3 + (a * Math.sin(angle) + c * Math.cos(angle)) * 1.5)]);
+    g.strokeStyle = color; g.lineWidth = 1; g.beginPath();
+    vertices.forEach((v, i) => vertices.slice(i + 1).forEach((w, j) => {
+      if (v.reduce((sum, n, k) => sum + (n - w[k]) ** 2, 0) !== (kind === 0 ? 8 : kind === 1 ? 2 : 4)) return;
+      g.moveTo(...points[i]); g.lineTo(...points[i + j + 1]);
+    }));
+    g.stroke();
+    rc(g, cx - 4, y - 7, 9, 1, '#6b5378'); px(g, cx, y - 8, color);
+    const fx = x + width / 2 - 9;
+    if (drink) PR.cup(g, fx - 4, y - 15, drink, t);
+    else {
+      const tall = r() > .5;
+      rc(g, fx, y - 14 - Number(tall), 3, 4, '#bed0d8');
+      rc(g, fx - 2, y - 10, 7, 4, '#bed0d8'); rc(g, fx - 1, y - 9, 5, 3, color);
+      px(g, fx - 1, y - 10, '#edf4e2'); rc(g, fx, y - 15 - Number(tall), 3, 1, '#8b6347');
+    }
+    if (width > 30) {
+      rc(g, x + 4, y - 9, 6, 3, '#715683'); rc(g, x + 5, y - 8, 4, 1, '#ddcea9');
+      rc(g, x + 3, y - 11, 6, 2, '#547b78');
+    }
   };
 
   PR.crystal = (g, x, y, t) => {

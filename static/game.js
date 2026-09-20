@@ -32,8 +32,6 @@
     { x: 58, y: 154, w: 24, h: 18 },
     { x: 8, y: 58, w: 26, h: 34 }, { x: 8, y: 94, w: 26, h: 34 },
     { x: 118, y: 46, w: 66, h: 16 },
-    { x: 84, y: 116, w: 56, h: 12 },
-    { x: 94, y: 205, w: 30, h: 11 }, { x: 138, y: 205, w: 30, h: 11 },
     { x: 216, y: 104, w: 16, h: 18 },
     { x: 299, y: 96, w: 28, h: 14 }, { x: 359, y: 116, w: 28, h: 14 },
     { x: 438, y: 72, w: 32, h: 24 },
@@ -242,7 +240,7 @@
       w.a = a;
       w.leaving = false;
       if (!cafeWait(a)) {
-        w.order = null;
+        if (w.order && w.order.stage !== 'served') w.order = null;
         leaveGameForWizard(w, 0);
       }
       if (changed) { w.castAt = 0; retarget(w); }
@@ -379,17 +377,14 @@
 
   // ---------- table games ----------
   const TABLES = [
-    { id: 'lab1', x: 112, y: 120, seats: [[76, 132], [148, 132], [112, 104]], game: null, burnUntil: 0, lab: true },
     { id: 't1', x: 313, y: 101, seats: [[292, 112], [332, 112], [313, 84]], game: null, burnUntil: 0 },
     { id: 't2', x: 373, y: 121, seats: [[352, 132], [392, 132], [373, 104]], game: null, burnUntil: 0 },
   ];
   const GAME_TYPES = ['magic', 'chess', 'go'], tableR = rng(4242);
-  const LAB_TABLE = TABLES.find(t => t.lab), CAFE_TABLES = TABLES.filter(t => !t.lab);
   const tableById = id => TABLES.find(t => t.id === id);
   const gameName = g => g === 'magic' ? 'MAGIC THE GATHERING' : g.toUpperCase();
   const gameHas = (table, kind, id) => !!table.game && table.game.players.some(p => p.kind === kind && (!id || p.id === id));
-  function waitingForGame(w, table) {
-    if (table && table.lab) return false;
+  function waitingForGame(w) {
     return cafeReady(w) && !w.game && w.order && w.order.stage === 'served';
   }
   function releaseGamePlayer(p, t) {
@@ -447,15 +442,15 @@
         table.game.players = table.game.players.filter(p => {
           if (p.kind === 'wizard') {
             const w = wizards.get(p.id);
-            return w && !w.leaving && !table.lab && cafeWait(w.a);
+            return w && !w.leaving && cafeWait(w.a);
           }
-          if (p.kind === 'cat') return !table.lab && cat.game === table.id;
+          if (p.kind === 'cat') return cat.game === table.id;
           return false;
         });
         if (table.game.players.length < 2 || t > table.game.until) endGame(table, t, false);
       }
-      if (table.game || t < table.burnUntil || table.lab) continue;
-      const ws = [...wizards.values()].filter(w => waitingForGame(w, table)).sort((a, b) => (a.a.started || 0) - (b.a.started || 0));
+      if (table.game || t < table.burnUntil) continue;
+      const ws = [...wizards.values()].filter(w => waitingForGame(w)).sort((a, b) => (a.a.started || 0) - (b.a.started || 0));
       if (!ws.length) continue;
       const players = [{ kind: 'wizard', id: ws[0].a.id }];
       if (ws[1]) players.push({ kind: 'wizard', id: ws[1].a.id });
@@ -736,8 +731,6 @@
     PR.banner(b, 88, 6, '#7a3b4a'); PR.banner(b, 168, 6, '#3f5b9b'); PR.banner(b, 352, 6, '#3f7b4c');
     PR.rug(b, 318, 96);
     b.fillStyle = '#53391f'; b.fillRect(296, 252, 96, 1);
-    drawText(b, 320, 240, 'MANA CAFE', '#ffd84a');
-    drawText(b, 60, 240, 'LABORATORIVM', '#8a84a0');
   })();
 
   const WIN_X = [48, 128, 208, 312, 392], stormR = rng(2049);
@@ -812,11 +805,6 @@
       }
     }
   }
-  function drawSubmitChairs(gg) {
-    const overflow = [...wizards.values()].filter(w => w.station === 'submit' && w.spotI >= 2 && !w.leaving).length;
-    if (overflow > 0 || (LAB_TABLE && LAB_TABLE.game)) PR.chair(gg, 68, 124, false);
-    if (overflow > 1 || (LAB_TABLE && LAB_TABLE.game)) PR.chair(gg, 140, 124, true);
-  }
   function resetIn(q) {
     if (!q || !q.resets_at) return '';
     const s = Math.max(0, q.resets_at - (Date.now() / 1000 - serverSkew));
@@ -833,15 +821,20 @@
         g.beginPath(); g.arc(v.x + 8, cy, 4, 0, Math.PI * 2); g.stroke();
         g.beginPath(); g.moveTo(v.x + 4, cy + 4); g.lineTo(v.x + 12, cy - 4); g.stroke();
       }
-      drawText(g, v.x + 8 - textW(String(v.i + 1)) / 2, v.y - 12, String(v.i + 1), color);
-      drawText(g, v.x + 8 - textW(v.label) / 2, v.y + 37, v.label, color);
-      drawText(g, v.x + 8 - textW(resetIn(q)) / 2, v.y + 30, resetIn(q), '#a8a2c8');
       const resets = q.resets_left || 0, shown = Math.min(5, resets);
       for (let i = 0; i < shown; i++) {
         const bx = v.x + 3 + i % 3 * 4, by = v.y - 5 - (i / 3 | 0) * 4 + Math.sin(t * 2 + i) * 1.2;
         g.fillStyle = color; g.fillRect(bx, Math.round(by), 3, 2); g.fillRect(bx + 1, Math.round(by) - 1, 1, 4);
       }
-      if (resets > shown) drawText(g, v.x + 14, v.y - 7, `+${resets - shown}`, color);
+    }
+  }
+  function drawUsageLabels() {
+    for (const v of usageProbes()) {
+      const q = v.q, color = v.color;
+      drawText(g, v.x + 8 - textW(String(v.i + 1)) / 2, v.y - 12, String(v.i + 1), color);
+      drawText(g, v.x + 8 - textW(v.label) / 2, v.y + 37, v.label, color);
+      drawText(g, v.x + 8 - textW(resetIn(q)) / 2, v.y + 30, resetIn(q), '#a8a2c8');
+      if (q.resets_left > 5) drawText(g, v.x + 14, v.y - 7, `+${q.resets_left - 5}`, color);
     }
   }
   const usageProbes = () => (lastData.quotas || []).map((q, i) => {
@@ -858,14 +851,9 @@
     [174, gg => PR.cauldron(gg, 56, 150, t, occupied('cauldron'))],
     [91, gg => PR.shelf(gg, 10, 60, 11)], [127, gg => PR.shelf(gg, 10, 96, 23)],
     [62, gg => PR.bench(gg, 120, 42, t)],
-    [126, gg => { PR.desk(gg, 86, 112, t + 4); PR.desk(gg, 112, 112, t + 5); }],
-    [126.2, gg => drawTableGame(gg, LAB_TABLE, t)],
-    [134, gg => drawSubmitChairs(gg)],
-    [214, gg => PR.desk(gg, 96, 200, t)], [214.1, gg => PR.desk(gg, 140, 200, t + 3)],
     [120, gg => PR.crystal(gg, 216, 98, occupied('crystal') ? t : 0)],
     [29, gg => PR.board(gg, 300, 8)],
-    [106, gg => PR.desk(gg, 300, 96, t + 1)], [106.2, gg => drawTableGame(gg, CAFE_TABLES[0], t)],
-    [126, gg => PR.desk(gg, 360, 116, t + 2)], [126.2, gg => drawTableGame(gg, CAFE_TABLES[1], t)],
+    ...TABLES.map(table => [table.y + 5, gg => { PR.gameTable(gg, table.x, table.y); drawTableGame(gg, table, t); }]),
     [94, gg => PR.hearth(gg, 440, 70, t)],
     [95, gg => PR.chair(gg, 418, 82, false)], [117, gg => PR.chair(gg, 418, 104, false)],
     [214.5, gg => PR.counter(gg, 296, 196)], [215, gg => PR.espresso(gg, 306, 186, t)],
@@ -1291,7 +1279,7 @@
       if (s.kind === 'rune') { g.fillRect(Math.round(x) - 2, Math.round(y) - 2, 2, 2); g.fillRect(Math.round(x) + 3, Math.round(y) + 3, 2, 2); }
     }
   }
-  function drawWorkDesk(d, front) {
+  function drawWorkDesk(d, front, t) {
     const { x, y, w } = d, width = w.sp.sub ? 30 : 48;
     g.save(); g.globalAlpha = d.alpha;
     if (!front) {
@@ -1302,13 +1290,21 @@
       g.fillStyle = '#c49560'; g.fillRect(x - width / 2, y - 7, width, 2);
       g.fillStyle = '#eee1b5'; g.fillRect(x - 6, y - 6, 10, 5);
       g.fillStyle = '#795d68'; g.fillRect(x - 4, y - 5, 6, 1);
-      const title = String(w.a.title || w.a.quest || w.a.project || w.sp.name).toUpperCase();
-      const lines = title.match(/.{1,12}(?:\s|$)|.{1,12}/g) || ['UNTITLED'];
-      for (let i = 0; i < Math.min(2, lines.length); i++) {
-        const line = lines[i].trim();
-        tag(x, y + 4 + i * 9, i === 1 && lines.length > 2 ? line.slice(0, 9) + '...' : line);
-      }
+      const drink = d.active && atDesk(w) && w.order && w.order.stage === 'served' ? w.order.drink.key : null;
+      PR.deskDecor(g, x, y, width, hash(w.a.id + ':desk'), drink, t);
     }
+    g.restore();
+  }
+  function drawTaskLabel(d) {
+    const title = String(d.w.a.title || d.w.a.quest || d.w.a.project || d.w.sp.name).toUpperCase();
+    const lines = title.match(/.{1,12}(?:\s|$)|.{1,12}/g) || ['UNTITLED'];
+    const shown = lines.slice(0, 2).map((line, i) => i === 1 && lines.length > 2 ? line.trim().slice(0, 9) + '...' : line.trim());
+    const width = Math.max(...shown.map(line => textW(line))) + 8, left = Math.round(d.x - width / 2), top = d.y + 3;
+    g.save(); g.globalAlpha = d.alpha;
+    g.fillStyle = '#94734e'; g.fillRect(left, top, width, shown.length * 8 + 3);
+    g.fillStyle = '#d8c294'; g.fillRect(left + 1, top + 1, width - 2, shown.length * 8 + 1);
+    g.fillStyle = '#bca16f'; g.fillRect(left - 1, top + 1, 3, 3); g.fillRect(left + width - 2, top + 1, 3, 3);
+    shown.forEach((line, i) => drawText(g, Math.round(d.x - textW(line) / 2), top + 3 + i * 8, line, '#514034'));
     g.restore();
   }
   function draw(t) {
@@ -1324,8 +1320,8 @@
     const fireX = fireVictim ? fireVictim.x : dragonFire && dragonFire.tx;
     const items = props(t).map(([y, f]) => ({ y, f: () => f(g) }));
     for (const d of desks) {
-      items.push({ y: d.y - 1, f: () => drawWorkDesk(d, false) });
-      items.push({ y: d.y + 1, f: () => drawWorkDesk(d, true) });
+      items.push({ y: d.y - 1, f: () => drawWorkDesk(d, false, t) });
+      items.push({ y: d.y + 1, f: () => drawWorkDesk(d, true, t) });
     }
     for (const w of wizards.values()) items.push({ y: w.y, f: () => drawWizardSprite(w, t) });
     items.push({ y: dragon.y, f: () => {
@@ -1376,7 +1372,7 @@
     g.globalAlpha = 1;
     for (const w of wizards.values()) {
       if (w.emote && !w.walk && !w.blast && w.alpha > .8) drawEmote(g, w.x, w.y - 26, w.emote, t + w.ph);
-      if (w.order && w.order.stage === 'served' && !w.walk && !w.blast && w.alpha > .8) PR.cup(g, w.x + (w.dir < 0 ? -14 : 4), w.y - 11, w.order.drink.key, t + w.ph);
+      if (w.order && w.order.stage === 'served' && !atDesk(w) && !w.walk && !w.blast && w.alpha > .8) PR.cup(g, w.x + (w.dir < 0 ? -14 : 4), w.y - 11, w.order.drink.key, t + w.ph);
       if (w.order && w.order.stage !== 'served' && !w.walk && !w.blast && w.alpha > .8 && ((t + w.ph) % 6) < 2.4) tag(w.x, w.y - 45, w.order.drink.name);
       if ((hover === w.a.id || sel === w.a.id) && !w.blast && w.alpha > .5) tag(w.x, w.y - 38, w.sp.name);
     }
@@ -1388,6 +1384,10 @@
     if (hover === 'cat') tag(cat.x, cat.y - 20, 'BIGGLES, STAFF CAT');
     if (hover === 'demon-cat' && demonCat.active) tag(demonCat.x, demonCat.y - 20, 'LUCIPURR');
     if (hover === 'barista') tag(dragon.x, dragon.y - 32, 'EARL GREY, BARISTA');
+    drawText(g, 320, 240, 'MANA CAFE', '#ffd84a');
+    drawText(g, 60, 240, 'LABORATORIVM', '#8a84a0');
+    for (const d of desks) drawTaskLabel(d);
+    drawUsageLabels();
     if (!wizards.size) {
       g.fillStyle = 'rgba(12,9,20,.55)'; g.fillRect(90, 110, 300, 44);
       drawText(g, 240 - textW('THE TOWER SLEEPS', 2) / 2, 120, 'THE TOWER SLEEPS', '#cdc6e0', 2);
@@ -1444,7 +1444,7 @@
     tip.innerHTML = `<div class="tt-name">${v.i + 1}. ${esc(q.name)} <span>CODEX USAGE</span></div>
       <div class="tt-meta">${q.origins.length ? esc(q.origins.join(' + ').toUpperCase()) : 'NOT IN USE'}</div>
       <div class="tt-status">${q.left != null ? Math.round(q.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>
-      <div class="tt-age">${q.resets_at ? 'RESETS IN ' + resetIn(q) : 'RESET TIME UNAVAILABLE'} · ${q.resets_left ?? '?'} RESETS LEFT</div>
+      <div class="tt-age">${q.resets_at ? 'RESETS IN ' + resetIn(q) : 'RESET TIME UNAVAILABLE'}${q.resets_left === 0 ? '' : ' · ' + (q.resets_left ?? '?') + ' RESET' + (q.resets_left === 1 ? '' : 'S') + ' LEFT'}</div>
       ${q.error ? `<div class="tt-age">${esc(q.error)}</div>` : ''}`;
     tip.hidden = false;
     tip.style.left = Math.max(4, Math.min(left, stage.width - tip.offsetWidth - 4)) + 'px';

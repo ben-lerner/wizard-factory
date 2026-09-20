@@ -1589,10 +1589,12 @@
     $('#rows').innerHTML = ags.map(a => {
       const w = wizards.get(a.id);
       if (!w) return '';
+      const task = esc(a.title || a.quest || a.project || w.sp.name);
       return `<div class="row st-${a.status} ${sel === a.id ? 'sel' : ''} ${hover === a.id ? 'hover' : ''} ${a.kind}" data-id="${esc(a.id)}">
         <img class="pt" src="${w.sp.portrait}" alt="">
         <div class="mid">
           <div class="nm">${a.kind === 'sub' ? '<span class="sub-arrow">&#8627;</span> ' : ''}${esc(w.sp.name)} <span class="ep">${esc(w.sp.epithet)}</span></div>
+          <div class="task" title="${task}">${task}</div>
           <div class="ln">${esc(statusLine(a, w))}</div>
           <div class="ch"><span class="chip">${esc(a.project || '?')}</span>${a.host ? `<span class="chip alt">${esc(a.host)}</span>` : ''}${a.engine === 'codex' ? '<span class="chip cdx">codex</span>' : ''}${a.branch ? `<span class="chip alt">${esc(a.branch)}</span>` : ''}<span class="time">${AGE(now - (a.since || now))}</span></div>
         </div></div>`;

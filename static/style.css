@@ -103,6 +103,7 @@ main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 304px; min-
 .row .mid { min-width: 0; flex: 1; }
 .row .nm { color: var(--ink); font-size: 11px; letter-spacing: .5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row .ep { color: var(--dim); font-size: 9px; }
+.row .task { color: #c8b4e8; font-size: 11px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row .ln { color: var(--dim); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 2px 0; }
 .row .ch { display: flex; gap: 5px; align-items: center; }
 .chip {

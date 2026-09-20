@@ -271,11 +271,21 @@ window.SP = (() => {
   const px = (g, x, y, c) => { g.fillStyle = c; g.fillRect(x, y, 1, 1); };
   const rc = (g, x, y, w, h, c) => { g.fillStyle = c; g.fillRect(x, y, w, h); };
 
-  PR.cauldron = (g, x, y, t, active) => {
+  PR.cauldron = (g, x, y, t, brew) => {
+    const p = Math.max(0, Math.min(1, (t - brew.changed) / 2));
+    const rgb = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
+    const a = rgb(brew.from), b = rgb(brew.color), color = hex(...a.map((v, i) => v + (b[i] - v) * p));
+    const active = t < brew.fire;
+    if (t - brew.strike >= 0 && t - brew.strike < .65) {
+      g.save(); g.globalAlpha = 1 - (t - brew.strike) / .65;
+      g.strokeStyle = brew.color; g.lineWidth = 2; g.beginPath();
+      [[x + 6, y - 35], [x + 17, y - 25], [x + 10, y - 17], [x + 20, y - 10], [x + 14, y + 6]].forEach(([bx, by], i) => i ? g.lineTo(bx, by) : g.moveTo(bx, by));
+      g.stroke(); g.restore();
+    }
     rc(g, x + 6, y + 19, 3, 3, '#23272f'); rc(g, x + 19, y + 19, 3, 3, '#23272f');
     if (active) {
       const f = (t * 7 | 0) % 2;
-      [[10, 19], [13, 18 + f], [17, 19 - f], [11, 20], [15, 20]].forEach(([dx, dy]) => px(g, x + dx, y + dy, '#f08a2a'));
+      [[10, 19], [13, 18 + f], [17, 19 - f], [11, 20], [15, 20]].forEach(([dx, dy]) => px(g, x + dx, y + dy, color));
       [[12, 19 + f], [14, 20]].forEach(([dx, dy]) => px(g, x + dx, y + dy, '#ffd84a'));
     }
     rc(g, x + 5, y + 8, 18, 1, '#3d4356');
@@ -284,8 +294,13 @@ window.SP = (() => {
     rc(g, x + 21, y + 9, 3, 6, '#333a4e');
     rc(g, x + 5, y + 10, 2, 4, '#677292'); px(g, x + 7, y + 10, '#677292');
     rc(g, x + 2, y + 5, 24, 3, '#525c7a'); rc(g, x + 2, y + 5, 24, 1, '#6c7796'); rc(g, x + 23, y + 5, 3, 3, '#414a62');
-    rc(g, x + 4, y + 6, 20, 1, active ? '#58d878' : '#3a7a4c');
-    px(g, x + 7 + ((t * 3 | 0) % 3) * 5, y + 6, active ? '#a8f0b0' : '#4c9a5e');
+    rc(g, x + 4, y + 6, 20, 1, color);
+    px(g, x + 7 + ((t * 3 | 0) % 3) * 5, y + 6, '#ecffe2');
+    if (active) for (let i = 0; i < 5; i++) {
+      const h = 4 + Math.round((Math.sin(t * 10 + i * 3) + 1) * 4);
+      rc(g, x + 5 + i * 4, y + 5 - h, 3, h, color);
+      rc(g, x + 6 + i * 4, y + 8 - h, 1, Math.max(1, h - 4), '#fff1cd');
+    }
   };
 
   PR.bench = (g, x, y, t) => {
@@ -340,6 +355,76 @@ window.SP = (() => {
     if (rotating) ring(true);
   };
 
+  PR.summon = (g, x, y, p) => {
+    g.save(); g.globalAlpha = Math.sin(p * Math.PI); g.strokeStyle = '#c4a5fa'; g.lineWidth = 1;
+    g.beginPath(); g.ellipse(x, y + 8, 12 + p * 38, 5 + p * 12, 0, 0, Math.PI * 2); g.stroke();
+    for (let i = 0; i < 12; i++) {
+      const a = i * Math.PI / 6 + p * 2, dx = Math.cos(a) * (12 + p * 38), dy = Math.sin(a) * (5 + p * 12);
+      rc(g, x + dx, y + 8 + dy, 2, 2, '#e6d6ff');
+      rc(g, x + dx, y + dy - p * 20, 1, 4, '#b48ced');
+    }
+    g.restore();
+  };
+
+  PR.experiment = (g, x, y, kind, color, t) => {
+    if (kind === 5) {
+      rc(g, x - 5, y - 4, 10, 4, '#7c8baa'); rc(g, x - 3, y - 6, 6, 3, '#aebed1');
+      for (let i = 0; i < 3; i++) rc(g, x - 4 + i * 3, y + (t * 7 + i * 2) % 6, 1, 2, '#8bd2f0');
+      if (t % 4 < .4) { rc(g, x, y, 2, 3, '#ffe697'); rc(g, x - 1, y + 3, 2, 3, '#ffe697'); }
+    } else if (kind === 6) {
+      rc(g, x - 3, y - 3, 6, 6, '#7da8d7'); rc(g, x - 2, y - 2, 2, 4, '#7fc393');
+      g.strokeStyle = '#74769b'; g.lineWidth = 1; g.beginPath(); g.ellipse(x, y, 8, 4, -.4, 0, Math.PI * 2); g.stroke();
+      rc(g, x + Math.cos(t) * 8 - 1, y + Math.sin(t) * 4 - 1, 3, 3, '#eee3c0');
+    } else if (kind === 7) {
+      for (let i = 0; i < 3; i++) {
+        const h = 4 + (Math.sin(t * .6 + i) + 1) * 3, bx = x - 5 + i * 4;
+        rc(g, bx, y + 5 - h, 3, h, color); px(g, bx + 1, y + 4 - h, '#effbe7');
+        rc(g, bx, y + 6 - h, 1, h - 2, '#eef3d5');
+      }
+    } else {
+      g.strokeStyle = color; g.lineWidth = 2; g.beginPath(); g.ellipse(x, y, 5, 7, 0, 0, Math.PI * 2); g.stroke();
+      rc(g, x - 2, y - 4, 4, 8, '#201b38');
+      for (let i = 0; i < 4; i++) px(g, x + Math.cos(t + i * 1.6) * 4, y + Math.sin(t + i * 1.6) * 6, '#f4e6ff');
+    }
+  };
+
+  PR.deskPet = (g, x, y, seed, t, excited) => {
+    const kind = (seed >>> 8) % 3, bob = excited ? Math.abs(Math.sin(t * 9)) * 5 : Math.sin(t * 1.4 + seed % 9) * .5;
+    y = Math.round(y - bob); x = Math.round(x);
+    if (kind === 0) {
+      rc(g, x - 3, y - 3, 6, 3, '#e5d8b7'); rc(g, x + 2, y - 5, 3, 3, '#f4e8cc');
+      const wing = Math.sin(t * (excited ? 14 : 3)) > 0 ? 4 : 2;
+      for (let i = 0; i < 4; i++) rc(g, x - i, y - 3 - wing + i, 1, wing, '#bcaacb');
+      px(g, x + 4, y - 4, '#463650'); rc(g, x - 5, y - 2, 2, 1, '#e5d8b7');
+    } else if (kind === 1) {
+      rc(g, x - 3, y - 4, 6, 4, '#6d558f'); rc(g, x - 4, y - 2, 8, 2, '#6d558f');
+      px(g, x - 1, y - 3, '#ece2a3'); px(g, x + 2, y - 3, '#ece2a3');
+      for (let i = 0; i < 3; i++) px(g, x - 3 + i * 3, y + (Math.sin(t * 3 + i) > 0 ? 1 : 0), '#6d558f');
+    } else {
+      rc(g, x - 1, y - 4, 3, 4, '#e1cda8'); rc(g, x - 4, y - 6, 9, 3, '#b56b87');
+      rc(g, x - 2, y - 8, 5, 2, '#b56b87'); px(g, x - 2, y - 5, '#f1dabc'); px(g, x + 2, y - 6, '#f1dabc');
+      rc(g, x, y - 2, excited ? 1 : 2, 1, '#4f3b51');
+    }
+    if (excited) { px(g, x - 6, y - 7, '#ffe5a4'); px(g, x + 6, y - 9, '#ffe5a4'); }
+  };
+
+  PR.ritual = (g, x, y, elapsed, completion) => {
+    const count = Math.min(6, 1 + Math.floor(elapsed / 6)), p = completion;
+    g.save(); g.globalAlpha = completion ? 1 - p : .45;
+    const points = Array.from({ length: count }, (_, i) => {
+      const a = i * Math.PI / 3 + (completion ? 0 : elapsed * .15);
+      return [Math.round(x + Math.cos(a) * (17 - p * 8)), Math.round(y + Math.sin(a) * 8 - p * 19)];
+    });
+    if (completion) {
+      g.strokeStyle = '#eedaa1'; g.lineWidth = 1; g.beginPath();
+      points.forEach(([px, py], i) => i ? g.lineTo(px, py) : g.moveTo(px, py)); g.closePath(); g.stroke();
+    }
+    for (const [dx, dy] of points) {
+      rc(g, dx - 1, dy, 3, 1, '#eedaa1'); rc(g, dx, dy - 1, 1, 3, '#eedaa1');
+    }
+    g.restore();
+  };
+
   PR.oneRing = (g, cx, cy, angle) => {
     const tilt = .35 + Math.sin(angle * .6) * .3;
     const point = (a, h) => [Math.round(cx + Math.cos(a) * 8),
@@ -365,9 +450,13 @@ window.SP = (() => {
 
   PR.deskDecor = (g, x, y, width, seed, drink, t) => {
     const r = rng(seed), color = pick(r, ['#88d8d0', '#b9a0eb', '#e9ba69', '#91c978', '#e998bc']);
-    const kind = Math.floor(r() * 5), angle = t * (.35 + r() * .3) + r() * Math.PI * 2;
-    const cx = x - width / 2 + 7, cy = y - 16 + Math.sin(t * 1.5 + seed % 13) * 1.5;
+    const kind = Math.floor(r() * 9), angle = t * (.35 + r() * .3) + r() * Math.PI * 2;
+    const phase = (t + seed % 47) % (50 + seed % 21), mishap = phase < 3 ? Math.sin(phase / 3 * Math.PI) : 0;
+    const accident = (seed >>> 12) % 3;
+    const cx = x - width / 2 + 7 + (accident === 0 ? mishap * 7 : 0);
+    const cy = y - 16 + Math.sin(t * 1.5 + seed % 13) * 1.5 - (accident === 0 ? mishap * 7 : 0);
     if (seed % 7 === 0) PR.oneRing(g, cx, cy, angle);
+    else if (kind >= 5) PR.experiment(g, cx, cy, kind, color, t);
     else if (kind >= 3) PR.blackHole(g, cx, cy, kind === 4, angle);
     else {
       const vertices = kind === 0 ? [[1,1,1],[1,-1,-1],[-1,1,-1],[-1,-1,1]] : kind === 1 ?
@@ -383,17 +472,20 @@ window.SP = (() => {
       g.stroke();
     }
     rc(g, cx - 4, y - 7, 9, 1, '#6b5378'); px(g, cx, y - 8, color);
-    const fx = x + width / 2 - 9;
+    const fx = x + width / 2 - 9 + (accident === 1 && !drink ? mishap * Math.sin(phase * 8) * 3 : 0);
     if (drink) PR.cup(g, fx - 4, y - 15, drink, t);
     else {
       const tall = r() > .5;
       rc(g, fx, y - 14 - Number(tall), 3, 4, '#bed0d8');
       rc(g, fx - 2, y - 10, 7, 4, '#bed0d8'); rc(g, fx - 1, y - 9, 5, 3, color);
+      if (accident === 1 && mishap > .2) { px(g, fx - 1, y - 5, '#8b6347'); px(g, fx + 3, y - 5, '#8b6347'); }
       px(g, fx - 1, y - 10, '#edf4e2'); rc(g, fx, y - 15 - Number(tall), 3, 1, '#8b6347');
     }
     if (width > 30) {
       rc(g, x + 4, y - 9, 6, 3, '#715683'); rc(g, x + 5, y - 8, 4, 1, '#ddcea9');
       rc(g, x + 3, y - 11, 6, 2, '#547b78');
+      if (accident === 2 && mishap > .2) for (let i = 0; i < 4; i++)
+        px(g, x + 6 + Math.sin(i * 2) * mishap * 7, y - 12 - mishap * (4 + i * 2), '#f0d88b');
     }
   };
 

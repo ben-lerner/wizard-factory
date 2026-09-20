@@ -16,7 +16,7 @@ function scene() {
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, startGame, updateRally, rallyPosition, setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, startGame, updateRally, rallyPosition, drawCourt, BREW, updateBrew, RITUALS, setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
@@ -191,7 +191,7 @@ function racketGame(type) {
   const s = scene(), agents = [agent('left', 'waiting'), agent('right', 'waiting')];
   s.reconcile({ agents });
   s.COURT.types = [type];
-  s.startGame(s.COURT, agents.map(a => ({ kind: 'wizard', id: a.id })), 0);
+  s.startGame(s.COURT, agents.map(a => ({ kind: 'wizard', id: a.id })), -2);
   for (const w of s.wizards.values()) {
     [w.x, w.y] = w.home; w.path = []; w.walk = false; w.alpha = 1;
     w.order = { stage: 'served', drink: w.sp.drink, servedAt: 0 };
@@ -261,6 +261,71 @@ test('only rotating black holes have an animated white ring', () => {
   assert.notDeepEqual(rotating, render(true, 1));
 });
 
+for (const type of ['badminton', 'pingpong']) {
+  test(`${type} materializes before rallying and has no court label`, () => {
+    const s = racketGame(type), game = s.COURT.game;
+    game.started = 0; delete game.rally;
+    for (const w of s.wizards.values()) { [w.x,w.y] = w.home; w.path = []; }
+    s.updateRally(s.COURT, 1);
+    assert.equal(game.rally, undefined);
+    const phases = [];
+    s.SP.PR.summon = (g, x, y, p) => phases.push(p);
+    s.calls.length = 0;
+    s.drawCourt(s.ctx, 1);
+    assert.deepEqual(phases, [.5]);
+    assert.equal(s.calls.some(c => c[0] === 'drawText'), false);
+    s.updateRally(s.COURT, 2);
+    assert.ok(game.rally);
+    s.drawCourt(s.ctx, 3);
+    assert.equal(phases.length, 1);
+  });
+}
+test('cauldron changes color, ignites and sometimes strikes without changing color', () => {
+  const s = scene(), initial = s.BREW.color;
+  s.updateBrew(7);
+  assert.notEqual(s.BREW.color, initial);
+  assert.equal(s.BREW.strike, 7);
+  assert.ok(s.BREW.fire > 7);
+  assert.equal(s.BREW.from, initial);
+  s.updateBrew(s.BREW.next);
+  const color = s.BREW.color, third = s.BREW.next;
+  s.updateBrew(third);
+  assert.equal(s.BREW.color, color);
+  assert.equal(s.BREW.strike, third);
+});
+test('work builds runes, completion celebrates once, and the celebration expires', () => {
+  const s = scene(), a = agent('ritual');
+  s.reconcile({agents:[a]});
+  const w = s.wizards.get(a.id);
+  [w.x,w.y] = w.home; w.path = [];
+  s.update(1, 1);
+  assert.equal(w.desk.elapsed, 1);
+  const x = w.desk.x;
+  s.reconcile({agents:[{...a,status:'waiting'}]});
+  s.reconcile({agents:[{...a,status:'waiting'}]});
+  assert.equal(s.RITUALS.length, 1);
+  assert.equal(s.RITUALS[0].x, x);
+  s.update(.1, 4.1);
+  assert.equal(s.RITUALS.length, 0);
+});
+test('desk experiments include storms, moons, crystals and portals', () => {
+  const s = scene(), kinds = new Set();
+  s.SP.PR.experiment = (g,x,y,kind) => kinds.add(kind);
+  for (let seed = 1; seed < 200; seed++) s.SP.PR.deskDecor(s.ctx,100,100,48,seed,null,10);
+  assert.deepEqual([...kinds].sort(), [5,6,7,8]);
+});
+test('desk pets are deterministic and react to completion', () => {
+  const s = scene();
+  const render = excited => {
+    s.calls.length = 0;
+    s.SP.PR.deskPet(s.ctx,100,100,1234,1,excited);
+    return JSON.stringify(s.calls);
+  };
+  const idle = render(false);
+  assert.equal(render(false),idle);
+  assert.notEqual(render(true),idle);
+});
+
 test('quota tooltips show origins only for accounts in use', () => {
   const s = scene();
   for (const origins of [[], ['local'], ['remote'], ['local', 'remote']]) {
@@ -292,4 +357,15 @@ test('Claude quota tooltip labels the provider without reset credits', () => {
   assert.match(s.element.innerHTML, /<span>CLAUDE<\/span>/);
   assert.match(s.element.innerHTML, /REMOTE/);
   assert.doesNotMatch(s.element.innerHTML, /RESETS? LEFT|CODEX/);
+});
+
+test('completion draws only the celebrating pet while its old desk fades', () => {
+  const s = scene(), a = agent('celebrating');
+  s.reconcile({agents:[a]});
+  s.wizards.get(a.id).desk.alpha = 1;
+  s.reconcile({agents:[{...a,status:'waiting'}]});
+  const pets = [];
+  s.SP.PR.deskPet = (g,x,y,seed,t,excited) => pets.push(excited);
+  s.draw(.1);
+  assert.deepEqual(pets, [true]);
 });

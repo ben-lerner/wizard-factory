@@ -142,7 +142,8 @@
 
   // ---------- entities ----------
   const wizards = new Map();
-  const desks = [];
+  const desks = [], RITUALS = [];
+  let sceneTime = 0;
   const atDesk = w => w.desk && !w.path.length && !w.leaving && !w.blast;
   let sel = null, hover = null, cafeChat = null, nextCafeChat = 10;
   let offline = false, isDemo = false, serverSkew = 0, lastData = { agents: [] };
@@ -183,7 +184,7 @@
       pos = candidates[0];
     }
     const [x, y] = pos;
-    w.desk = { x, y, active: true, alpha: 0, w };
+    w.desk = { x, y, active: true, alpha: 0, elapsed: 0, w };
     desks.push(w.desk);
     return pos;
   }
@@ -239,6 +240,9 @@
       }
       if (w.sp.demon !== demon) w.sp = SP.makeWizard(a.id, a.kind, a.engine, demon);
       const changed = w.a.status !== a.status || (a.status === 'working' && (w.a.tool !== a.tool || w.a.detail !== a.detail)) || w.leaving;
+      if (w.desk && ['waiting', 'done'].includes(a.status) && !['waiting', 'done'].includes(w.a.status)) {
+        RITUALS.push({ desk: w.desk, x: w.desk.x, y: w.desk.y, at: sceneTime, seed: hash(w.a.id + ':desk') });
+      }
       w.a = a;
       w.leaving = false;
       if (!cafeWait(a)) {
@@ -438,7 +442,7 @@
   }
   function startGame(table, players, t) {
     const types = table.types || GAME_TYPES;
-    table.game = { type: types[tableR() * types.length | 0], players, until: t + 28 + tableR() * 28 };
+    table.game = { type: types[tableR() * types.length | 0], players, started: t, until: t + 28 + tableR() * 28 };
     table.game.players = players.filter((p, i) => seatPlayer(table, p, i, t));
     if (table.game.players.length < 2) endGame(table, t, false);
   }
@@ -468,6 +472,7 @@
   }
   function updateRally(table, t) {
     const game = table.game, ws = game.players.map(p => wizards.get(p.id));
+    if (t < game.started + 2) return;
     ws.forEach((w, i) => { if (w) w.dir = i ? -1 : 1; });
     if (ws.some(w => !w || w.blast || w.path.length)) return;
     ws.forEach(w => { [w.x, w.y] = w.home; });
@@ -487,9 +492,13 @@
       k < .75 ? Math.sin(k / .75 * Math.PI) * 12 : Math.sin((k - .75) / .25 * Math.PI) * 5;
     return [r.from[0] + (r.to[0] - r.from[0]) * k, r.from[1] + (r.to[1] - r.from[1]) * k - arc];
   }
-  function drawCourt(gg) {
+  function drawCourt(gg, t) {
     if (!COURT.game) return;
     const { x, y } = COURT, badminton = COURT.game.type === 'badminton';
+    const p = Math.min(1, Math.max(0, (t - COURT.game.started) / 2));
+    if (p < 1) PR.summon(gg, x, y, p);
+    gg.save(); gg.globalAlpha = p;
+    gg.beginPath(); gg.rect(x - 48, y + 18 - 48 * p, 96, 48 * p); gg.clip();
     gg.fillStyle = badminton ? '#34584c' : '#315b7c';
     gg.fillRect(x - 44, y - 18, 88, 30);
     gg.strokeStyle = '#c4d7cc'; gg.lineWidth = 1;
@@ -500,17 +509,18 @@
     gg.fillStyle = '#e0d7bd'; gg.fillRect(x - 1, y - 24, 2, 36);
     gg.fillStyle = '#8ca5ad';
     for (let ny = y - 22; ny < y + 10; ny += 3) gg.fillRect(x - 2, ny, 4, 1);
-    drawText(gg, x - textW(gameName(COURT.game.type)) / 2, y + 19, gameName(COURT.game.type), '#c4d7cc');
+    gg.restore();
   }
   function drawRally(t) {
     const game = COURT.game;
-    if (!game || !game.rally) return;
+    if (!game) return;
     const badminton = game.type === 'badminton';
     for (const [i, p] of game.players.entries()) {
       const w = wizards.get(p.id);
       if (!w || w.blast) continue;
       const side = i ? -1 : 1, swing = Math.max(0, 1 - (t - (p.hitAt ?? -1)) / .22);
-      g.save(); g.translate(Math.round(w.x + side * 10), Math.round(w.y - 14)); g.rotate(side * swing * .8);
+      g.save(); g.globalAlpha = Math.max(0, Math.min(1, (t - game.started - .5) / 1.5));
+      g.translate(Math.round(w.x + side * 10), Math.round(w.y - 14)); g.rotate(side * swing * .8);
       g.fillStyle = '#c8a678'; g.fillRect(-1, 2, 2, 6);
       if (badminton) {
         g.strokeStyle = '#eee6c6'; g.lineWidth = 1; g.strokeRect(-3.5, -5.5, 7, 8);
@@ -518,6 +528,7 @@
       } else { g.fillStyle = i ? '#6c9ade' : '#e77568'; g.fillRect(-3, -4, 6, 6); }
       g.restore();
     }
+    if (!game.rally) return;
     const [x, y] = rallyPosition(game, t), r = game.rally;
     g.save(); g.translate(Math.round(x), Math.round(y));
     if (badminton) {
@@ -917,7 +928,7 @@
 
   // animated props, y-sorted with sprites: [sortY, drawFn]
   const props = t => [
-    [174, gg => PR.cauldron(gg, 56, 150, t, occupied('cauldron'))],
+    [174, gg => PR.cauldron(gg, 56, 150, t, BREW)],
     [91, gg => PR.shelf(gg, 10, 60, 11)], [127, gg => PR.shelf(gg, 10, 96, 23)],
     [62, gg => PR.bench(gg, 120, 42, t)],
     [120, gg => PR.crystal(gg, 216, 98, occupied('crystal') ? t : 0)],
@@ -932,6 +943,22 @@
     [274, gg => PR.doorway(gg, 424, 258, t)],
   ];
   const occupied = key => [...wizards.values()].some(w => w.station === key && !w.path.length && (w.a.status === 'working' || w.a.status === 'attention'));
+
+  const brewR = rng(20260920), BREW_COLORS = ['#58d878', '#71bcf2', '#c18bea', '#ef8fa8', '#f4c565'];
+  const BREW = { from: BREW_COLORS[0], color: BREW_COLORS[0], next: 7, changed: -5, strike: -5, fire: -5, count: 0 };
+  function updateBrew(t) {
+    if (t < BREW.next) return;
+    BREW.count++;
+    if (BREW.count % 3 !== 0) {
+      BREW.from = BREW.color;
+      const i = BREW_COLORS.indexOf(BREW.color);
+      BREW.color = BREW_COLORS[(i + 1 + Math.floor(brewR() * 4)) % BREW_COLORS.length];
+      BREW.changed = t;
+    }
+    if (BREW.count % 2) BREW.strike = t;
+    BREW.fire = t + 2 + brewR() * 2;
+    BREW.next = t + 12 + brewR() * 14;
+  }
 
   // ---------- update ----------
   function moveAlong(e, dt, speed) {
@@ -1011,6 +1038,9 @@
   }
 
   function update(dt, t) {
+    sceneTime = t;
+    updateBrew(t);
+    for (let i = RITUALS.length - 1; i >= 0; i--) if (t - RITUALS[i].at > 3) RITUALS.splice(i, 1);
     for (const d of desks) d.alpha = Math.max(0, Math.min(1, d.alpha + (d.active ? 3 : -2) * dt));
     for (let i = desks.length - 1; i >= 0; i--) if (!desks[i].active && !desks[i].alpha) desks.splice(i, 1);
     updateBattle(t);
@@ -1023,7 +1053,7 @@
       }
       w.walk = moveAlong(w, dt, SPEED);
       unstickWizard(w, t);
-      if (atDesk(w)) { w.x = w.desk.x; w.y = w.desk.y; w.walk = false; }
+      if (atDesk(w)) { w.desk.elapsed += dt; w.x = w.desk.x; w.y = w.desk.y; w.walk = false; }
       w.alpha = Math.max(0, Math.min(1, w.alpha + (w.leaving && !w.path.length ? -3 : w.leaving && w.y > 252 ? -1.2 : 3) * dt));
       if (w.leaving && w.alpha <= 0) { wizards.delete(id); continue; }
       if (w.a.status === 'idle' && Math.random() < dt * .5) spark(w.x + 6, w.y - 24, '#a8a2c8', -6, 1.4, 'z');
@@ -1040,7 +1070,7 @@
     updateTableGames(t);
     updateLightning(t);
     // ambient particles
-    if (occupied('cauldron') && Math.random() < dt * 7) spark(70 + Math.random() * 14, 152, '#58d878', -14, .8);
+    if (Math.random() < dt * (t < BREW.fire ? 9 : 2)) spark(62 + Math.random() * 16, 154, BREW.color, -14, .8);
     if (occupied('circle') && Math.random() < dt * 6) { const a = Math.random() * 6.28; spark(186 + Math.cos(a) * 22, 178 + Math.sin(a) * 9, '#9a7cf0', -12, .9); }
     if (occupied('crystal') && Math.random() < dt * 3) spark(223, 100, '#cfe8ff', -8, .7);
     if ([...wizards.values()].some(w => w.station === 'cafe') && Math.random() < dt * 4) spark(312, 184, '#d8d4e4', -9, 1);
@@ -1377,7 +1407,9 @@
       g.fillStyle = '#eee1b5'; g.fillRect(x - 6, y - 6, 10, 5);
       g.fillStyle = '#795d68'; g.fillRect(x - 4, y - 5, 6, 1);
       const drink = d.active && atDesk(w) && w.order && w.order.stage === 'served' ? w.order.drink.key : null;
-      PR.deskDecor(g, x, y, width, hash(w.a.id + ':desk'), drink, t);
+      const seed = hash(w.a.id + ':desk');
+      PR.deskDecor(g, x, y, width, seed, drink, t);
+      if (!RITUALS.some(r => r.desk === d)) PR.deskPet(g, x + 5, y - 5, seed, t, false);
     }
     g.restore();
   }
@@ -1401,7 +1433,7 @@
     PR.circle(g, 160, 152 + 12, t, occupied('circle'));
     drawLightningCast(g, t);
     drawBonds(t);
-    drawCourt(g);
+    drawCourt(g, t);
     const dragonFire = SPELLS.find(s => s.kind === 'counterfire' && s.t >= 0), fireVictim = dragonFire && wizards.get(dragonFire.target);
     const fireX = fireVictim ? fireVictim.x : dragonFire && dragonFire.tx;
     const items = props(t).map(([y, f]) => ({ y, f: () => f(g) }));
@@ -1463,6 +1495,13 @@
       if ((hover === w.a.id || sel === w.a.id) && !w.blast && w.alpha > .5) tag(w.x, w.y - 38, w.sp.name);
     }
     drawRally(t);
+    for (const d of desks) if (d.active && atDesk(d.w)) PR.ritual(g, d.x, d.y - 17, d.elapsed, 0);
+    for (const r of RITUALS) {
+      const p = Math.max(0, (t - r.at) / 3);
+      PR.ritual(g, r.x, r.y - 17, 36, p);
+      g.save(); g.globalAlpha = 1 - p;
+      PR.deskPet(g, r.x + 5, r.y - 5, r.seed, t, true); g.restore();
+    }
     drawCafeChat(t);
     if (cat.order && cat.order.stage === 'served') PR.cup(g, cat.x + 5, cat.y - 6, cat.order.drink.key, t);
     if (cat.order && cat.order.stage !== 'served' && ((t + 1.7) % 6) < 2.4) tag(cat.x, cat.y - 25, cat.order.drink.name);

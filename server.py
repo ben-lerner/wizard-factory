@@ -31,6 +31,11 @@ try:
 except ImportError:
     collect = None
 
+try:
+    from claude_quota import read_claude
+except ImportError:
+    read_claude = None
+
 ROOT = Path(__file__).resolve().parent
 PROJECTS = Path.home() / '.claude' / 'projects'
 CODEX = Path.home() / '.codex' / 'sessions'
@@ -130,11 +135,15 @@ def account_quotas(listed):
         while name in homes:
             name += ' (active)'
         homes[name], identities[name] = active_home(), active
-    readings = collect(homes)['accounts']
-    return [{'id': identities[r['name']] or 'unknown:' + r['name'], 'name': r['name'],
-             'provider': 'codex', 'period': 'weekly',
-             'origins': ['local'] if homes[r['name']] == active_home() or
-                        (active and identities[r['name']] == active) else [],
+    readings = [{**r, 'id': identities[r['name']] or 'unknown:' + r['name'],
+                 'provider': 'codex',
+                 'origins': ['local'] if homes[r['name']] == active_home() or
+                            (active and identities[r['name']] == active) else []}
+                for r in collect(homes)['accounts']]
+    if listed and read_claude is not None:
+        readings.append({**read_claude(), 'id': 'claude:active', 'origins': ['local']})
+    return [{'id': r['id'], 'name': r['name'], 'provider': r['provider'],
+             'period': 'weekly', 'origins': r['origins'],
              'left': max(0, min(100, 100 - r['weeklyUsedPercent'])) if r['weeklyUsedPercent'] is not None else None,
              'resets_at': r['weeklyResetsAt'], 'resets_left': r['availableResets'], 'error': r['error']}
             for r in readings]
@@ -559,7 +568,7 @@ def remote_snapshot(host, payload):
     return remote_agents(host, payload), [
         {**q, 'id': 'remote:' + q['id'] if q['id'].startswith('unknown:') else q['id'],
          'origins': ['remote'] if q.get('origins') else []} for q in quotas
-        if isinstance(q, dict) and q.get('provider') == 'codex'
+        if isinstance(q, dict) and q.get('provider') in ('codex', 'claude')
     ]
 
 

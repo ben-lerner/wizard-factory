@@ -260,3 +260,36 @@ test('only rotating black holes have an animated white ring', () => {
   assert.ok(rotating.some(p => p[0] === '#ffffff'));
   assert.notDeepEqual(rotating, render(true, 1));
 });
+
+test('quota tooltips show origins only for accounts in use', () => {
+  const s = scene();
+  for (const origins of [[], ['local'], ['remote'], ['local', 'remote']]) {
+    s.showUsageTip({ i: 0, q: { name: 'Account', origins, left: 50, resets_left: 0 } }, 0, 0);
+    assert.doesNotMatch(s.element.innerHTML, /USAGE|NOT IN USE/);
+    assert.equal(s.element.innerHTML.includes('tt-meta'), origins.length > 0);
+    if (origins.length) assert.ok(s.element.innerHTML.includes(origins.join(' + ').toUpperCase()));
+  }
+});
+test('One Ring is a possible decoration with animated fiery lettering and an open center', () => {
+  const s = scene(), draw = s.SP.PR.oneRing;
+  let count = 0;
+  s.SP.PR.oneRing = () => count++;
+  for (let seed = 1; seed <= 100; seed++) s.SP.PR.deskDecor(s.ctx, 100, 100, 48, seed, null, 1);
+  assert.ok(count > 0 && count < 100);
+  const render = angle => {
+    const pixels = [], ctx = { fillStyle: '', fillRect(...args) { pixels.push([this.fillStyle, ...args]); } };
+    draw(ctx, 30, 30, angle);
+    return pixels;
+  };
+  const first = render(0);
+  assert.ok(first.some(p => p[0] === '#ff6b25'));
+  assert.equal(first.some(p => p[1] === 30 && p[2] === 30), false);
+  assert.notDeepEqual(first, render(1));
+});
+test('Claude quota tooltip labels the provider without reset credits', () => {
+  const s = scene();
+  s.showUsageTip({ i: 3, q: { name: 'Claude', provider: 'claude', origins: ['remote'], left: 65, resets_left: null } }, 0, 0);
+  assert.match(s.element.innerHTML, /<span>CLAUDE<\/span>/);
+  assert.match(s.element.innerHTML, /REMOTE/);
+  assert.doesNotMatch(s.element.innerHTML, /RESETS? LEFT|CODEX/);
+});

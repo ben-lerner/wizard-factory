@@ -1529,10 +1529,10 @@
   }
   function showUsageTip(v, left, top) {
     const q = v.q, tip = $('#tip'), stage = $('#stage').getBoundingClientRect();
-    tip.innerHTML = `<div class="tt-name">${v.i + 1}. ${esc(q.name)} <span>CODEX USAGE</span></div>
-      <div class="tt-meta">${q.origins.length ? esc(q.origins.join(' + ').toUpperCase()) : 'NOT IN USE'}</div>
+    tip.innerHTML = `<div class="tt-name">${v.i + 1}. ${esc(q.name)} <span>${esc((q.provider || 'codex').toUpperCase())}</span></div>
+      ${q.origins.length ? `<div class="tt-meta">${esc(q.origins.join(' + ').toUpperCase())}</div>` : ''}
       <div class="tt-status">${q.left != null ? Math.round(q.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>
-      <div class="tt-age">${q.resets_at ? 'RESETS IN ' + resetIn(q) : 'RESET TIME UNAVAILABLE'}${q.resets_left === 0 ? '' : ' · ' + (q.resets_left ?? '?') + ' RESET' + (q.resets_left === 1 ? '' : 'S') + ' LEFT'}</div>
+      <div class="tt-age">${q.resets_at ? 'RESETS IN ' + resetIn(q) : 'RESET TIME UNAVAILABLE'}${q.provider === 'claude' || q.resets_left === 0 ? '' : ' · ' + (q.resets_left ?? '?') + ' RESET' + (q.resets_left === 1 ? '' : 'S') + ' LEFT'}</div>
       ${q.error ? `<div class="tt-age">${esc(q.error)}</div>` : ''}`;
     tip.hidden = false;
     tip.style.left = Math.max(4, Math.min(left, stage.width - tip.offsetWidth - 4)) + 'px';

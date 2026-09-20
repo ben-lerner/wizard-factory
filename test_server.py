@@ -28,9 +28,10 @@ class RemoteAgentsTest(unittest.TestCase):
     def test_ignores_malformed_remote_agents(self):
         self.assertEqual(server.remote_agents('mage-tower', {'agents': [None, {}]}), [])
 
-    def test_extracts_only_codex_quota_for_remote_usage_probe(self):
+    def test_extracts_codex_and_claude_quotas_for_remote_usage_probe(self):
         payload = {'agents': [], 'quotas': [
-            {'provider': 'claude', 'period': 'weekly', 'left': 30},
+            {'id': 'claude:active', 'provider': 'claude', 'period': 'weekly', 'left': 30, 'origins': ['local']},
+            {'id': 'other', 'provider': 'other'},
             {'id': 'work', 'provider': 'codex', 'period': 'weekly', 'left': 60, 'origins': ['local']},
         ]}
 
@@ -38,6 +39,8 @@ class RemoteAgentsTest(unittest.TestCase):
 
         self.assertEqual(agents, [])
         self.assertEqual(quotas, [{
+            'id': 'claude:active', 'provider': 'claude', 'period': 'weekly', 'left': 30, 'origins': ['remote'],
+        }, {
             'id': 'work', 'provider': 'codex', 'period': 'weekly', 'left': 60, 'origins': ['remote'],
         }])
 
@@ -72,6 +75,9 @@ class ChatLogTest(unittest.TestCase):
 
 class QuotaTest(unittest.TestCase):
     def setUp(self):
+        reader = patch.object(server, 'read_claude', None)
+        reader.start()
+        self.addCleanup(reader.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -130,6 +136,19 @@ class QuotaTest(unittest.TestCase):
         cached = [{'id': 'a', 'name': 'Listed', 'origins': ['remote'], 'left': 50}]
         with patch.object(server, 'REMOTE_QUOTAS', cached), patch.object(server, 'LOCAL_QUOTAS', []), patch.object(server, 'REMOTE_SEEN', 0):
             self.assertEqual(server.state_payload(None)['quotas'], cached)
+
+    def test_claude_is_collected_with_the_listed_accounts(self):
+        reading = {'name': 'Claude', 'provider': 'claude', 'weeklyUsedPercent': 35,
+                   'weeklyResetsAt': 123, 'availableResets': None, 'error': None}
+        with patch.object(server, 'collect', side_effect=self.collect), \
+                patch.object(server, 'read_claude', return_value=reading) as reader:
+            quotas = server.account_quotas(True)
+            local = server.account_quotas(False)
+        reader.assert_called_once_with()
+        self.assertEqual(len(local), 1)
+        self.assertEqual(quotas[-1], {'id': 'claude:active', 'name': 'Claude', 'provider': 'claude',
+                                    'period': 'weekly', 'origins': ['local'], 'left': 65,
+                                    'resets_at': 123, 'resets_left': None, 'error': None})
 
     def test_failed_account_is_still_displayed(self):
         reading = {'name': 'Listed', 'weeklyUsedPercent': None, 'weeklyResetsAt': None,

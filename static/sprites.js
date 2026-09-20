@@ -340,11 +340,35 @@ window.SP = (() => {
     if (rotating) ring(true);
   };
 
+  PR.oneRing = (g, cx, cy, angle) => {
+    const tilt = .35 + Math.sin(angle * .6) * .3;
+    const point = (a, h) => [Math.round(cx + Math.cos(a) * 8),
+      Math.round(cy + Math.sin(a) * 3 + Math.cos(a) * tilt + h)];
+    for (const front of [false, true]) {
+      for (let i = 0; i < 80; i++) {
+        const a = i * Math.PI / 40;
+        if ((Math.sin(a) >= 0) !== front) continue;
+        for (let h = -2; h <= 2; h++)
+          px(g, ...point(a, h), h === -2 ? '#ffe9a0' : h === 2 ? '#93601d' : front ? '#dba337' : '#9b7028');
+      }
+      // Tiny flowing strokes travel around the band with its rotation.
+      for (let i = 0; i < 12; i++) {
+        const a = angle + i * Math.PI / 6;
+        if ((Math.sin(a) >= 0) !== front) continue;
+        px(g, ...point(a, -1), '#fff2bc');
+        px(g, ...point(a + .06, 0), '#ff6b25');
+        px(g, ...point(a + .12, 1), '#ffb54a');
+        if (i % 2) px(g, ...point(a + .2, 0), '#ff6b25');
+      }
+    }
+  };
+
   PR.deskDecor = (g, x, y, width, seed, drink, t) => {
     const r = rng(seed), color = pick(r, ['#88d8d0', '#b9a0eb', '#e9ba69', '#91c978', '#e998bc']);
     const kind = Math.floor(r() * 5), angle = t * (.35 + r() * .3) + r() * Math.PI * 2;
     const cx = x - width / 2 + 7, cy = y - 16 + Math.sin(t * 1.5 + seed % 13) * 1.5;
-    if (kind >= 3) PR.blackHole(g, cx, cy, kind === 4, angle);
+    if (seed % 7 === 0) PR.oneRing(g, cx, cy, angle);
+    else if (kind >= 3) PR.blackHole(g, cx, cy, kind === 4, angle);
     else {
       const vertices = kind === 0 ? [[1,1,1],[1,-1,-1],[-1,1,-1],[-1,-1,1]] : kind === 1 ?
         [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]] :

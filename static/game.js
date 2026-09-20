@@ -11,7 +11,7 @@
     work:     { spots: [], emote: 'write' },
     cauldron: { spots: [[50, 162], [94, 162]], emote: 'brew' },
     shelf:    { spots: [[40, 78], [40, 114], [40, 148]], emote: 'book' },
-    bench:    { spots: [[132, 68], [152, 68], [172, 68]], emote: 'flask' },
+    bench:    { spots: [[98, 68], [112, 68]], emote: 'flask' },
     submit:   { spots: [[98, 108], [124, 108], [76, 132], [148, 132]], emote: 'write' },
     labwait:  { spots: [[76, 132], [148, 132], [112, 104]], emote: 'think' },
     desk:     { spots: [[109, 198], [153, 198]], emote: 'write' },
@@ -31,7 +31,7 @@
     { x: 264, y: 34, w: 8, h: 78 }, { x: 264, y: 168, w: 8, h: 92 },
     { x: 58, y: 154, w: 24, h: 18 },
     { x: 8, y: 58, w: 26, h: 34 }, { x: 8, y: 94, w: 26, h: 34 },
-    { x: 118, y: 46, w: 66, h: 16 },
+    { x: 86, y: 46, w: 38, h: 16 },
     { x: 216, y: 104, w: 16, h: 18 },
     { x: 299, y: 96, w: 28, h: 14 }, { x: 359, y: 116, w: 28, h: 14 },
     { x: 438, y: 72, w: 32, h: 24 },
@@ -556,7 +556,7 @@
   let nextBattle = 45 + battleR() * 45, battleUntil = 0, battleApprentice = null;
   const SPELL_TARGETS = {
     cauldron: [[68, 154], [80, 154]], shelf: [[24, 68], [24, 104], [24, 140]],
-    bench: [[132, 50], [154, 50], [176, 50]], submit: [[112, 118], [84, 126], [140, 126]], labwait: [[112, 118], [92, 130], [132, 130]], desk: [[108, 204], [152, 204]],
+    bench: [[98, 50], [112, 50]], submit: [[112, 118], [84, 126], [140, 126]], labwait: [[112, 118], [92, 130], [132, 130]], desk: [[108, 204], [152, 204]],
     crystal: [[223, 102]], circle: [[186, 176]], board: [[314, 28], [300, 28]],
   };
   function spark(x, y, c, vy, life, kind) {
@@ -917,12 +917,11 @@
       if (q.resets_left > 5) drawText(g, v.x + 14, v.y - 7, `+${q.resets_left - 5}`, color);
     }
   }
-  const usageProbes = () => (lastData.quotas || []).map((q, i) => {
+  const usageProbes = () => (lastData.quotas || []).map((q, i, quotas) => {
     const local = q.origins.includes('local'), remote = q.origins.includes('remote');
-    return { q, i, x: i < 3 ? 184 + i * 28 : 184 + (i - 3) % 2 * 56,
-      y: i < 3 ? 43 : 101 + Math.floor((i - 3) / 2) * 60,
+    return { q, i, x: 240 - (quotas.length - 1 - i) * 28, y: 43,
       label: local && remote ? 'L/R' : local ? 'LOC' : remote ? 'REM' : '',
-      color: local && remote ? '#bd8bea' : local ? '#58b8e8' : remote ? '#e85858' : '#70c89b' };
+      color: `hsl(${(195 + i * 137.508) % 360} 65% 65%)` };
   });
   const usageProbe = id => usageProbes().find(v => id === `usage:${v.q.id}`);
 
@@ -930,7 +929,7 @@
   const props = t => [
     [174, gg => PR.cauldron(gg, 56, 150, t, BREW)],
     [91, gg => PR.shelf(gg, 10, 60, 11)], [127, gg => PR.shelf(gg, 10, 96, 23)],
-    [62, gg => PR.bench(gg, 120, 42, t)],
+    [62, gg => PR.bench(gg, 88, 42, t)],
     [120, gg => PR.crystal(gg, 216, 98, occupied('crystal') ? t : 0)],
     [29, gg => PR.board(gg, 300, 8)],
     ...TABLES.filter(table => table !== COURT).map(table => [table.y + 5, gg => { PR.gameTable(gg, table.x, table.y); drawTableGame(gg, table, t); }]),
@@ -1568,7 +1567,7 @@
   }
   function showUsageTip(v, left, top) {
     const q = v.q, tip = $('#tip'), stage = $('#stage').getBoundingClientRect();
-    tip.innerHTML = `<div class="tt-name">${v.i + 1}. ${esc(q.name)} <span>${esc((q.provider || 'codex').toUpperCase())}</span></div>
+    tip.innerHTML = `<div class="tt-name">${esc(q.name)} <span>${esc((q.provider || 'codex').toUpperCase())}</span></div>
       ${q.origins.length ? `<div class="tt-meta">${esc(q.origins.join(' + ').toUpperCase())}</div>` : ''}
       <div class="tt-status">${q.left != null ? Math.round(q.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>
       <div class="tt-age">${q.resets_at ? 'RESETS IN ' + resetIn(q) : 'RESET TIME UNAVAILABLE'}${q.provider === 'claude' || q.resets_left === 0 ? '' : ' · ' + (q.resets_left ?? '?') + ' RESET' + (q.resets_left === 1 ? '' : 'S') + ' LEFT'}</div>

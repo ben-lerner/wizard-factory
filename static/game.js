@@ -498,17 +498,9 @@
     const p = Math.min(1, Math.max(0, (t - COURT.game.started) / 2));
     if (p < 1) PR.summon(gg, x, y, p);
     gg.save(); gg.globalAlpha = p;
-    gg.beginPath(); gg.rect(x - 48, y + 18 - 48 * p, 96, 48 * p); gg.clip();
-    gg.fillStyle = badminton ? '#34584c' : '#315b7c';
-    gg.fillRect(x - 44, y - 18, 88, 30);
-    gg.strokeStyle = '#c4d7cc'; gg.lineWidth = 1;
-    gg.strokeRect(x - 43.5, y - 17.5, 87, 29);
-    gg.fillStyle = '#c4d7cc'; gg.fillRect(x - 43, y - 3, 86, 1);
-    if (badminton) { gg.fillRect(x - 23, y - 17, 1, 28); gg.fillRect(x + 23, y - 17, 1, 28); }
-    else { gg.fillStyle = '#263645'; gg.fillRect(x - 39, y + 12, 3, 5); gg.fillRect(x + 36, y + 12, 3, 5); }
-    gg.fillStyle = '#e0d7bd'; gg.fillRect(x - 1, y - 24, 2, 36);
-    gg.fillStyle = '#8ca5ad';
-    for (let ny = y - 22; ny < y + 10; ny += 3) gg.fillRect(x - 2, ny, 4, 1);
+    gg.beginPath(); gg.rect(x - 58, y + 23 - 66 * p, 116, 66 * p); gg.clip();
+    if (badminton) PR.badmintonCourt(gg, x, y);
+    else PR.pingPongTable(gg, x, y);
     gg.restore();
   }
   function drawRally(t) {
@@ -523,7 +515,7 @@
       g.translate(Math.round(w.x + side * 10), Math.round(w.y - 14)); g.rotate(side * swing * .8);
       g.fillStyle = '#c8a678'; g.fillRect(-1, 2, 2, 6);
       if (badminton) {
-        g.strokeStyle = '#eee6c6'; g.lineWidth = 1; g.strokeRect(-3.5, -5.5, 7, 8);
+        g.strokeStyle = '#eee6c6'; g.lineWidth = 1; g.beginPath(); g.ellipse(0, -2, 4, 6, 0, 0, Math.PI * 2); g.stroke();
         g.fillStyle = '#a4c5cf'; g.fillRect(-2, -2, 5, 1); g.fillRect(0, -4, 1, 6);
       } else { g.fillStyle = i ? '#6c9ade' : '#e77568'; g.fillRect(-3, -4, 6, 6); }
       g.restore();

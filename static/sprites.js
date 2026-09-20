@@ -353,6 +353,47 @@ window.SP = (() => {
     if (rotating) ring(true);
   };
 
+  function sportNet(g, x1, y1, x2, y2, height) {
+    g.save(); g.lineWidth = 1;
+    g.fillStyle = '#d4dadd'; g.fillRect(x1 - 1, y1 - height - 2, 2, height + 3); g.fillRect(x2 - 1, y2 - height - 2, 2, height + 3);
+    g.strokeStyle = '#7b9096'; g.beginPath();
+    for (let i = 0; i <= 4; i++) {
+      const x = x1 + (x2 - x1) * i / 4, y = y1 + (y2 - y1) * i / 4;
+      g.moveTo(x, y - height); g.lineTo(x, y - 1);
+    }
+    for (let h = 3; h < height; h += 5) { g.moveTo(x1, y1 - h); g.lineTo(x2, y2 - h); }
+    g.stroke();
+    g.strokeStyle = '#f2efda'; g.lineWidth = 1; g.beginPath();
+    g.moveTo(x1, y1 - height); g.lineTo(x2, y2 - height); g.stroke(); g.restore();
+  }
+
+  PR.pingPongTable = (g, x, y) => {
+    rc(g, x - 30, y + 14, 73, 3, '#392d2b');
+    for (const [dx, dy] of [[-31,-8],[30,-8],[-22,5],[38,5]]) {
+      rc(g, x + dx, y + dy, 3, 13, '#9aa6af'); rc(g, x + dx + 1, y + dy, 1, 13, '#52616e');
+      rc(g, x + dx - 1, y + dy + 12, 5, 2, '#242b35');
+    }
+    rc(g, x - 21, y + 12, 60, 2, '#6a7c8b');
+    const outline = () => { g.beginPath(); g.moveTo(x - 36, y - 17); g.lineTo(x + 36, y - 17); g.lineTo(x + 45, y + 5); g.lineTo(x - 27, y + 5); g.closePath(); };
+    g.save(); g.translate(0, 4); outline(); g.fillStyle = '#182f4b'; g.fill(); g.restore();
+    outline(); g.fillStyle = '#287bac'; g.fill(); g.strokeStyle = '#e8eff0'; g.lineWidth = 1; g.stroke();
+    g.beginPath(); g.moveTo(x - 31.5, y - 6); g.lineTo(x + 40.5, y - 6); g.stroke();
+    rc(g, x - 26, y + 6, 71, 2, '#356084');
+    sportNet(g, x, y - 17, x + 9, y + 5, 7);
+  };
+
+  PR.badmintonCourt = (g, x, y) => {
+    rc(g, x - 54, y - 18, 108, 36, '#345b48');
+    g.strokeStyle = '#d4d7ae'; g.lineWidth = 1;
+    g.strokeRect(x - 51.5, y - 16.5, 103, 33);
+    g.beginPath();
+    for (const dy of [-12, 12]) { g.moveTo(x - 51, y + dy); g.lineTo(x + 51, y + dy); }
+    for (const dx of [-44, -19, 19, 44]) { g.moveTo(x + dx, y - 16); g.lineTo(x + dx, y + 16); }
+    g.moveTo(x - 51, y); g.lineTo(x - 19, y); g.moveTo(x + 19, y); g.lineTo(x + 51, y); g.stroke();
+    rc(g, x - 8, y - 17, 7, 2, '#293f35'); rc(g, x + 2, y + 16, 7, 2, '#293f35');
+    sportNet(g, x - 5, y - 17, x + 5, y + 17, 17);
+  };
+
   PR.summon = (g, x, y, p) => {
     g.save(); g.globalAlpha = Math.sin(p * Math.PI); g.strokeStyle = '#c4a5fa'; g.lineWidth = 1;
     g.beginPath(); g.ellipse(x, y + 8, 12 + p * 38, 5 + p * 12, 0, 0, Math.PI * 2); g.stroke();

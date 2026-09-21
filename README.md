@@ -74,6 +74,18 @@ Reset times above 24 hours round to the nearest day. Missing usage or reset data
 shows a floating ∅ inside the bottle. Usage refreshes once a minute independently
 of agent polling; these checks never send prompts or redeem reset credits.
 
+Claude and Fable use the reader in `~/token-quota`, sharing its five-minute disk
+cache and rate-limit backoff with the quota CLI on the same machine and login.
+Keep that checkout updated on the machine performing quota reads: the remote host
+when remote polling is enabled, or this machine with `--remote-host ''`.
+Restart a running server after updating the reader; `watch_server.py` detects local
+reader changes and restarts automatically.
+
+During throttling, the last successful percentages remain visible and the bottle's
+tooltip reports that the reading is cached and how old it is. Without a previous
+reading, usage remains unavailable until a retry succeeds. The state API preserves
+`updatedAt`, `cached`, `stale`, and `retryAt` from the reader when present.
+
 ## The journal: what was said
 
 Clicking a wizard opens its journal. **Counsel & missives** is the exchange itself — your prompts

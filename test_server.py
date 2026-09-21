@@ -1,5 +1,6 @@
 import base64
 import json
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -162,6 +163,42 @@ class QuotaTest(unittest.TestCase):
         self.assertEqual([(q['id'], q['name'], q['left'], q['resets_at']) for q in merged[1:]],
                          [('claude:active', 'Claude', 65, 123), ('claude:Fable', 'Fable', 40, 456)])
         self.assertTrue(all(q['origins'] == ['remote', 'local'] for q in merged))
+
+    def test_cli_and_dashboard_share_claude_cache_and_rate_limit_backoff(self):
+        # Exercise the real token-quota reader; only credentials/network are mocked.
+        import claude_quota
+        import codex_quota
+        from urllib.error import HTTPError
+        with patch.dict(server.os.environ, {'XDG_CACHE_HOME': str(self.root / 'cache')}), \
+                patch.object(server, 'collect', side_effect=self.collect), \
+                patch.object(server, 'read_claude', claude_quota.read_claude), \
+                patch.object(claude_quota, 'access_token', return_value='test-token'), \
+                patch.object(claude_quota.time, 'time', return_value=1000):
+            data = {'seven_day': {'utilization': 35, 'resets_at': None}, 'limits': [
+                {'kind': 'weekly_scoped', 'percent': 60,
+                 'scope': {'model': {'display_name': 'Fable'}}},
+            ]}
+            with patch.object(claude_quota, 'urlopen', return_value=io.StringIO(json.dumps(data))) as fetch:
+                codex_quota.read_claude()
+                quotas = server.account_quotas(True)
+            fetch.assert_called_once()
+            self.assertEqual([(q['name'], q['left']) for q in quotas[-2:]], [('Claude', 65), ('Fable', 40)])
+            self.assertTrue(all(q['cached'] for q in quotas[-2:]))
+
+            with patch.object(claude_quota.time, 'time', return_value=1300), \
+                    patch.object(claude_quota, 'urlopen', side_effect=HTTPError('url', 429, 'limited', {}, None)) as fetch:
+                quotas = server.account_quotas(True)
+                codex_quota.read_claude()
+                again = server.account_quotas(True)
+            fetch.assert_called_once()
+            self.assertEqual(quotas, again)
+            _, remote = server.remote_snapshot('mage-tower', {'quotas': quotas})
+            for q in remote[-2:]:
+                self.assertTrue(q['stale'])
+                self.assertEqual(q['updatedAt'], 1000)
+                self.assertEqual(q['retryAt'], 1600)
+                self.assertIn('cached reading', q['error'])
+                self.assertIsNotNone(q['left'])
 
     def test_failed_account_is_still_displayed(self):
         reading = {'name': 'Listed', 'weeklyUsedPercent': None, 'weeklyResetsAt': None,

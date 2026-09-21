@@ -149,7 +149,8 @@ def account_quotas(listed):
     return [{'id': r['id'], 'name': r['name'], 'provider': r['provider'],
              'period': 'weekly', 'origins': r['origins'],
              'left': max(0, min(100, 100 - r['weeklyUsedPercent'])) if r['weeklyUsedPercent'] is not None else None,
-             'resets_at': r['weeklyResetsAt'], 'resets_left': r['availableResets'], 'error': r['error']}
+             'resets_at': r['weeklyResetsAt'], 'resets_left': r['availableResets'], 'error': r['error'],
+             **{key: r[key] for key in ('updatedAt', 'cached', 'stale', 'retryAt') if key in r}}
             for r in readings]
 
 

@@ -16,7 +16,7 @@ function scene() {
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, startGame, updateRally, rallyPosition, drawCourt, BREW, updateBrew, RITUALS, layout: () => ({ labExtra, S }), setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, drawUsageProbes, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, startGame, updateRally, rallyPosition, drawCourt, BREW, updateBrew, RITUALS, layout: () => ({ labExtra, S }), setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
@@ -421,5 +421,19 @@ test('new quota bottles relocate conflicting desks after the laboratory has expa
     const bottle = s.usageProbe(`usage:${q.id}`);
     for (const d of s.desks)
       assert.ok(d.x + 32 <= bottle.x - 4 || d.x - 32 >= bottle.x + 20 || d.y - 30 >= bottle.y + 44);
+  }
+});
+
+test('quota symbols distinguish exhausted and unavailable readings in their bottle color', () => {
+  const s = scene(), colors = [];
+  s.ctx.stroke = () => colors.push(s.ctx.strokeStyle);
+  for (const [left, error, arcs, strokes] of [[0, null, 1, 2], [null, null, 0, 2], [0, 'offline', 0, 2], [50, null, 0, 0]]) {
+    s.setData({ quotas: [{ id: 'a', origins: [], left, error }] });
+    s.calls.length = 0;
+    colors.length = 0;
+    s.drawUsageProbes(0);
+    assert.equal(s.calls.filter(c => c[0] === 'arc').length, arcs);
+    assert.equal(colors.length, strokes);
+    assert.ok(colors.every(color => color === s.usageProbe('usage:a').color));
   }
 });

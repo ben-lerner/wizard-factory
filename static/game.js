@@ -904,11 +904,17 @@
     for (const v of usageProbes()) {
       const q = v.q, color = v.color;
       PR.quotaVat(g, v.x, v.y, 'vat', q.left ?? 0, color, t);
-      if (q.left == null || !q.resets_at) {
+      const unavailable = q.error || q.left == null;
+      if (unavailable || q.left === 0) {
         const cy = Math.round(v.y + 14 + Math.sin(t * 2 + v.i) * 2);
-        g.strokeStyle = '#dcd8ee'; g.lineWidth = 1;
-        g.beginPath(); g.arc(v.x + 8, cy, 4, 0, Math.PI * 2); g.stroke();
-        g.beginPath(); g.moveTo(v.x + 4, cy + 4); g.lineTo(v.x + 12, cy - 4); g.stroke();
+        g.strokeStyle = color; g.lineWidth = 1;
+        if (unavailable) {
+          g.beginPath(); g.moveTo(v.x + 10, cy - 5); g.lineTo(v.x + 5, cy - 1); g.lineTo(v.x + 8, cy - 1); g.stroke();
+          g.beginPath(); g.moveTo(v.x + 9, cy + 1); g.lineTo(v.x + 12, cy + 1); g.lineTo(v.x + 7, cy + 5); g.stroke();
+        } else {
+          g.beginPath(); g.arc(v.x + 8, cy, 4, 0, Math.PI * 2); g.stroke();
+          g.beginPath(); g.moveTo(v.x + 4, cy + 4); g.lineTo(v.x + 12, cy - 4); g.stroke();
+        }
       }
       const resets = q.resets_left || 0, shown = Math.min(5, resets);
       for (let i = 0; i < shown; i++) {

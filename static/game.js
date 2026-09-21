@@ -1327,6 +1327,34 @@
     const w = wizards.get(s.source);
     return w && !w.leaving ? [w.x, w.y - 35] : [s.sx, s.sy];
   }
+  function drawLightning(sx, sy, tx, ty, seed, color) {
+    const r = rng(seed), dx = tx - sx, dy = ty - sy, length = Math.max(1, Math.hypot(dx, dy));
+    const nx = -dy / length, ny = dx / length, count = Math.max(4, Math.ceil(length / 6));
+    const points = Array.from({ length: count + 1 }, (_, i) => {
+      const k = i / count, bend = i && i < count ? (r() - .5) * Math.min(12, length * .3) : 0;
+      return [sx + dx * k + nx * bend, sy + dy * k + ny * bend];
+    });
+    const paths = [points];
+    for (const k of [.3, .65]) {
+      const [x, y] = points[Math.floor(count * k)], side = r() < .5 ? -1 : 1;
+      const reach = Math.min(12, length * .25), bx = dx / length + nx * side, by = dy / length + ny * side;
+      paths.push([[x, y], [x + bx * reach * .5 + nx * 2, y + by * reach * .5 + ny * 2], [x + bx * reach, y + by * reach]]);
+    }
+    const pixels = paths.map(path => path.slice(1).flatMap(([x, y], i) => {
+      const [ax, ay] = path[i], steps = Math.max(1, Math.ceil(Math.hypot(x - ax, y - ay)));
+      return Array.from({ length: steps + 1 }, (_, j) => [Math.round(ax + (x - ax) * j / steps), Math.round(ay + (y - ay) * j / steps)]);
+    }));
+    g.save();
+    const alpha = g.globalAlpha;
+    g.globalAlpha = alpha * .25; g.fillStyle = color;
+    for (const path of pixels) for (const [x, y] of path) g.fillRect(x - 1, y - 1, 3, 3);
+    g.globalAlpha = alpha;
+    pixels.forEach((path, i) => {
+      g.fillStyle = i ? color : '#fffbe6';
+      for (const [x, y] of path) g.fillRect(x, y, 1, 1);
+    });
+    g.restore();
+  }
   function drawCloudSpell(s, t) {
     const [cx, cy] = cloudAnchor(s), fade = Math.min(1, s.t * 2, (s.life - s.t) * 2);
     g.globalAlpha = Math.max(0, fade);
@@ -1339,15 +1367,8 @@
     if (s.kind === 'storm') {
       const pulse = s.t * 5 + s.seed;
       if (pulse % 1 < .65) {
-        for (const side of [-1, 1]) {
-          const x = cx + side * (6 + (pulse | 0) % 3);
-          const points = [[x, cy + 6], [x - side * 3, cy + 13], [x + side * 3, cy + 12], [x, cy + 24]];
-          for (let i = 1; i < points.length; i++) {
-            const [ax, ay] = points[i - 1], [bx, by] = points[i];
-            pixLine(ax, ay, bx, by, '#ffd84a', 1);
-            pixLine(ax + 1, ay, bx + 1, by, '#fff6bd', 1);
-          }
-        }
+        const flash = pulse | 0, side = flash % 2 ? -1 : 1;
+        drawLightning(cx + side * 4, cy + 6, cx + side * 10, cy + 24, s.seed + flash * 97, '#ffd84a');
       }
     } else {
       g.fillStyle = '#8fd0ff';
@@ -1398,12 +1419,10 @@
     if (s.kind === 'rain' || s.kind === 'storm') { drawCloudSpell(s, t); return; }
     const k = Math.min(1, s.t / s.life);
     if (s.kind === 'bolt') {
-      let px = s.sx, py = s.sy;
-      for (let i = 1; i <= 5; i++) {
-        const q = i / 5, nx = s.sx + (s.tx - s.sx) * q + Math.sin(q * 11 + s.seed + t * 9) * 4, ny = s.sy + (s.ty - s.sy) * q;
-        pixLine(px, py, nx, ny, i % 2 ? '#e8f6ff' : '#8fd0ff', 2);
-        px = nx; py = ny;
-      }
+      g.save();
+      g.globalAlpha = (1 - k * .7) * ((s.t * 40 | 0) % 3 === 1 ? .55 : 1);
+      drawLightning(s.sx, s.sy, s.tx, s.ty, s.seed + (s.t * 18 | 0) * 97, '#8fd0ff');
+      g.restore();
       return;
     }
     if (s.kind === 'missile') {

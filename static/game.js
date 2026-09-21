@@ -2,7 +2,7 @@
 'use strict';
 (() => {
   const VW = 480, VH = 272, POLL = 1500, SPEED = 42;
-  let labExtra = 0;
+  let labExtra = 0, labDown = 0, labSteps = 0;
   const $ = q => document.querySelector(q);
   const cv = $('#view'), g = cv.getContext('2d');
   const { drawText, textW, rng, hash, PR, drawEmote, WARM_MILK, DRINKS, INFERNAL_DRINKS } = SP;
@@ -42,7 +42,8 @@
   const bodyR = e => e && e.sp ? WIZ_R : e && e.frames ? DRAGON_R : CAT_R;
   const snap = v => Math.round(v / GRID) * GRID;
   const hitRect = (x, y, r, b) => x + r > b.x && x - r < b.x + b.w && y + r > b.y && y - r < b.y + b.h;
-  const blocked = (x, y, r) => x < 18 - labExtra + r || x > 462 - r || y < 42 + r || y > 266 || BLOCKERS.some(b => hitRect(x, y, r, b));
+  const blocked = (x, y, r) => x < 18 - labExtra + r || x > 462 - r || y < 42 + r || y > (x < 264 ? 266 + labDown : 266) ||
+    (labDown > 0 && hitRect(x, y, r, { x: 264, y: 260, w: 8, h: labDown })) || BLOCKERS.some(b => hitRect(x, y, r, b));
   function gridOpenNear(x, y, r) {
     let best = null, bd = 1e9, sx = snap(x), sy = snap(y);
     for (let d = 0; d <= 48; d += GRID) {
@@ -151,7 +152,7 @@
 
   function clampZone(x, y) {
     const lab = x < 264;
-    return [Math.max(lab ? 18 - labExtra : 282, Math.min(lab ? 252 : 462, x)), Math.max(46, Math.min(250, y))];
+    return [Math.max(lab ? 18 - labExtra : 282, Math.min(lab ? 252 : 462, x)), Math.max(46, Math.min(lab ? 250 + labDown : 250, y))];
   }
   function pathTo(w, tx, ty) {
     const path = route(w.x, w.y, tx, ty, bodyR(w)), last = path[path.length - 1], r = w.r || catR;
@@ -176,20 +177,55 @@
   };
   const deskBounds = (x, y) => ({ x: x - 32, y: y - 30, w: 64, h: 54 });
   const overlaps = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  const labSize = steps => [Math.floor(steps / 3) * 72, (steps - Math.floor(steps / 3)) * 60];
+  const fitsLab = (d, width, height) => d.x - 32 >= 8 - width && d.x + 32 <= 264 && d.y - 30 >= 34 && d.y + 24 <= 240 + height;
+  function deskPosition(anchor, occupied, steps) {
+    const [width, height] = labSize(steps);
+    let best, distance = Infinity;
+    // Search the whole usable floor, including gaps between fixtures.
+    for (let y = 64; y <= 216 + height; y += 4) for (let x = 40 - width; x <= 232; x += 8) {
+      const score = Math.hypot(x - anchor[0], y - anchor[1]);
+      if (score >= distance || occupied.some(b => overlaps(deskBounds(x, y), b))) continue;
+      best = [x, y]; distance = score;
+    }
+    return best;
+  }
+  function sizeLab(steps) {
+    labSteps = steps;
+    [labExtra, labDown] = labSize(steps);
+    drawBackground(); resize();
+  }
+  function shrinkLab() {
+    const before = labSteps;
+    while (labSteps) {
+      const [width, height] = labSize(labSteps - 1);
+      const outside = desks.filter(d => !fitsLab(d, width, height));
+      const occupied = [...DESK_FIXTURES, quotaSpace(), ...desks.filter(d => fitsLab(d, width, height)).map(d => deskBounds(d.x, d.y))];
+      const moves = [];
+      for (const d of outside) {
+        const pos = d.active && deskPosition([d.x, d.y], occupied, labSteps - 1);
+        if (!pos) break;
+        moves.push([d, pos]); occupied.push(deskBounds(...pos));
+      }
+      if (moves.length !== outside.length) break;
+      for (const [d, pos] of moves) { [d.x, d.y] = pos; d.w.home = pos; }
+      labSteps--;
+    }
+    if (labSteps === before) return;
+    sizeLab(labSteps);
+    for (const actor of [...wizards.values(), cat, demonCat]) {
+      const dest = actor.desk ? actor.home : actor.path.at(-1);
+      if (actor.x < 18 - labExtra + bodyR(actor) || actor.x < 264 && actor.y > 266 + labDown)
+        [actor.x, actor.y] = gridOpenNear(...clampZone(actor.x, actor.y), bodyR(actor));
+      if (dest) actor.path = route(actor.x, actor.y, ...clampZone(...dest), bodyR(actor));
+    }
+  }
   function makeDesk(w) {
     const parent = wizards.get(w.a.parent), anchor = parent && parent.home || [100, 80];
     const occupied = [...DESK_FIXTURES, quotaSpace(), ...desks.filter(d => d.active || d.alpha > 0).map(d => deskBounds(d.x, d.y))];
-    let pos;
-    while (!pos) {
-      const candidates = [];
-      for (let y = 76; y <= 208; y += 60) for (let x = 56 - labExtra; x <= 232; x += 72) {
-        if (!occupied.some(b => overlaps(deskBounds(x, y), b))) candidates.push([x, y]);
-      }
-      const distance = p => Math.hypot(p[0] - anchor[0], p[1] - anchor[1]);
-      candidates.sort((a, b) => distance(a) - distance(b));
-      pos = candidates[0];
-      if (!pos) { labExtra += 72; drawBackground(); resize(); }
-    }
+    let pos, steps = 0;
+    while (!(pos = deskPosition(anchor, occupied, steps))) steps++;
+    if (steps > labSteps) sizeLab(steps);
     const [x, y] = pos;
     w.desk = { x, y, active: true, alpha: 0, elapsed: 0, w };
     desks.push(w.desk);
@@ -797,11 +833,11 @@
   const WALL = '#3a3144', WALL_D = '#262032', WALL_HI = '#4a3f5c';
   const bg = document.createElement('canvas');
   function drawBackground() {
-    bg.width = VW + labExtra; bg.height = VH;
+    bg.width = VW + labExtra; bg.height = VH + labDown;
     const b = bg.getContext('2d'), r = rng(5);
     b.translate(labExtra, 0);
-    b.fillStyle = '#46414f'; b.fillRect(8 - labExtra, 34, 256 + labExtra, 226);
-    for (let ty = 34; ty < 260; ty += 16) for (let tx = 8 - labExtra; tx < 264; tx += 16)
+    b.fillStyle = '#46414f'; b.fillRect(8 - labExtra, 34, 256 + labExtra, 226 + labDown);
+    for (let ty = 34; ty < 260 + labDown; ty += 16) for (let tx = 8 - labExtra; tx < 264; tx += 16)
       if (((tx + ty) / 16) % 2) { b.fillStyle = '#423d4b'; b.fillRect(tx, ty, 16, 16); }
     for (let i = 0; i < 70; i++) { b.fillStyle = r() < .5 ? '#3c3846' : '#4c4756'; b.fillRect(8 + (r() * 254 | 0), 34 + (r() * 222 | 0), r() < .3 ? 2 : 1, 1); }
     for (let ry = 34; ry < 260; ry += 8) {
@@ -810,11 +846,11 @@
       for (let sx = 264 + ((ry / 8) % 3) * 24; sx < 472; sx += 72) b.fillRect(sx, ry, 1, 8);
       b.fillRect(264, ry + 7, 208, 1);
     }
-    b.fillStyle = WALL; b.fillRect(-labExtra, 0, VW + labExtra, 34); b.fillRect(-labExtra, 0, 8, VH); b.fillRect(472, 0, 8, VH); b.fillRect(-labExtra, 260, VW + labExtra, 12);
+    b.fillStyle = WALL; b.fillRect(-labExtra, 0, VW + labExtra, 34); b.fillRect(-labExtra, 0, 8, VH + labDown); b.fillRect(472, 0, 8, VH); b.fillRect(-labExtra, 260 + labDown, 272 + labExtra, 12); b.fillRect(272, 260, 208, 12);
     b.fillStyle = WALL_HI; b.fillRect(-labExtra, 0, VW + labExtra, 2);
-    b.fillStyle = WALL_D; b.fillRect(-labExtra, 32, VW + labExtra, 2); b.fillRect(-labExtra, 260, VW + labExtra, 2); b.fillRect(6 - labExtra, 0, 2, VH); b.fillRect(472, 0, 2, VH);
-    b.fillStyle = WALL; b.fillRect(264, 0, 8, 112); b.fillRect(264, 168, 8, 92);
-    b.fillStyle = WALL_D; b.fillRect(264, 110, 8, 2); b.fillRect(264, 168, 8, 2); b.fillRect(264, 0, 1, 112); b.fillRect(271, 0, 1, 112); b.fillRect(264, 168, 1, 92); b.fillRect(271, 168, 1, 92);
+    b.fillStyle = WALL_D; b.fillRect(-labExtra, 32, VW + labExtra, 2); b.fillRect(-labExtra, 260 + labDown, 272 + labExtra, 2); b.fillRect(272, 260, 208, 2); b.fillRect(6 - labExtra, 0, 2, VH + labDown); b.fillRect(472, 0, 2, VH);
+    b.fillStyle = WALL; b.fillRect(264, 0, 8, 112); b.fillRect(264, 168, 8, 92 + labDown);
+    b.fillStyle = WALL_D; b.fillRect(264, 110, 8, 2); b.fillRect(264, 168, 8, 2); b.fillRect(264, 0, 1, 112); b.fillRect(271, 0, 1, 112); b.fillRect(264, 168, 1, 92 + labDown); b.fillRect(271, 168, 1, 92 + labDown);
     for (let i = 0; i < 26; i++) { b.fillStyle = '#352d3e'; b.fillRect((r() * 470 | 0), (r() * 30 | 0) + 2, 2, 1); }
     PR.banner(b, 88, 6, '#7a3b4a'); PR.banner(b, 168, 6, '#3f5b9b'); PR.banner(b, 352, 6, '#3f7b4c');
     PR.rug(b, 318, 96);
@@ -855,7 +891,7 @@
     const p = lightningPower(t);
     if (!p) return;
     const sx = WIN_X[lightning.win] + 7, sy = 24;
-    gg.globalAlpha = .18 * p; gg.fillStyle = '#e8f6ff'; gg.fillRect(8 - labExtra, 34, 256 + labExtra, 226); gg.fillRect(264, 34, 208, 226);
+    gg.globalAlpha = .18 * p; gg.fillStyle = '#e8f6ff'; gg.fillRect(8 - labExtra, 34, 256 + labExtra, 226 + labDown); gg.fillRect(264, 34, 208, 226);
     gg.globalAlpha = .32 * p; gg.fillStyle = '#090512';
     const shadow = (x, y, w, l = 30) => {
       const dx = x - sx, dy = y - sy, d = Math.max(1, Math.hypot(dx, dy)), ux = dx / d, uy = dy / d;
@@ -1055,7 +1091,9 @@
     updateBrew(t);
     for (let i = RITUALS.length - 1; i >= 0; i--) if (t - RITUALS[i].at > 3) RITUALS.splice(i, 1);
     for (const d of desks) d.alpha = Math.max(0, Math.min(1, d.alpha + (d.active ? 3 : -2) * dt));
-    for (let i = desks.length - 1; i >= 0; i--) if (!desks[i].active && !desks[i].alpha) desks.splice(i, 1);
+    let removed = false;
+    for (let i = desks.length - 1; i >= 0; i--) if (!desks[i].active && !desks[i].alpha) { desks.splice(i, 1); removed = true; }
+    if (removed) shrinkLab();
     updateBattle(t);
     for (const [id, w] of wizards) {
       if (w.blast) {
@@ -1408,15 +1446,20 @@
       if (s.kind === 'rune') { g.fillRect(Math.round(x) - 2, Math.round(y) - 2, 2, 2); g.fillRect(Math.round(x) + 3, Math.round(y) + 3, 2, 2); }
     }
   }
+  const DESK_COLORS = {
+    wizard: { legs: '#493025', wood: '#986b45', edge: '#c49560', frame: '#94734e', paper: '#d8c294', pins: '#bca16f', text: '#514034' },
+    demon: { legs: '#382334', wood: '#793c55', edge: '#bd7184', frame: '#793c55', paper: '#e3bfc7', pins: '#bd7184', text: '#492737' },
+  };
   function drawWorkDesk(d, front, t) {
     const { x, y, w } = d, width = w.sp.sub ? 30 : 48;
+    const colors = DESK_COLORS[w.sp.demon ? 'demon' : 'wizard'];
     g.save(); g.globalAlpha = d.alpha;
     if (!front) {
       PR.chair(g, x - 7, y - 13, false);
     } else {
-      g.fillStyle = '#493025'; g.fillRect(x - width / 2 + 3, y - 1, 3, 10); g.fillRect(x + width / 2 - 6, y - 1, 3, 10);
-      g.fillStyle = '#986b45'; g.fillRect(x - width / 2, y - 7, width, 8);
-      g.fillStyle = '#c49560'; g.fillRect(x - width / 2, y - 7, width, 2);
+      g.fillStyle = colors.legs; g.fillRect(x - width / 2 + 3, y - 1, 3, 10); g.fillRect(x + width / 2 - 6, y - 1, 3, 10);
+      g.fillStyle = colors.wood; g.fillRect(x - width / 2, y - 7, width, 8);
+      g.fillStyle = colors.edge; g.fillRect(x - width / 2, y - 7, width, 2);
       g.fillStyle = '#eee1b5'; g.fillRect(x - 6, y - 6, 10, 5);
       g.fillStyle = '#795d68'; g.fillRect(x - 4, y - 5, 6, 1);
       const drink = d.active && atDesk(w) && w.order && w.order.stage === 'served' ? w.order.drink.key : null;
@@ -1427,18 +1470,20 @@
     g.restore();
   }
   function drawTaskLabel(d) {
+    const colors = DESK_COLORS[d.w.sp.demon ? 'demon' : 'wizard'];
     const title = String(d.w.a.title || d.w.a.quest || d.w.a.project || d.w.sp.name).toUpperCase();
     const lines = title.match(/.{1,12}(?:\s|$)|.{1,12}/g) || ['UNTITLED'];
     const shown = lines.slice(0, 2).map((line, i) => i === 1 && lines.length > 2 ? line.trim().slice(0, 9) + '...' : line.trim());
     const width = Math.max(...shown.map(line => textW(line))) + 8, left = Math.round(d.x - width / 2), top = d.y + 3;
     g.save(); g.globalAlpha = d.alpha;
-    g.fillStyle = '#94734e'; g.fillRect(left, top, width, shown.length * 8 + 3);
-    g.fillStyle = '#d8c294'; g.fillRect(left + 1, top + 1, width - 2, shown.length * 8 + 1);
-    g.fillStyle = '#bca16f'; g.fillRect(left - 1, top + 1, 3, 3); g.fillRect(left + width - 2, top + 1, 3, 3);
-    shown.forEach((line, i) => drawText(g, Math.round(d.x - textW(line) / 2), top + 3 + i * 8, line, '#514034'));
+    g.fillStyle = colors.frame; g.fillRect(left, top, width, shown.length * 8 + 3);
+    g.fillStyle = colors.paper; g.fillRect(left + 1, top + 1, width - 2, shown.length * 8 + 1);
+    g.fillStyle = colors.pins; g.fillRect(left - 1, top + 1, 3, 3); g.fillRect(left + width - 2, top + 1, 3, 3);
+    shown.forEach((line, i) => drawText(g, Math.round(d.x - textW(line) / 2), top + 3 + i * 8, line, colors.text));
     g.restore();
   }
   function draw(t) {
+    g.clearRect(-labExtra, 0, VW + labExtra, VH + labDown);
     g.drawImage(bg, -labExtra, 0);
     for (let i = 0; i < 5; i++) PR.window(g, WIN_X[i], 8, t, i * 7 + 3);
     drawLightningWindow(g, t);
@@ -1524,7 +1569,7 @@
     if (hover === 'demon-cat' && demonCat.active) tag(demonCat.x, demonCat.y - 20, 'LUCIPURR');
     if (hover === 'barista') tag(dragon.x, dragon.y - 32, 'EARL GREY, BARISTA');
     drawText(g, 320, 240, 'MANA CAFE', '#ffd84a');
-    drawText(g, 60 - labExtra / 2, 240, 'LABORATORIVM', '#8a84a0');
+    drawText(g, 60 - labExtra / 2, 240 + labDown, 'LABORATORIVM', '#8a84a0');
     for (const d of desks) drawTaskLabel(d);
     drawUsageProbes(t);
     drawUsageLabels();
@@ -1534,7 +1579,7 @@
       drawText(g, 240 - textW('NO AGENTS ABOUT - START ONE!') / 2, 138, 'NO AGENTS ABOUT - START ONE!', '#8a84a0');
     }
     if (offline) {
-      g.fillStyle = 'rgba(20,8,8,.6)'; g.fillRect(-labExtra, 0, VW + labExtra, VH);
+      g.fillStyle = 'rgba(20,8,8,.6)'; g.fillRect(-labExtra, 0, VW + labExtra, VH + labDown);
       drawText(g, 240 - textW('LINK TO THE TOWER SEVERED', 2) / 2, 124, 'LINK TO THE TOWER SEVERED', '#ff8a8a', 2);
       drawText(g, 240 - textW('IS SERVER.PY STILL RUNNING?') / 2, 142, 'IS SERVER.PY STILL RUNNING?', '#c8a0a0');
     }
@@ -1548,11 +1593,11 @@
   // ---------- scale / input ----------
   let S = 1;
   function resize() {
-    const box = $('#stage').getBoundingClientRect(), dpr = window.devicePixelRatio || 1, width = VW + labExtra;
-    S = Math.max(.1, Math.min((box.width - 24) / width, (box.height - 24) / VH));
-    cv.width = Math.round(width * S * dpr); cv.height = Math.round(VH * S * dpr);
-    cv.style.width = width * S + 4 + 'px'; cv.style.height = VH * S + 4 + 'px';
-    g.setTransform(cv.width / width, 0, 0, cv.height / VH, labExtra * cv.width / width, 0);
+    const box = $('#stage').getBoundingClientRect(), dpr = window.devicePixelRatio || 1, width = VW + labExtra, height = VH + labDown;
+    S = Math.max(.1, Math.min((box.width - 24) / width, (box.height - 24) / height));
+    cv.width = Math.round(width * S * dpr); cv.height = Math.round(height * S * dpr);
+    cv.style.width = width * S + 4 + 'px'; cv.style.height = height * S + 4 + 'px';
+    g.setTransform(cv.width / width, 0, 0, cv.height / height, labExtra * cv.width / width, 0);
     g.imageSmoothingEnabled = false;
   }
   window.addEventListener('resize', resize);

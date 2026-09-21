@@ -16,7 +16,7 @@ function scene() {
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, drawUsageProbes, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, startGame, updateRally, rallyPosition, drawCourt, BREW, updateBrew, RITUALS, layout: () => ({ labExtra, S }), setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, drawUsageProbes, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, startGame, updateRally, rallyPosition, drawCourt, BREW, updateBrew, RITUALS, blocked, route, dragon, dragonAtBar, shrinkLab, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
@@ -396,7 +396,7 @@ test('laboratory grows instead of overlapping fixtures or existing desks', () =>
     [216, 98, 16, 24], [160, 164, 52, 26], [124, 30, 136, 58]];
   s.desks.forEach((d, i) => {
     assert.ok(d.x - 32 >= 8 - s.layout().labExtra && d.x + 32 <= 264);
-    assert.ok(d.y - 30 >= 34 && d.y + 24 <= 240);
+    assert.ok(d.y - 30 >= 34 && d.y + 24 <= 240 + s.layout().labDown);
     const obstacles = [...fixtures, ...s.desks.slice(0, i).map(other => [other.x - 32, other.y - 30, 64, 54])];
     for (const [x, y, width, height] of obstacles)
       assert.ok(d.x + 32 <= x || d.x - 32 >= x + width || d.y + 24 <= y || d.y - 30 >= y + height);
@@ -435,5 +435,68 @@ test('quota symbols distinguish exhausted and unavailable readings in their bott
     assert.equal(s.calls.filter(c => c[0] === 'arc').length, arcs);
     assert.equal(colors.length, strokes);
     assert.ok(colors.every(color => color === s.usageProbe('usage:a').color));
+  }
+});
+
+test('laboratory fills its current floor before growing two rows then a column', () => {
+  const s = scene(), agents = [], growth = [];
+  const fixtures = [[56, 150, 30, 26], [8, 58, 26, 70], [88, 42, 34, 20],
+    [216, 98, 16, 24], [160, 164, 52, 26], [124, 30, 136, 58]];
+  while (growth.length < 6) {
+    const before = s.layout(), occupied = [...fixtures, ...s.desks.map(d => [d.x - 32, d.y - 30, 64, 54])];
+    agents.push(agent(String(agents.length)));
+    s.reconcile({ agents });
+    const after = s.layout();
+    if (after.labSteps === before.labSteps) continue;
+    assert.equal(after.labSteps, before.labSteps + 1);
+    for (let y = 64; y <= 216 + before.labDown; y += 4) for (let x = 40 - before.labExtra; x <= 232; x += 8)
+      assert.ok(occupied.some(([bx, by, w, h]) => x - 32 < bx + w && x + 32 > bx && y - 30 < by + h && y + 24 > by));
+    growth.push([after.labExtra - before.labExtra, after.labDown - before.labDown]);
+  }
+  assert.deepEqual(growth, [[0, 60], [0, 60], [72, 0], [0, 60], [0, 60], [72, 0]]);
+});
+
+test('laboratory shrinks after removed desks fade and compacts a surviving outer desk', () => {
+  const s = scene(), agents = Array.from({ length: 25 }, (_, i) => agent(String(i)));
+  s.reconcile({ agents });
+  s.update(.4, 0);
+  const survivor = s.desks.find(d => d.y > 240).w;
+  s.reconcile({ agents: [survivor.a] });
+  assert.ok(s.layout().labSteps > 0);
+  s.update(.6, .6);
+  assert.equal(s.desks.length, 1);
+  assert.equal(s.layout().labSteps, 0);
+  assert.equal(s.layout().labExtra, 0);
+  assert.equal(s.layout().labDown, 0);
+  assert.ok(survivor.desk.y + 24 <= 240);
+  assert.deepEqual(Array.from(survivor.home), [survivor.desk.x, survivor.desk.y]);
+  assert.ok(survivor.path.every(([x, y]) => !s.blocked(x, y, 5)));
+});
+
+test('vertical extension keeps cafe bounds and wall while allowing routes to lower desks', () => {
+  const s = scene();
+  s.reconcile({ agents: Array.from({ length: 15 }, (_, i) => agent(String(i))) });
+  const d = s.desks.find(d => d.y > 272);
+  assert.ok(d);
+  assert.equal(s.blocked(d.x, d.y, 5), false);
+  assert.equal(s.blocked(268, d.y, 5), true);
+  assert.equal(s.blocked(320, d.y, 5), true);
+  const path = s.route(436, 250, d.x, d.y, 5);
+  assert.ok(path.length > 1);
+  assert.ok(path.every(([x, y]) => !s.blocked(x, y, 5)));
+  assert.deepEqual(Array.from(path.at(-1)), [d.x, d.y]);
+});
+
+test('shrinking leaves the barista at its counter and preserves flight paths', () => {
+  for (const flying of [false, true]) {
+    const s = scene();
+    s.reconcile({ agents: Array.from({ length: 15 }, (_, i) => agent(String(i))) });
+    if (flying) { s.dragon.x = 310; s.dragon.y = 180; s.dragon.dest = 'bar'; s.dragon.mode = 'fly'; s.dragon.path = [[338, 196]]; }
+    const before = JSON.stringify({ ...s.dragon, frames: undefined });
+    s.desks.splice(0);
+    s.shrinkLab();
+    assert.equal(s.layout().labSteps, 0);
+    assert.equal(JSON.stringify({ ...s.dragon, frames: undefined }), before);
+    assert.equal(s.dragonAtBar(), !flying);
   }
 });

@@ -150,6 +150,19 @@ class QuotaTest(unittest.TestCase):
                                     'period': 'weekly', 'origins': ['local'], 'left': 65,
                                     'resets_at': 123, 'resets_left': None, 'error': None})
 
+    def test_claude_and_fable_get_separate_containers(self):
+        readings = [{'id': name, 'name': name, 'provider': 'claude', 'weeklyUsedPercent': used,
+                     'weeklyResetsAt': reset, 'availableResets': None, 'error': None}
+                    for name, used, reset in [('Claude', 35, 123), ('Fable', 60, 456)]]
+        with patch.object(server, 'collect', side_effect=self.collect), \
+                patch.object(server, 'read_claude', return_value=readings):
+            quotas = server.account_quotas(True)
+        _, remote = server.remote_snapshot('mage-tower', {'quotas': quotas})
+        merged = server.merge_quotas(remote, quotas)
+        self.assertEqual([(q['id'], q['name'], q['left'], q['resets_at']) for q in merged[1:]],
+                         [('claude:active', 'Claude', 65, 123), ('claude:Fable', 'Fable', 40, 456)])
+        self.assertTrue(all(q['origins'] == ['remote', 'local'] for q in merged))
+
     def test_failed_account_is_still_displayed(self):
         reading = {'name': 'Listed', 'weeklyUsedPercent': None, 'weeklyResetsAt': None,
                    'availableResets': None, 'error': 'unavailable'}

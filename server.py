@@ -141,7 +141,11 @@ def account_quotas(listed):
                             (active and identities[r['name']] == active) else []}
                 for r in collect(homes)['accounts']]
     if listed and read_claude is not None:
-        readings.append({**read_claude(), 'id': 'claude:active', 'origins': ['local']})
+        claude = read_claude()
+        if isinstance(claude, dict):
+            claude = [claude]
+        readings.extend({**r, 'id': 'claude:active' if r['name'] == 'Claude' else 'claude:' + r['id'],
+                         'origins': ['local']} for r in claude)
     return [{'id': r['id'], 'name': r['name'], 'provider': r['provider'],
              'period': 'weekly', 'origins': r['origins'],
              'left': max(0, min(100, 100 - r['weeklyUsedPercent'])) if r['weeklyUsedPercent'] is not None else None,

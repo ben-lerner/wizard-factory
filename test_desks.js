@@ -322,11 +322,11 @@ test('work builds runes, completion celebrates once, and the celebration expires
   s.update(.1, 4.1);
   assert.equal(s.RITUALS.length, 0);
 });
-test('desk experiments include storms, moons, crystals and portals', () => {
+test('desk experiments include only storms, moons and crystals', () => {
   const s = scene(), kinds = new Set();
   s.SP.PR.experiment = (g,x,y,kind) => kinds.add(kind);
   for (let seed = 1; seed < 200; seed++) s.SP.PR.deskDecor(s.ctx,100,100,48,seed,null,10);
-  assert.deepEqual([...kinds].sort(), [5,6,7,8]);
+  assert.deepEqual([...kinds].sort(), [5,6,7]);
 });
 test('desk pets are deterministic and react to completion', () => {
   const s = scene();

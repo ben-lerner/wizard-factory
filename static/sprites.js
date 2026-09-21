@@ -552,6 +552,7 @@ window.SP = (() => {
     }
     rows.forEach((half, iy) => {
       const yy = top + iy, edge = iy === 0 || iy === rows.length - 1;
+      if (shape === 'vat') half = Math.min(half, 6);
       rc(g, cx - half, yy, half * 2 + 1, 1, edge ? '#30364a' : '#778096');
       if (!edge && yy >= bottom - Math.round((rows.length - 2) * fill / 100))
         rc(g, cx - half + 1, yy, half * 2 - 1, 1, color);

@@ -71,7 +71,7 @@ test('crowded scenes allocate distinct desks', () => {
 test('desks reserve the bottle row even before quota data arrives and when crowded', () => {
   const s = scene();
   s.reconcile({ agents: Array.from({ length: 30 }, (_, i) => agent(String(i))) });
-  const quotas = Array.from({ length: 5 }, (_, i) => ({ id: String(i), origins: [] }));
+  const quotas = Array.from({ length: 6 }, (_, i) => ({ id: String(i), origins: [] }));
   s.setData({ quotas });
   for (const q of quotas) {
     const bottle = s.usageProbe(`usage:${q.id}`);
@@ -126,7 +126,7 @@ test('usage tooltips omit zero resets and retain positive or unknown credits', (
 test('additional quota accounts render distinct bottles and remain hoverable', () => {
   const s = scene(), bottles = [];
   s.SP.PR.quotaVat = (g, x, y, shape, fill) => bottles.push({ x, y, fill });
-  for (const count of [3, 4, 5]) {
+  for (const count of [3, 4, 5, 6]) {
     const quotas = Array.from({ length: count }, (_, i) => ({
       id: `account-${i}`, name: `Account ${i + 1}`, origins: i === 0 ? ['remote'] : [],
       left: 10 + i * 15, resets_at: Date.now() / 1000 + 864000, resets_left: i,
@@ -138,6 +138,7 @@ test('additional quota accounts render distinct bottles and remain hoverable', (
     assert.equal(new Set(bottles.map(b => `${b.x},${b.y}`)).size, count);
     bottles.forEach((b, i) => {
       assert.equal(b.fill, quotas[i].left);
+      assert.ok(b.x > 122, 'Bottle clears the fixed workbench');
       assert.ok(b.x >= 8 && b.x + 20 <= 264 && b.y - 12 >= 0 && b.y + 44 <= 260);
       const id = s.pickAt({ clientX: b.x + 8, clientY: b.y + 14 });
       assert.equal(id, `usage:${quotas[i].id}`);
@@ -145,6 +146,13 @@ test('additional quota accounts render distinct bottles and remain hoverable', (
       assert.ok(s.element.innerHTML.includes(quotas[i].name));
       assert.ok(s.element.innerHTML.includes(`${quotas[i].left}% REMAINING`));
     });
+  }
+});
+test('reset countdowns round up hours and retain minutes below one hour', () => {
+  const s = scene();
+  for (const [seconds, label] of [[15 * 3600 + 53 * 60, '16H'], [3601, '2H'], [3599, '59M'], [30, '0M'], [-1, '0M'], [86400, '24H'], [2 * 86400, '2D']]) {
+    s.showUsageTip({ q: { name: 'Test', origins: [], resets_left: 0, resets_at: Date.now() / 1000 + seconds } }, 0, 0);
+    assert.ok(s.element.innerHTML.includes(`RESETS IN ${label}<`), s.element.innerHTML);
   }
 });
 test('desk decorations are stable per wizard and vary between wizards', () => {

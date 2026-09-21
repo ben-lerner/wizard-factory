@@ -172,7 +172,7 @@
     { x: 160, y: 164, w: 52, h: 26 }, // summoning circle
   ];
   const quotaSpace = () => {
-    const x = 236 - (Math.max(5, (lastData.quotas || []).length) - 1) * 28;
+    const x = 236 - (Math.max(6, (lastData.quotas || []).length) - 1) * 22;
     return { x, y: 30, w: 260 - x, h: 58 };
   };
   const deskBounds = (x, y) => ({ x: x - 32, y: y - 30, w: 64, h: 54 });
@@ -934,7 +934,8 @@
     if (!q || !q.resets_at) return '';
     const s = Math.max(0, q.resets_at - (Date.now() / 1000 - serverSkew));
     if (s > 86400) return `${Math.round(s / 86400)}D`;
-    return `${s / 3600 | 0}H ${s % 3600 / 60 | 0}M`;
+    if (s >= 3600) return `${Math.ceil(s / 3600)}H`;
+    return `${s / 60 | 0}M`;
   }
   function drawUsageProbes(t) {
     for (const v of usageProbes()) {
@@ -969,7 +970,7 @@
   }
   const usageProbes = () => (lastData.quotas || []).map((q, i, quotas) => {
     const local = q.origins.includes('local'), remote = q.origins.includes('remote');
-    return { q, i, x: 240 - (quotas.length - 1 - i) * 28, y: 43,
+    return { q, i, x: 240 - (quotas.length - 1 - i) * 22, y: 43,
       label: local && remote ? 'L/R' : local ? 'LOC' : remote ? 'REM' : '',
       color: `hsl(${(195 + i * 137.508) % 360} 65% 65%)` };
   });
@@ -1624,7 +1625,7 @@
 
   function pickAt(e) {
     const r = cv.getBoundingClientRect(), mx = (e.clientX - r.left - cv.clientLeft) / S - labExtra, my = (e.clientY - r.top - cv.clientTop) / S;
-    const vat = usageProbes().reverse().find(v => mx >= v.x - 4 && mx <= v.x + 20 && my >= v.y - 12 && my <= v.y + 44);
+    const vat = usageProbes().reverse().find(v => mx >= v.x - 3 && mx < v.x + 19 && my >= v.y - 12 && my <= v.y + 44);
     if (vat) return `usage:${vat.q.id}`;
     for (const w of [...wizards.values()].sort((a, b) => b.y - a.y))
       if (Math.abs(mx - w.x) <= 9 && my >= w.y - 26 && my <= w.y + 3) return w.a.id;

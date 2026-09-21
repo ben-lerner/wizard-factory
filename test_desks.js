@@ -16,7 +16,7 @@ function scene() {
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, startGame, updateRally, rallyPosition, drawCourt, BREW, updateBrew, RITUALS, setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, startGame, updateRally, rallyPosition, drawCourt, BREW, updateBrew, RITUALS, layout: () => ({ labExtra, S }), setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
@@ -67,6 +67,20 @@ test('crowded scenes allocate distinct desks', () => {
   const s = scene();
   s.reconcile({ agents: Array.from({ length: 30 }, (_, i) => agent(String(i))) });
   assert.equal(new Set(s.desks.map(d => `${d.x},${d.y}`)).size, 30);
+});
+test('desks reserve the bottle row even before quota data arrives and when crowded', () => {
+  const s = scene();
+  s.reconcile({ agents: Array.from({ length: 30 }, (_, i) => agent(String(i))) });
+  const quotas = Array.from({ length: 5 }, (_, i) => ({ id: String(i), origins: [] }));
+  s.setData({ quotas });
+  for (const q of quotas) {
+    const bottle = s.usageProbe(`usage:${q.id}`);
+    for (const d of s.desks) {
+      const overlaps = d.x + 30 > bottle.x - 4 && d.x - 30 < bottle.x + 20 &&
+        d.y + 30 > bottle.y - 12 && d.y - 30 < bottle.y + 44;
+      assert.equal(overlaps, false, `Desk at ${d.x},${d.y} overlaps bottle ${q.id}`);
+    }
+  }
 });
 
 test('served drinks follow wizards back to their desks; unfinished orders are cancelled', () => {
@@ -368,4 +382,44 @@ test('completion draws only the celebrating pet while its old desk fades', () =>
   s.SP.PR.deskPet = (g,x,y,seed,t,excited) => pets.push(excited);
   s.draw(.1);
   assert.deepEqual(pets, [true]);
+});
+
+
+test('laboratory grows instead of overlapping fixtures or existing desks', () => {
+  const s = scene(), agents = Array.from({ length: 30 }, (_, i) => agent(String(i)));
+  s.reconcile({ agents: agents.slice(0, 4) });
+  const original = s.desks.map(d => [d, d.x, d.y]);
+  s.reconcile({ agents });
+  assert.ok(s.layout().labExtra > 0);
+  for (const [d, x, y] of original) assert.deepEqual([d.x, d.y], [x, y]);
+  const fixtures = [[56, 150, 30, 26], [8, 58, 26, 70], [88, 42, 34, 20],
+    [216, 98, 16, 24], [160, 164, 52, 26], [124, 30, 136, 58]];
+  s.desks.forEach((d, i) => {
+    assert.ok(d.x - 32 >= 8 - s.layout().labExtra && d.x + 32 <= 264);
+    assert.ok(d.y - 30 >= 34 && d.y + 24 <= 240);
+    const obstacles = [...fixtures, ...s.desks.slice(0, i).map(other => [other.x - 32, other.y - 30, 64, 54])];
+    for (const [x, y, width, height] of obstacles)
+      assert.ok(d.x + 32 <= x || d.x - 32 >= x + width || d.y + 24 <= y || d.y - 30 >= y + height);
+  });
+  const { labExtra, S } = s.layout();
+  for (const w of s.wizards.values()) { [w.x, w.y] = w.home; w.path = []; }
+  const left = [...s.wizards.values()].sort((a, b) => a.x - b.x)[0];
+  assert.equal(s.pickAt({ clientX: (left.x + labExtra) * S, clientY: (left.y - 10) * S }), left.a.id);
+  s.setData({ quotas: [{ id: 'claude', origins: ['remote'] }] });
+  const bottle = s.usageProbe('usage:claude');
+  assert.equal(s.pickAt({ clientX: (bottle.x + 8 + labExtra) * S, clientY: (bottle.y + 14) * S }), 'usage:claude');
+});
+
+test('new quota bottles relocate conflicting desks after the laboratory has expanded', () => {
+  const s = scene(), agents = Array.from({ length: 30 }, (_, i) => agent(String(i)));
+  s.reconcile({ agents });
+  const quotas = Array.from({ length: 12 }, (_, i) => ({ id: String(i), origins: [] }));
+  s.setData({ quotas });
+  s.reconcile({ agents });
+  assert.equal(s.desks.length, agents.length);
+  for (const q of quotas) {
+    const bottle = s.usageProbe(`usage:${q.id}`);
+    for (const d of s.desks)
+      assert.ok(d.x + 32 <= bottle.x - 4 || d.x - 32 >= bottle.x + 20 || d.y - 30 >= bottle.y + 44);
+  }
 });

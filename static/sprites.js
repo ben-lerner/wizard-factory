@@ -611,13 +611,16 @@ window.SP = (() => {
   };
 
   PR.circle = (g, x, y, t, active) => {
-    const cx = x + 26, cy = y + 14, col = active ? '#9a7cf0' : '#5c4a8a';
+    const cx = x + 26, cy = y + 14, col = active ? '#b49aff' : '#8068bd';
     for (let a = 0; a < 32; a++) {
       const th = a / 32 * Math.PI * 2;
       px(g, cx + Math.round(Math.cos(th) * 24), cy + Math.round(Math.sin(th) * 11), col);
       if (a % 4 === 0) px(g, cx + Math.round(Math.cos(th) * 18), cy + Math.round(Math.sin(th) * 8), col);
     }
-    if (active) { const th = t * 2.4; px(g, cx + Math.round(Math.cos(th) * 24), cy + Math.round(Math.sin(th) * 11), '#e8dcff'); px(g, cx + Math.round(Math.cos(th + 3.14) * 24), cy + Math.round(Math.sin(th + 3.14) * 11), '#e8dcff'); }
+    [[0, -7], [13, 0], [0, 7], [-13, 0]].forEach(([dx, dy], i) => px(g, cx + dx, cy + dy, i === ((t * 2 | 0) % 4) ? '#e8dcff' : '#9a7cf0'));
+    const th = t * (active ? 2.8 : .8), glow = active ? '#f0e8ff' : '#b9a5e8';
+    px(g, cx + Math.round(Math.cos(th) * 24), cy + Math.round(Math.sin(th) * 11), glow);
+    if (active) px(g, cx + Math.round(Math.cos(th + Math.PI) * 24), cy + Math.round(Math.sin(th + Math.PI) * 11), glow);
   };
 
   PR.board = (g, x, y) => {

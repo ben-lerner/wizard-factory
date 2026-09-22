@@ -16,7 +16,7 @@ function scene() {
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
@@ -202,6 +202,22 @@ test('long task labels truncate at the end of the fifth line', () => {
   const lines = s.calls.filter(c => c[0] === 'drawText').map(c => c[3]);
   assert.equal(lines.length, 5);
   assert.match(lines[4], /\.\.\.$/);
+});
+test('long placards relocate desks instead of overlapping', () => {
+  const s = scene(), agents = Array.from({ length: 9 }, (_, i) => agent(String(i)));
+  s.reconcile({ agents });
+  const before = new Map(s.desks.map(d => [d.w.a.id, `${d.x},${d.y}`])), steps = s.layout().labSteps;
+  s.reconcile({ agents: agents.map(a => ({ ...a, title: 'review the complete architecture and document every correctness boundary in detail' })) });
+  const spaces = s.desks.map(d => s.deskSpace(d.x, d.y, d.w));
+  for (let i = 0; i < spaces.length; i++) for (let j = i + 1; j < spaces.length; j++) {
+    const a = spaces[i], b = spaces[j];
+    assert.ok(a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y,
+      `Placards overlap at desks ${i} and ${j}`);
+  }
+  const moved = s.desks.filter(d => before.get(d.w.a.id) !== `${d.x},${d.y}`);
+  assert.ok(moved.length);
+  assert.ok(s.layout().labSteps > steps);
+  for (const d of moved) assert.deepEqual(Array.from(d.w.path.at(-1) || [d.w.x, d.w.y]), [d.x, d.y]);
 });
 test('usage tooltips omit zero resets and retain positive or unknown credits', () => {
   const s = scene();
@@ -641,4 +657,13 @@ test('crystal fills red and flares above 75 percent cpu', () => {
   s.SP.PR.crystal(s.ctx, 216, 98, 1, 80);
   assert.ok(fills.some(x => x.color === '#ff4a4a'));
   assert.ok(fills.some(x => x.color === '#ffe89a'));
+});
+
+test('idle summoning circle keeps bright runes and a moving glint', () => {
+  const s = scene(), fills = [];
+  s.ctx.fillRect = (...args) => fills.push({ args, color: s.ctx.fillStyle });
+  s.SP.PR.circle(s.ctx, 404, 206, 1, false);
+  assert.ok(fills.some(x => x.color === '#8068bd'));
+  assert.ok(fills.some(x => x.color === '#e8dcff'));
+  assert.ok(fills.some(x => x.color === '#b9a5e8'));
 });

@@ -177,16 +177,29 @@
     return { x, y: 30, w: 260 - x, h: 58 };
   };
   const deskBounds = (x, y) => ({ x: x - 32, y: y - 30, w: 64, h: 54 });
+  function taskLabelLines(w) {
+    const title = String(w.a.title || w.a.quest || w.a.project || w.sp.name).toUpperCase();
+    let lines = title.match(/.{1,12}(?:\s|$)|.{1,12}/g)?.map(line => line.trim()).filter(Boolean) || ['UNTITLED'];
+    if (lines.length > 5) {
+      lines = lines.slice(0, 5);
+      lines[4] = lines[4].slice(0, 9) + '...';
+    }
+    return lines;
+  }
+  const deskSpace = (x, y, w) => ({ x: x - 32, y: y - 30, w: 64, h: Math.max(54, 36 + taskLabelLines(w).length * 8) });
   const overlaps = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   const labSize = steps => [Math.floor(steps / 3) * 72, (steps - Math.floor(steps / 3)) * 60];
-  const fitsLab = (d, width, height) => d.x - 32 >= 8 - width && d.x + 32 <= 264 && d.y - 30 >= 34 && d.y + 24 <= 240 + height;
-  function deskPosition(anchor, occupied, steps) {
+  const fitsLab = (d, width, height) => {
+    const b = deskSpace(d.x, d.y, d.w);
+    return b.x >= 8 - width && b.x + b.w <= 264 && b.y >= 34 && b.y + b.h <= 240 + height;
+  };
+  function deskPosition(anchor, occupied, steps, w) {
     const [width, height] = labSize(steps);
     let best, distance = Infinity;
     // Search the whole usable floor, including gaps between fixtures.
     for (let y = 64; y <= 216 + height; y += 4) for (let x = 40 - width; x <= 232; x += 8) {
-      const score = Math.hypot(x - anchor[0], y - anchor[1]);
-      if (score >= distance || occupied.some(b => overlaps(deskBounds(x, y), b))) continue;
+      const space = deskSpace(x, y, w), score = Math.hypot(x - anchor[0], y - anchor[1]);
+      if (space.y + space.h > 240 + height || score >= distance || occupied.some(b => overlaps(space, b))) continue;
       best = [x, y]; distance = score;
     }
     return best;
@@ -201,12 +214,12 @@
     while (labSteps) {
       const [width, height] = labSize(labSteps - 1);
       const outside = desks.filter(d => !fitsLab(d, width, height));
-      const occupied = [...DESK_FIXTURES, quotaSpace(), ...desks.filter(d => fitsLab(d, width, height)).map(d => deskBounds(d.x, d.y))];
+      const occupied = [...DESK_FIXTURES, quotaSpace(), ...desks.filter(d => fitsLab(d, width, height)).map(d => deskSpace(d.x, d.y, d.w))];
       const moves = [];
       for (const d of outside) {
-        const pos = d.active && deskPosition([d.x, d.y], occupied, labSteps - 1);
+        const pos = d.active && deskPosition([d.x, d.y], occupied, labSteps - 1, d.w);
         if (!pos) break;
-        moves.push([d, pos]); occupied.push(deskBounds(...pos));
+        moves.push([d, pos]); occupied.push(deskSpace(...pos, d.w));
       }
       if (moves.length !== outside.length) break;
       for (const [d, pos] of moves) { [d.x, d.y] = pos; d.w.home = pos; }
@@ -223,14 +236,32 @@
   }
   function makeDesk(w) {
     const parent = wizards.get(w.a.parent), anchor = parent && parent.home || [100, 80];
-    const occupied = [...DESK_FIXTURES, quotaSpace(), ...desks.filter(d => d.active || d.alpha > 0).map(d => deskBounds(d.x, d.y))];
+    const occupied = [...DESK_FIXTURES, quotaSpace(), ...desks.filter(d => d.active || d.alpha > 0).map(d => deskSpace(d.x, d.y, d.w))];
     let pos, steps = 0;
-    while (!(pos = deskPosition(anchor, occupied, steps))) steps++;
+    while (!(pos = deskPosition(anchor, occupied, steps, w))) steps++;
     if (steps > labSteps) sizeLab(steps);
     const [x, y] = pos;
     w.desk = { x, y, active: true, alpha: 0, elapsed: 0, w };
     desks.push(w.desk);
     return pos;
+  }
+  function settleDesks() {
+    const occupied = [...DESK_FIXTURES, quotaSpace(), ...desks.filter(d => !d.active && d.alpha > 0).map(d => deskSpace(d.x, d.y, d.w))];
+    const reroute = [];
+    let steps = labSteps;
+    for (const d of desks.filter(d => d.active)) {
+      const space = deskSpace(d.x, d.y, d.w);
+      if (fitsLab(d, ...labSize(steps)) && !occupied.some(b => overlaps(space, b))) {
+        occupied.push(space); continue;
+      }
+      let pos;
+      while (!(pos = deskPosition([d.x, d.y], occupied, steps, d.w))) steps++;
+      [d.x, d.y] = pos; d.w.home = pos;
+      if (d.w.path.length) reroute.push(d.w);
+      occupied.push(deskSpace(...pos, d.w));
+    }
+    if (steps > labSteps) sizeLab(steps);
+    for (const w of reroute) pathTo(w, ...w.home);
   }
   function release(w) {
     if (w.desk) { w.desk.active = false; w.desk = null; }
@@ -270,7 +301,7 @@
   function reconcile(data) {
     for (let i = desks.length - 1; i >= 0; i--) {
       const d = desks[i];
-      if (!overlaps(deskBounds(d.x, d.y), quotaSpace())) continue;
+      if (!overlaps(deskSpace(d.x, d.y, d.w), quotaSpace())) continue;
       if (d.w.desk === d) { d.w.desk = null; d.w.station = null; }
       desks.splice(i, 1);
     }
@@ -303,6 +334,7 @@
       if (changed) { w.castAt = 0; retarget(w); }
     }
     for (const [id, w] of wizards) if (!seen.has(id) && !w.leaving) { leaveGameForWizard(w, 0); w.leaving = true; release(w); w.station = null; pathTo(w, 436, 250); w.path.push([436, 266]); }
+    settleDesks();
   }
 
   // ---------- cat & barista ----------
@@ -1272,7 +1304,8 @@
     updateLightning(t);
     // ambient particles
     if (Math.random() < dt * (t < BREW.fire ? 9 : 2)) spark(62 + Math.random() * 16, 154, BREW.color, -14, .8);
-    if (occupied('circle') && Math.random() < dt * 6) { const a = Math.random() * 6.28; spark(430 + Math.cos(a) * 22, 220 + Math.sin(a) * 9, '#9a7cf0', -12, .9); }
+    const circleActive = occupied('circle');
+    if (Math.random() < dt * (circleActive ? 7 : .45)) { const a = Math.random() * 6.28; spark(430 + Math.cos(a) * 22, 220 + Math.sin(a) * 9, circleActive ? '#d8c8ff' : '#9a7cf0', -12, .9); }
     if ((lastData.cpu || 0) > 75 && Math.random() < dt * 12) spark(223 + Math.random() * 12 - 6, 101, Math.random() < .5 ? '#ff5a5a' : '#ffe89a', -12, .7);
     else if (occupied('crystal') && Math.random() < dt * 3) spark(223, 100, '#cfe8ff', -8, .7);
     if ([...wizards.values()].some(w => w.station === 'cafe') && Math.random() < dt * 4) spark(312, 184, '#d8d4e4', -9, 1);
@@ -1642,12 +1675,7 @@
   }
   function drawTaskLabel(d) {
     const colors = DESK_COLORS[d.w.sp.demon ? 'demon' : 'wizard'];
-    const title = String(d.w.a.title || d.w.a.quest || d.w.a.project || d.w.sp.name).toUpperCase();
-    let shown = title.match(/.{1,12}(?:\s|$)|.{1,12}/g)?.map(line => line.trim()).filter(Boolean) || ['UNTITLED'];
-    if (shown.length > 5) {
-      shown = shown.slice(0, 5);
-      shown[4] = shown[4].slice(0, 9) + '...';
-    }
+    const shown = taskLabelLines(d.w);
     const width = Math.max(...shown.map(line => textW(line))) + 8, left = Math.round(d.x - width / 2), top = d.y + 3;
     g.save(); g.globalAlpha = d.alpha;
     g.fillStyle = colors.frame; g.fillRect(left, top, width, shown.length * 8 + 3);

@@ -21,7 +21,7 @@
     board:    { spots: [[306, 56], [330, 56], [284, 58]], emote: 'scroll' },
     odesk:    { spots: [[313, 92], [373, 112], [336, 130]], emote: null },
     cafe:     { spots: [[308, 226], [330, 226], [352, 226], [374, 226], [394, 224]], emote: 'coffee' },
-    hearth:   { spots: [[425, 70], [425, 92]], emote: null },
+    hearth:   { spots: [[425, 65], [425, 87]], emote: null },
     door:     { spots: [[436, 248]], emote: 'star' },
   };
   for (const k in ST) ST[k].occ = ST[k].spots.map(() => null);
@@ -1023,7 +1023,7 @@
       drawTableGame(gg, table, t);
     }]),
     [86, gg => PR.hearth(gg, 440, 50, t)],
-    [87, gg => PR.chair(gg, 418, 62, false)], [109, gg => PR.chair(gg, 418, 84, false)],
+    [82, gg => PR.chair(gg, 418, 57, false)], [104, gg => PR.chair(gg, 418, 79, false)],
     [214.5, gg => PR.counter(gg, 296, 196)], [215, gg => PR.espresso(gg, 306, 186, t)],
     [215.2, gg => PR.beans(gg, PAN[0], PAN[1], t < dragon.roastUntil + 4)],
     [215.3, gg => { if (dragon.task) PR.cup(gg, CUP[0], CUP[1], dragon.task.drink.key, t); }],

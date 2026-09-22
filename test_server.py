@@ -122,6 +122,13 @@ class QuotaTest(unittest.TestCase):
         self.assertEqual([(q['name'], q['origins']) for q in qs], [('Listed', [])])
         self.assertEqual([(q['name'], q['origins']) for q in local], [('In use', ['local'])])
 
+    def test_disconnected_local_account_has_no_quota_bottle(self):
+        (self.b / 'auth.json').unlink()
+        with patch.dict(server.os.environ, {'CODEX_HOME': str(self.b)}), \
+                patch.object(server, 'collect', side_effect=self.collect) as collect:
+            self.assertEqual(server.account_quotas(False), [])
+        collect.assert_not_called()
+
     def test_listed_home_with_missing_auth_is_not_duplicated(self):
         (self.a / 'auth.json').unlink()
         with patch.object(server, 'collect', side_effect=self.collect):

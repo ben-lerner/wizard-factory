@@ -129,6 +129,8 @@ def account_quotas(listed):
     accounts = json.loads(config.read_text()) if listed and config.exists() else {}
     homes = {name: (config.parent / Path(home).expanduser()).resolve() for name, home in accounts.items()}
     active = account_id(active_home())
+    if not listed and not active:
+        return []
     identities = {name: account_id(home) for name, home in homes.items()}
     if not listed:
         name = 'In use'

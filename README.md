@@ -20,7 +20,7 @@ Agent polling has no Python dependencies and uses the system `ssh` command.
 Usage displays require `~/token-quota` and an authenticated Codex CLI on each
 machine. Configure the accounts to display in
 `~/.config/codex-quota/accounts.json` on `mage-tower` (or locally when remote
-polling is disabled).
+polling is disabled). A disconnected local Codex home does not add a usage bottle.
 
 ## How it works
 

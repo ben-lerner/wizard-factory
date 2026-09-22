@@ -17,11 +17,11 @@
     labwait:  { spots: [[76, 132], [148, 132], [112, 104]], emote: 'think' },
     desk:     { spots: [[109, 198], [153, 198]], emote: 'write' },
     crystal:  { spots: [[223, 128], [204, 120]], emote: 'scry' },
-    circle:   { spots: [[186, 162], [164, 178], [208, 178]], emote: 'summon' },
+    circle:   { spots: [[430, 204], [408, 220], [452, 220]], emote: 'summon' },
     board:    { spots: [[306, 56], [330, 56], [284, 58]], emote: 'scroll' },
     odesk:    { spots: [[313, 92], [373, 112], [336, 130]], emote: null },
     cafe:     { spots: [[308, 226], [330, 226], [352, 226], [374, 226], [394, 224]], emote: 'coffee' },
-    hearth:   { spots: [[425, 90], [425, 112]], emote: null },
+    hearth:   { spots: [[425, 78], [425, 100]], emote: null },
     door:     { spots: [[436, 248]], emote: 'star' },
   };
   for (const k in ST) ST[k].occ = ST[k].spots.map(() => null);
@@ -35,9 +35,8 @@
     { x: 86, y: 46, w: 38, h: 16 },
     { x: 216, y: 104, w: 16, h: 18 },
     { x: 299, y: 96, w: 28, h: 14 }, { x: 359, y: 116, w: 28, h: 14 },
-    { x: 438, y: 72, w: 32, h: 24 },
+    { x: 438, y: 60, w: 32, h: 24 },
     { x: 294, y: 194, w: 102, h: 25 },
-    { x: 452, y: 40, w: 13, h: 14 },
   ];
   const bodyR = e => e && e.sp ? WIZ_R : e && e.frames ? DRAGON_R : CAT_R;
   const snap = v => Math.round(v / GRID) * GRID;
@@ -169,7 +168,6 @@
     { x: 8, y: 58, w: 26, h: 70 }, // shelves
     { x: 88, y: 42, w: 34, h: 20 }, // bench
     { x: 216, y: 98, w: 16, h: 24 }, // crystal
-    { x: 160, y: 164, w: 52, h: 26 }, // summoning circle
   ];
   const quotaSpace = () => {
     const x = 236 - (Math.max(6, usageProbes().length) - 1) * 22;
@@ -598,7 +596,7 @@
   const SPELL_TARGETS = {
     cauldron: [[68, 154], [80, 154]], shelf: [[24, 68], [24, 104], [24, 140]],
     bench: [[98, 50], [112, 50]], submit: [[112, 118], [84, 126], [140, 126]], labwait: [[112, 118], [92, 130], [132, 130]], desk: [[108, 204], [152, 204]],
-    crystal: [[223, 102]], circle: [[186, 176]], board: [[314, 28], [300, 28]],
+    crystal: [[223, 102]], circle: [[430, 218]], board: [[314, 28], [300, 28]],
   };
   function spark(x, y, c, vy, life, kind) {
     if (PARTS.length > 220) return;
@@ -1007,12 +1005,11 @@
     [120, gg => PR.crystal(gg, 216, 98, occupied('crystal') ? t : 0)],
     [29, gg => PR.board(gg, 300, 8)],
     ...TABLES.filter(table => table !== COURT).map(table => [table.y + 5, gg => { PR.gameTable(gg, table.x, table.y); drawTableGame(gg, table, t); }]),
-    [94, gg => PR.hearth(gg, 440, 70, t)],
-    [95, gg => PR.chair(gg, 418, 82, false)], [117, gg => PR.chair(gg, 418, 104, false)],
+    [94, gg => PR.hearth(gg, 440, 58, t)],
+    [95, gg => PR.chair(gg, 418, 70, false)], [117, gg => PR.chair(gg, 418, 92, false)],
     [214.5, gg => PR.counter(gg, 296, 196)], [215, gg => PR.espresso(gg, 306, 186, t)],
     [215.2, gg => PR.beans(gg, PAN[0], PAN[1], t < dragon.roastUntil + 4)],
     [215.3, gg => { if (dragon.task) PR.cup(gg, CUP[0], CUP[1], dragon.task.drink.key, t); }],
-    [52, gg => PR.plant(gg, 452, 38)],
     [274, gg => PR.doorway(gg, 424, 258, t)],
   ];
   const occupied = key => [...wizards.values()].some(w => w.station === key && !w.path.length && (w.a.status === 'working' || w.a.status === 'attention'));
@@ -1146,7 +1143,7 @@
     updateLightning(t);
     // ambient particles
     if (Math.random() < dt * (t < BREW.fire ? 9 : 2)) spark(62 + Math.random() * 16, 154, BREW.color, -14, .8);
-    if (occupied('circle') && Math.random() < dt * 6) { const a = Math.random() * 6.28; spark(186 + Math.cos(a) * 22, 178 + Math.sin(a) * 9, '#9a7cf0', -12, .9); }
+    if (occupied('circle') && Math.random() < dt * 6) { const a = Math.random() * 6.28; spark(430 + Math.cos(a) * 22, 220 + Math.sin(a) * 9, '#9a7cf0', -12, .9); }
     if (occupied('crystal') && Math.random() < dt * 3) spark(223, 100, '#cfe8ff', -8, .7);
     if ([...wizards.values()].some(w => w.station === 'cafe') && Math.random() < dt * 4) spark(312, 184, '#d8d4e4', -9, 1);
     const dBar = dragonAtBar();
@@ -1531,7 +1528,7 @@
     for (let i = 0; i < 5; i++) PR.window(g, WIN_X[i], 8, t, i * 7 + 3);
     drawLightningWindow(g, t);
     PR.torch(g, 24, 14, t); PR.torch(g, 240, 14, t + .5); PR.torch(g, 282, 14, t + .2); PR.torch(g, 444, 14, t + .8);
-    PR.circle(g, 160, 152 + 12, t, occupied('circle'));
+    PR.circle(g, 404, 206, t, occupied('circle'));
     drawLightningCast(g, t);
     drawBonds(t);
     drawCourt(g, t);

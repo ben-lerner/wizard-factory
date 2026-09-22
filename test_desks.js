@@ -351,11 +351,11 @@ test('work builds runes, completion celebrates once, and the celebration expires
   s.update(.1, 4.1);
   assert.equal(s.RITUALS.length, 0);
 });
-test('desk experiments include only storms, moons and crystals', () => {
+test('desk experiments include only supported decorations', () => {
   const s = scene(), kinds = new Set();
   s.SP.PR.experiment = (g,x,y,kind) => kinds.add(kind);
   for (let seed = 1; seed < 200; seed++) s.SP.PR.deskDecor(s.ctx,100,100,48,seed,null,10);
-  assert.deepEqual([...kinds].sort(), [5,6,7]);
+  assert.deepEqual([...kinds].sort(), [5, 7]);
 });
 test('desk pets are deterministic and react to completion', () => {
   const s = scene();
@@ -422,7 +422,7 @@ test('laboratory grows instead of overlapping fixtures or existing desks', () =>
   assert.ok(s.layout().labExtra > 0);
   for (const [d, x, y] of original) assert.deepEqual([d.x, d.y], [x, y]);
   const fixtures = [[56, 150, 30, 26], [8, 58, 26, 70], [88, 42, 34, 20],
-    [216, 98, 16, 24], [160, 164, 52, 26], [124, 30, 136, 58]];
+    [216, 98, 16, 24], [124, 30, 136, 58]];
   s.desks.forEach((d, i) => {
     assert.ok(d.x - 32 >= 8 - s.layout().labExtra && d.x + 32 <= 264);
     assert.ok(d.y - 30 >= 34 && d.y + 24 <= 240 + s.layout().labDown);
@@ -470,7 +470,7 @@ test('quota symbols distinguish exhausted and unavailable readings in their bott
 test('laboratory fills its current floor before growing two rows then a column', () => {
   const s = scene(), agents = [], growth = [];
   const fixtures = [[56, 150, 30, 26], [8, 58, 26, 70], [88, 42, 34, 20],
-    [216, 98, 16, 24], [160, 164, 52, 26], [124, 30, 136, 58]];
+    [216, 98, 16, 24], [124, 30, 136, 58]];
   while (growth.length < 6) {
     const before = s.layout(), occupied = [...fixtures, ...s.desks.map(d => [d.x - 32, d.y - 30, 64, 54])];
     agents.push(agent(String(agents.length)));

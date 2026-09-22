@@ -410,10 +410,6 @@ window.SP = (() => {
       rc(g, x - 5, y - 4, 10, 4, '#7c8baa'); rc(g, x - 3, y - 6, 6, 3, '#aebed1');
       for (let i = 0; i < 3; i++) rc(g, x - 4 + i * 3, y + (t * 7 + i * 2) % 6, 1, 2, '#8bd2f0');
       if (t % 4 < .4) { rc(g, x, y, 2, 3, '#ffe697'); rc(g, x - 1, y + 3, 2, 3, '#ffe697'); }
-    } else if (kind === 6) {
-      rc(g, x - 3, y - 3, 6, 6, '#7da8d7'); rc(g, x - 2, y - 2, 2, 4, '#7fc393');
-      g.strokeStyle = '#74769b'; g.lineWidth = 1; g.beginPath(); g.ellipse(x, y, 8, 4, -.4, 0, Math.PI * 2); g.stroke();
-      rc(g, x + Math.cos(t) * 8 - 1, y + Math.sin(t) * 4 - 1, 3, 3, '#eee3c0');
     } else if (kind === 7) {
       for (let i = 0; i < 3; i++) {
         const h = 4 + (Math.sin(t * .6 + i) + 1) * 3, bx = x - 5 + i * 4;
@@ -485,7 +481,7 @@ window.SP = (() => {
 
   PR.deskDecor = (g, x, y, width, seed, drink, t) => {
     const r = rng(seed), color = pick(r, ['#88d8d0', '#b9a0eb', '#e9ba69', '#91c978', '#e998bc']);
-    const kind = Math.floor(r() * 8), angle = t * (.35 + r() * .3) + r() * Math.PI * 2;
+    const kind = [0, 1, 2, 3, 4, 5, 7][Math.floor(r() * 7)], angle = t * (.35 + r() * .3) + r() * Math.PI * 2;
     const phase = (t + seed % 47) % (50 + seed % 21), mishap = phase < 3 ? Math.sin(phase / 3 * Math.PI) : 0;
     const accident = (seed >>> 12) % 3;
     const cx = x - width / 2 + 7 + (accident === 0 ? mishap * 7 : 0);

@@ -536,8 +536,15 @@ window.SP = (() => {
     const big = shape !== 'thin', rows = big ? [3, 3, 4, 6, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 6, 5] :
       [2, 2, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4];
     const cx = x + (big ? 8 : 4), top = y + 3, bottom = top + rows.length - 1;
+    const fills = Array.isArray(fill) ? fill : [{ value: fill, color }], interior = rows.length - 2;
+    let used = 0;
+    const ranges = fills.map(part => {
+      const start = used, value = Math.max(0, Number(part.value) || 0);
+      used = Math.min(100, used + value);
+      return [start, used, part.color || color];
+    }), total = used;
     if (shape === 'spiral') {
-      const fillY = bottom - Math.round((rows.length - 2) * fill / 100);
+      const fillY = bottom - Math.round((rows.length - 2) * total / 100);
       for (let yy = top + 1, i = 0; yy < bottom - 2; yy += 4, i++) {
         const full = yy + 2 >= fillY, back = full ? '#2f7898' : '#596278', front = full ? color : '#8d98ad';
         rc(g, cx - 6, yy, 5, 1, back); rc(g, cx + 2, yy, 5, 1, back);
@@ -547,19 +554,22 @@ window.SP = (() => {
         px(g, cx + (i % 2 ? 7 : -7), yy + 3, front);
       }
       rc(g, cx - 4, y, 9, 2, '#4c5164'); rc(g, cx - 3, y + 2, 7, 1, '#9aa3b8');
-      if (fill > 2) px(g, cx + 3, bottom - 3, '#e6f6ff');
+      if (total > 2) px(g, cx + 3, bottom - 3, '#e6f6ff');
       return;
     }
     rows.forEach((half, iy) => {
       const yy = top + iy, edge = iy === 0 || iy === rows.length - 1;
       if (shape === 'vat') half = Math.min(half, 6);
       rc(g, cx - half, yy, half * 2 + 1, 1, edge ? '#30364a' : '#778096');
-      if (!edge && yy >= bottom - Math.round((rows.length - 2) * fill / 100))
-        rc(g, cx - half + 1, yy, half * 2 - 1, 1, color);
+      if (!edge) {
+        const fromBottom = bottom - yy;
+        const liquid = ranges.find(([start, end]) => fromBottom > Math.round(interior * start / 100) && fromBottom <= Math.round(interior * end / 100));
+        if (liquid) rc(g, cx - half + 1, yy, half * 2 - 1, 1, liquid[2]);
+      }
     });
     rc(g, cx - (big ? 4 : 3), y, big ? 9 : 7, 2, '#4c5164');
     rc(g, cx - (big ? 3 : 2), y + 2, big ? 7 : 5, 1, '#9aa3b8');
-    if (fill > 2) px(g, cx - 2 + ((t * 2 + x) % 3 | 0), bottom - Math.max(1, Math.round((rows.length - 3) * fill / 100)), '#f0ecff');
+    if (total > 2) px(g, cx - 2 + ((t * 2 + x) % 3 | 0), bottom - Math.max(1, Math.round((rows.length - 3) * total / 100)), '#f0ecff');
   };
 
   PR.circle = (g, x, y, t, active) => {

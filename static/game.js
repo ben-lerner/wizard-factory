@@ -172,7 +172,7 @@
     { x: 160, y: 164, w: 52, h: 26 }, // summoning circle
   ];
   const quotaSpace = () => {
-    const x = 236 - (Math.max(6, (lastData.quotas || []).length) - 1) * 22;
+    const x = 236 - (Math.max(6, usageProbes().length) - 1) * 22;
     return { x, y: 30, w: 260 - x, h: 58 };
   };
   const deskBounds = (x, y) => ({ x: x - 32, y: y - 30, w: 64, h: 54 });
@@ -940,7 +940,7 @@
   function drawUsageProbes(t) {
     for (const v of usageProbes()) {
       const q = v.q, color = v.color;
-      PR.quotaVat(g, v.x, v.y, 'vat', q.left ?? 0, color, t);
+      PR.quotaVat(g, v.x, v.y, 'vat', v.fills || (q.left ?? 0), color, t);
       const unavailable = q.error || q.left == null;
       if (unavailable || q.left === 0) {
         const cy = Math.round(v.y + 14 + Math.sin(t * 2 + v.i) * 2);
@@ -968,13 +968,35 @@
       if (q.resets_left > 5) drawText(g, v.x + 14, v.y - 7, `+${q.resets_left - 5}`, color);
     }
   }
-  const usageProbes = () => (lastData.quotas || []).map((q, i, quotas) => {
-    const local = q.origins.includes('local'), remote = q.origins.includes('remote');
-    return { q, i, x: 240 - (quotas.length - 1 - i) * 22, y: 43,
-      label: local && remote ? 'L/R' : local ? 'LOC' : remote ? 'REM' : '',
-      color: `hsl(${(195 + i * 137.508) % 360} 82% 65%)` };
-  });
-  const usageProbe = id => usageProbes().find(v => id === `usage:${v.q.id}`);
+  const usageProbes = () => {
+    const quotas = lastData.quotas || [], colors = quotas.map((q, i) =>
+      `hsl(${(195 + i * 137.508) % 360} 82% 65%)`);
+    const claude = quotas.findIndex(q => q.provider === 'claude' && q.name === 'Claude');
+    const fable = quotas.findIndex(q => q.provider === 'claude' && q.name === 'Fable');
+    const combined = claude >= 0 && fable >= 0;
+    const probes = [];
+    for (let i = 0; i < quotas.length; i++) {
+      if (combined && i === fable) continue;
+      if (combined && i === claude) {
+        const cq = quotas[claude], fq = quotas[fable], origins = [...new Set([...(cq.origins || []), ...(fq.origins || [])])];
+        probes.push({ q: { ...cq, id: cq.id, name: 'Claude + Fable', origins,
+          left: cq.left == null || fq.left == null ? null : (cq.left + fq.left) / 2,
+          resets_at: cq.resets_at || fq.resets_at, error: cq.error || fq.error },
+          ids: [cq.id, fq.id], fills: [
+            { value: cq.left == null ? 0 : cq.left / 2, color: colors[claude] },
+            { value: fq.left == null ? 0 : fq.left / 2, color: colors[fable] },
+          ], color: colors[fable] });
+        continue;
+      }
+      probes.push({ q: quotas[i], ids: [quotas[i].id], color: colors[i] });
+    }
+    return probes.map((v, i) => {
+      const q = v.q, local = (q.origins || []).includes('local'), remote = (q.origins || []).includes('remote');
+      return { ...v, i, x: 240 - (probes.length - 1 - i) * 22, y: 43,
+        label: local && remote ? 'L/R' : local ? 'LOC' : remote ? 'REM' : '' };
+    });
+  };
+  const usageProbe = id => usageProbes().find(v => v.ids.some(qid => id === `usage:${qid}`));
 
   // animated props, y-sorted with sprites: [sortY, drawFn]
   const props = t => [

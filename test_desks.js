@@ -148,6 +148,23 @@ test('additional quota accounts render distinct bottles and remain hoverable', (
     });
   }
 });
+test('Claude and Fable share one cylinder with half-height liquid segments', () => {
+  const s = scene(), bottles = [];
+  s.SP.PR.quotaVat = (g, x, y, shape, fill, color) => bottles.push({ x, y, shape, fill, color });
+  s.setData({ quotas: [
+    { id: 'claude:active', name: 'Claude', provider: 'claude', origins: ['local'], left: 100, resets_left: null },
+    { id: 'claude:Fable', name: 'Fable', provider: 'claude', origins: ['remote'], left: 90, resets_left: null },
+  ] });
+  s.drawUsageProbes(0);
+  assert.equal(bottles.length, 1);
+  assert.equal(bottles[0].shape, 'vat');
+  assert.deepEqual([...bottles[0].fill].map(part => part.value), [50, 45]);
+  assert.notEqual(bottles[0].fill[0].color, bottles[0].fill[1].color);
+  const combined = s.usageProbe('usage:claude:active');
+  assert.equal(combined.q.name, 'Claude + Fable');
+  assert.equal(combined.q.left, 95);
+  assert.equal(s.usageProbe('usage:claude:Fable').q.left, combined.q.left);
+});
 test('reset countdowns round up hours and retain minutes below one hour', () => {
   const s = scene();
   for (const [seconds, label] of [[15 * 3600 + 53 * 60, '16H'], [3601, '2H'], [3599, '59M'], [30, '0M'], [-1, '0M'], [86400, '24H'], [2 * 86400, '2D']]) {

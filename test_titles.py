@@ -96,6 +96,20 @@ class TaskTitlesTest(unittest.TestCase):
             server.restore_claude_title(state)
             self.assertEqual(state.payload()['title'], 'review architecture')
 
+    def test_restores_subagent_scope_as_title(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'parent/subagents/agent-test.jsonl'
+            path.parent.mkdir(parents=True)
+            prompt = ('You are doing a read-only architecture review of one subsystem of Black Lotus.\n\n'
+                      '## Your scope: the SQL frontend and lowering (SQL AST -> typed Plan)\nInvestigate it.')
+            path.write_text(json.dumps({'type': 'user', 'message': {'content': prompt}}) + '\n' +
+                            (json.dumps({'type': 'progress', 'text': 'x' * 1024}) + '\n') * 600)
+            state = server.FileState(path)
+            state.offset = path.stat().st_size - 512 * 1024
+            server.restore_claude_title(state)
+            self.assertEqual(state.payload()['title'], 'the SQL frontend and lowering (SQL AST -> typed Plan)')
+            self.assertTrue(state.payload()['quest'].startswith('You are doing a read-only architecture review'))
+
     def test_claude_title_at_exact_tail_boundary(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'session.jsonl'

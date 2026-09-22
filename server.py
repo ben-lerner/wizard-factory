@@ -96,6 +96,14 @@ def message_texts(content):
         if isinstance(b, dict) and b.get('type') == 'text'] if isinstance(content, list) else []
 
 
+def subagent_title(text):
+    scope = next((line.removeprefix('## Your scope:').strip() for line in text.splitlines()
+                  if line.startswith('## Your scope:')), '')
+    if not scope and 'read-only ' in text:
+        scope = text.split('read-only ', 1)[1].split(' of Black Lotus', 1)[0]
+    return clean(scope, 90) or None
+
+
 def tool_detail(name, inp):
     if not isinstance(inp, dict):
         return ''
@@ -246,6 +254,8 @@ class FileState:
                 task = title_task(real)
                 if task is not None:
                     real, self.naming = task, True
+                elif self.kind == 'sub' and not self.title:
+                    self.title = subagent_title(real)
                 if self.kind == 'main' or not self.quest:
                     self.quest = clean(real)
                 self._say('user', real, ts)
@@ -423,14 +433,15 @@ def retail(fs, size):
 
 
 def restore_claude_title(fs):
-    naming = False
+    naming, want_quest = False, fs.kind == 'sub' and not fs.quest
     try:
         with open(fs.path, 'rb') as f:
             while f.tell() <= fs.offset:
                 line = f.readline()
                 if not line:
                     break
-                if b'"custom-title"' not in line and TITLE_PROMPT.encode() not in line and not (naming and b'"assistant"' in line):
+                if b'"custom-title"' not in line and TITLE_PROMPT.encode() not in line and \
+                        not (naming and b'"assistant"' in line) and not (want_quest and b'"user"' in line):
                     continue
                 try:
                     event = json.loads(line)
@@ -438,7 +449,13 @@ def restore_claude_title(fs):
                         fs.feed(event)
                     elif event.get('type') == 'user':
                         content = (event.get('message') or {}).get('content')
-                        naming = any(title_task(text) is not None for text in message_texts(content))
+                        texts = message_texts(content)
+                        naming = any(title_task(text) is not None for text in texts)
+                        real = next((text for text in texts if text and text[0] not in '<[' and
+                                     not text.startswith(('Caveat:', 'This session is being continued'))), None)
+                        if want_quest and real and not naming:
+                            fs.quest, fs.title = clean(real), fs.title or subagent_title(real)
+                            want_quest = False
                     elif naming and event.get('type') == 'assistant':
                         texts = message_texts((event.get('message') or {}).get('content'))
                         title = next(filter(None, map(generated_title, texts)), None)

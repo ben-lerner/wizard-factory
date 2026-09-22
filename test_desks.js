@@ -16,7 +16,7 @@ function scene() {
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, drawUsageProbes, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
@@ -193,6 +193,15 @@ test('task and bottle labels render after sprites and thought bubbles', () => {
   const bottle = s.calls.findIndex(c => c[0] === 'drawText' && c[3] === 'LOC');
   assert.ok(bubble >= 0 && title > bubble && bottle > title);
   assert.equal(s.calls.slice(bottle).some(c => c[0] === 'drawImage'), false);
+});
+test('long task labels truncate at the end of the fifth line', () => {
+  const s = scene(), a = { ...agent('long-label'), title: 'one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen' };
+  s.reconcile({ agents: [a] });
+  s.calls.length = 0;
+  s.drawTaskLabel(s.wizards.get(a.id).desk);
+  const lines = s.calls.filter(c => c[0] === 'drawText').map(c => c[3]);
+  assert.equal(lines.length, 5);
+  assert.match(lines[4], /\.\.\.$/);
 });
 test('usage tooltips omit zero resets and retain positive or unknown credits', () => {
   const s = scene();

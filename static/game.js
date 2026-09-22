@@ -1644,7 +1644,10 @@
     const colors = DESK_COLORS[d.w.sp.demon ? 'demon' : 'wizard'];
     const title = String(d.w.a.title || d.w.a.quest || d.w.a.project || d.w.sp.name).toUpperCase();
     let shown = title.match(/.{1,12}(?:\s|$)|.{1,12}/g)?.map(line => line.trim()).filter(Boolean) || ['UNTITLED'];
-    if (shown.length > 4) shown = [...shown.slice(0, 3), '...'];
+    if (shown.length > 5) {
+      shown = shown.slice(0, 5);
+      shown[4] = shown[4].slice(0, 9) + '...';
+    }
     const width = Math.max(...shown.map(line => textW(line))) + 8, left = Math.round(d.x - width / 2), top = d.y + 3;
     g.save(); g.globalAlpha = d.alpha;
     g.fillStyle = colors.frame; g.fillRect(left, top, width, shown.length * 8 + 3);

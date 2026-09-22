@@ -333,7 +333,7 @@
   }
   // Earl Grey roasts the house beans himself.
   const barY = 196, DRAGON_HOME = [338, barY], DRAGON_STRETCH = [[304, 66], [420, 54], [448, 126], [286, 148]], dragonR = rng(777);
-  const dragon = { frames: SP.makeDragon(), x: DRAGON_HOME[0], y: DRAGON_HOME[1], dir: -1, path: [], dest: null, mode: null, stretchUntil: -9, roastAt: 7, roastUntil: -9, flapAt: 45 + dragonR() * 60, flapUntil: -9, task: null, game: null, blast: null };
+  const dragon = { frames: SP.makeDragon(), x: DRAGON_HOME[0], y: DRAGON_HOME[1], dir: -1, path: [], dest: null, mode: null, signal: null, stretchUntil: -9, roastAt: 7, roastUntil: -9, flapAt: 45 + dragonR() * 60, flapUntil: -9, task: null, game: null, blast: null };
   const PAN = [324, 196];
   const CUP = [316, 187], CAT_CAFE = [404, 226];
 
@@ -398,11 +398,24 @@
     } else sendDragonTo(DRAGON_HOME[0], DRAGON_HOME[1], 'bar', t);
   }
   function maybeDragonStretch(t) {
-    if (!dragonAtBar() || dragon.task || t <= dragon.flapAt || t < dragon.roastUntil) return;
+    if (dragon.signal !== 'waiting' || !dragonAtBar() || dragon.task || t <= dragon.flapAt || t < dragon.roastUntil) return;
     if (cafeCustomers().some(c => c.order.stage !== 'served')) { dragon.flapAt = t + 12 + dragonR() * 18; return; }
     const p = DRAGON_STRETCH[dragonR() * DRAGON_STRETCH.length | 0];
     sendDragonTo(p[0], p[1], 'stretch', t);
     dragon.flapAt = t + 75 + dragonR() * 90;
+  }
+  function updateDragonSignal(t) {
+    const agents = lastData.agents || [], signal = agents.some(a => a.status === 'attention') ? 'attention' :
+      agents.some(a => ['working', 'thinking', 'responding'].includes(a.status)) ? 'active' : agents.length ? 'waiting' : 'empty';
+    if (signal !== dragon.signal) {
+      dragon.signal = signal;
+      if (signal === 'active') dragon.roastAt = t;
+    }
+    if (dragon.task || dragon.blast) return;
+    if (signal === 'attention') {
+      if (dragon.game) leaveGameForDragon(t);
+      if (dragon.dest !== 'alert') sendDragonTo(350, 48, 'alert', t);
+    } else if (dragon.dest === 'alert' || signal === 'empty' && !dragonAtBar()) sendDragonHome(t);
   }
   function startDrink(c, t) {
     c.order.stage = 'brewing';
@@ -1014,7 +1027,7 @@
     [174, gg => PR.cauldron(gg, 56, 150, t, BREW)],
     [91, gg => PR.shelf(gg, 10, 60, 11)], [127, gg => PR.shelf(gg, 10, 96, 23)],
     [62, gg => PR.bench(gg, 88, 42, t)],
-    [120, gg => PR.crystal(gg, 216, 98, occupied('crystal') ? t : 0)],
+    [120, gg => PR.crystal(gg, 216, 98, t, lastData.cpu)],
     [29, gg => PR.board(gg, 300, 8)],
     ...TABLES.filter(table => table !== COURT).map(table => [table.y + 5, gg => {
       if (table === TABLES[1]) updateTopTable();
@@ -1247,6 +1260,7 @@
       if (w.a.status === 'attention' && Math.random() < dt * 2) spark(w.x, w.y - 26, '#ff5a5a', -10, .5);
       if (!maybeRay(w, t)) maybeCast(w, t);
     }
+    updateDragonSignal(t);
     updateDragon(dt, t);
     if (!maybeCatRay(cat, t)) maybeCatCast(t);
     maybeCatRay(demonCat, t);
@@ -1259,20 +1273,22 @@
     // ambient particles
     if (Math.random() < dt * (t < BREW.fire ? 9 : 2)) spark(62 + Math.random() * 16, 154, BREW.color, -14, .8);
     if (occupied('circle') && Math.random() < dt * 6) { const a = Math.random() * 6.28; spark(430 + Math.cos(a) * 22, 220 + Math.sin(a) * 9, '#9a7cf0', -12, .9); }
-    if (occupied('crystal') && Math.random() < dt * 3) spark(223, 100, '#cfe8ff', -8, .7);
+    if ((lastData.cpu || 0) > 75 && Math.random() < dt * 12) spark(223 + Math.random() * 12 - 6, 101, Math.random() < .5 ? '#ff5a5a' : '#ffe89a', -12, .7);
+    else if (occupied('crystal') && Math.random() < dt * 3) spark(223, 100, '#cfe8ff', -8, .7);
     if ([...wizards.values()].some(w => w.station === 'cafe') && Math.random() < dt * 4) spark(312, 184, '#d8d4e4', -9, 1);
     const dBar = dragonAtBar();
     if (dBar && !dragon.task && Math.random() < dt * 3) spark(450 + Math.random() * 6, 86, '#f0a83c', -11, .7);
-    // the dragon's roasting schedule; rare stretch flights are handled after cafe service.
-    if (dBar && !dragon.task && t > dragon.roastAt && t >= dragon.flapUntil) { dragon.roastUntil = t + 1.8; dragon.roastAt = t + 14 + Math.random() * 20; }
+    // Active work keeps the beans roasting; rare stretch flights belong to the waiting state.
+    if (dragon.signal === 'active' && dBar && !dragon.task && t > dragon.roastAt && t >= dragon.flapUntil) { dragon.roastUntil = t + 1.8; dragon.roastAt = t + 4 + Math.random() * 4; }
     if (dBar && !dragon.task && t < dragon.flapUntil && Math.random() < dt * 9) spark(dragon.x - 14 + Math.random() * 28, dragon.y - 4, '#b8b2cc', -3, .5);
     if ((dragon.task && dragon.task.phase === 'brew') || (dBar && t < dragon.roastUntil)) {
       if (Math.random() < dt * 22) spark(PAN[0] + 2 + Math.random() * 5, PAN[1] - 1, Math.random() < .5 ? '#ffd84a' : '#f08a2a', -8 - Math.random() * 8, .45);
     } else if (dBar && !dragon.task && t < dragon.roastUntil + 4 && Math.random() < dt * 6) {
       spark(PAN[0] + 4, PAN[1] - 2, '#9a93b0', -8, 1.2);                 // fresh-roast smoke
-    } else if (dBar && !dragon.task && Math.random() < dt * .15) {
+    } else if (dragon.signal !== 'empty' && dBar && !dragon.task && Math.random() < dt * .15) {
       spark(dragon.x - 13, dragon.y - 21, '#9a93b0', -5, .9);            // idle nostril puff
     }
+    if (dragon.signal === 'empty' && dBar && Math.random() < dt * .45) spark(dragon.x - 10, dragon.y - 20, '#a8a2c8', -5, 1.3, 'z');
     if (dragon.task && dragon.task.phase === 'milk' && Math.random() < dt * 10) spark(CUP[0] + 5, CUP[1] + 3, '#f7f3e8', -4, .45);
     if (cat.state === 'sleep' && Math.random() < dt * .45) spark(cat.x + (cat.dir < 0 ? -5 : 5), cat.y - 14, '#a8a2c8', -5, 1.3, 'z');
     for (let i = PARTS.length - 1; i >= 0; i--) {
@@ -1627,7 +1643,8 @@
   function drawTaskLabel(d) {
     const colors = DESK_COLORS[d.w.sp.demon ? 'demon' : 'wizard'];
     const title = String(d.w.a.title || d.w.a.quest || d.w.a.project || d.w.sp.name).toUpperCase();
-    const shown = title.match(/.{1,12}(?:\s|$)|.{1,12}/g)?.map(line => line.trim()).filter(Boolean) || ['UNTITLED'];
+    let shown = title.match(/.{1,12}(?:\s|$)|.{1,12}/g)?.map(line => line.trim()).filter(Boolean) || ['UNTITLED'];
+    if (shown.length > 4) shown = [...shown.slice(0, 3), '...'];
     const width = Math.max(...shown.map(line => textW(line))) + 8, left = Math.round(d.x - width / 2), top = d.y + 3;
     g.save(); g.globalAlpha = d.alpha;
     g.fillStyle = colors.frame; g.fillRect(left, top, width, shown.length * 8 + 3);
@@ -1664,7 +1681,9 @@
       g.globalAlpha = .3; g.fillStyle = '#0a0810';
       g.fillRect(dragon.x - 9 + lift / 2, dragon.y - 1, 18 - lift, 2);
       g.globalAlpha = 1;
-      if (flap && !firing) {
+      if (dragon.signal === 'empty' && dragonAtBar() && !busy) {
+        g.drawImage(dragon.frames.sleep, Math.round(dragon.x - 15), Math.round(dragon.y - 23));
+      } else if (flap && !firing) {
         const sway = Math.sin(t * 2.8) * 3 * Math.sin(p * Math.PI);
         g.drawImage(dragon.frames[(t * 7 | 0) % 2 ? 'flapA' : 'flapB'], Math.round(dragon.x - 22 + sway), Math.round(dragon.y - 29 - lift));
       } else {
@@ -1725,7 +1744,8 @@
     if (demonCat.active && demonCat.order && demonCat.order.stage !== 'served' && !demonCat.path.length && ((t + 2.3) % 6) < 2.4) tag(demonCat.x, demonCat.y - 25, demonCat.order.drink.name);
     if (hover === 'cat') tag(cat.x, cat.y - 20, 'BIGGLES, STAFF CAT');
     if (hover === 'demon-cat' && demonCat.active) tag(demonCat.x, demonCat.y - 20, 'LUCIPURR');
-    if (hover === 'barista') tag(dragon.x, dragon.y - 32, 'EARL GREY, BARISTA');
+    if (hover === 'barista') tag(dragon.x, dragon.y - 32, `EARL GREY: ${dragon.signal === 'attention' ? 'ALERT' : dragon.signal === 'active' ? 'ROASTING' : dragon.signal === 'empty' ? 'ASLEEP' : 'BARISTA'}`);
+    if (hover === 'cpu') tag(223, 89, lastData.cpu == null ? 'CPU UNAVAILABLE' : `LOCAL CPU ${Math.round(lastData.cpu)}%`);
     drawText(g, 320, 240, 'MANA CAFE', '#ffd84a');
     drawText(g, 60 - labExtra / 2, 240 + labDown, 'LABORATORIVM', '#8a84a0');
     for (const d of desks) drawTaskLabel(d);
@@ -1765,6 +1785,7 @@
     const r = cv.getBoundingClientRect(), mx = (e.clientX - r.left - cv.clientLeft) / S - labExtra, my = (e.clientY - r.top - cv.clientTop) / S;
     const vat = usageProbes().reverse().find(v => mx >= v.x - 3 && mx < v.x + 19 && my >= v.y - 12 && my <= v.y + 44);
     if (vat) return `usage:${vat.q.id}`;
+    if (mx >= 215 && mx <= 230 && my >= 96 && my <= 122) return 'cpu';
     for (const w of [...wizards.values()].sort((a, b) => b.y - a.y))
       if (Math.abs(mx - w.x) <= 9 && my >= w.y - 26 && my <= w.y + 3) return w.a.id;
     if (mx >= dragon.x - 25 && mx <= dragon.x + 25 && my >= dragon.y - 40 && my <= dragon.y + 3) return 'barista';

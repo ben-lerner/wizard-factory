@@ -265,6 +265,12 @@ window.SP = (() => {
       body(g, 7, 4, up, false, false);
       frames[m] = c;
     }
+    const c = document.createElement('canvas'); c.width = 30; c.height = 26;
+    const g = c.getContext('2d'), R = (x, y, w, h, color) => { g.fillStyle = color; g.fillRect(x, y, w, h); };
+    R(7, 14, 16, 7, B); R(10, 12, 10, 3, D); R(17, 9, 4, 4, D); R(20, 7, 2, 3, HORN);
+    R(4, 16, 6, 5, B); R(1, 18, 5, 3, B); R(2, 17, 1, 1, HORN); R(5, 18, 3, 1, '#1c1430');
+    R(21, 18, 6, 3, B); R(25, 16, 3, 2, B); R(27, 14, 2, 2, HORN); R(9, 21, 4, 2, BEL);
+    frames.sleep = c;
     return frames;
   }
 
@@ -550,12 +556,18 @@ window.SP = (() => {
     }
   };
 
-  PR.crystal = (g, x, y, t) => {
+  PR.crystal = (g, x, y, t, usage) => {
     rc(g, x + 3, y + 12, 8, 7, '#5e6478'); rc(g, x + 9, y + 12, 2, 7, '#4c5164');
     rc(g, x + 1, y + 19, 12, 3, '#4c5164'); rc(g, x + 2, y + 10, 10, 2, '#6c7390');
-    rc(g, x + 4, y + 2, 6, 8, '#8fd0ff'); rc(g, x + 3, y + 4, 8, 4, '#8fd0ff');
+    const value = Math.max(0, Math.min(100, Number(usage) || 0)), rows = [6, 8, 8, 8, 8, 6];
+    rows.forEach((width, i) => rc(g, x + 7 - width / 2, y + 2 + i, width, 1,
+      i >= rows.length - Math.ceil(rows.length * value / 100) ? (value > 75 ? '#ff4a4a' : '#d84a5f') : '#243047'));
     const pulse = (t * 2 | 0) % 2;
-    rc(g, x + 5, y + 4 - 0, 2 + pulse, 2, '#e6f6ff');
+    rc(g, x + 5, y + 3, 1 + pulse, 1, value > 75 ? '#ffe89a' : '#e6f6ff');
+    if (value > 75 && (t * 5 | 0) % 2) {
+      px(g, x, y + 2, '#ff8a6a'); px(g, x + 13, y + 4, '#ff8a6a');
+      px(g, x + 2, y - 1, '#ffe89a'); px(g, x + 11, y, '#ffe89a');
+    }
   };
 
   PR.quotaVat = (g, x, y, shape, fill, color, t) => {

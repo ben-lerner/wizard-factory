@@ -47,6 +47,7 @@ REMOTE_SCAN_SEC, REMOTE_STALE_SEC, REMOTE_USAGE_SEC = 3.0, 15, 60
 RESPONDING_SEC, IDLE_SEC, GONE_SEC = 6, 15 * 60, 45 * 60
 ABANDON_SEC, SUB_GONE_SEC = 2 * 3600, 150
 CHAT_TURNS, CHAT_CHARS = 30, 700
+TITLE_PROMPT = 'Name this coding task in 2-4 lowercase words joined by underscores'
 MIME = {'.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png',
         '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json'}
 
@@ -55,6 +56,7 @@ OVERRIDES = {}  # session_id -> latest hook event {event, ts, msg}
 DEAD = {}       # session_id -> epoch of SessionEnd hook
 REMOTE_AGENTS, REMOTE_QUOTAS, REMOTE_SEEN = [], [], 0
 LOCAL_QUOTAS = []
+CPU_USAGE, CPU_TIMES = None, None
 LOCK = threading.Lock()
 
 
@@ -76,6 +78,22 @@ def snip(s, n=CHAT_CHARS):
     while '\n\n\n' in s:
         s = s.replace('\n\n\n', '\n\n')
     return s[:n] + ('…' if len(s) > n else '')
+
+
+def title_task(text):
+    if not text.startswith(TITLE_PROMPT):
+        return None
+    return text.split('Task:', 1)[1].strip() if 'Task:' in text else ''
+
+
+def generated_title(text):
+    words = text.strip().splitlines()[0].split('_')
+    return ' '.join(words) if 2 <= len(words) <= 4 and all(w.isalnum() and w.lower() == w for w in words) else None
+
+
+def message_texts(content):
+    return [content] if isinstance(content, str) else [b.get('text') or '' for b in content
+        if isinstance(b, dict) and b.get('type') == 'text'] if isinstance(content, list) else []
 
 
 def tool_detail(name, inp):
@@ -168,6 +186,21 @@ def merge_quotas(remote, local):
     return list(accounts.values())
 
 
+def read_cpu_usage():
+    global CPU_TIMES
+    if sys.platform == 'darwin':
+        proc = subprocess.run(['top', '-l', '1', '-n', '0'], capture_output=True, text=True, timeout=5)
+        proc.check_returncode()
+        line = next(line for line in proc.stdout.splitlines() if line.startswith('CPU usage:'))
+        return max(0, min(100, 100 - float(line.rsplit(',', 1)[-1].split('%', 1)[0])))
+    fields = [int(n) for n in Path('/proc/stat').read_text().splitlines()[0].split()[1:]]
+    current = sum(fields[:8]), fields[3] + (fields[4] if len(fields) > 4 else 0)
+    previous, CPU_TIMES = CPU_TIMES, current
+    if previous is None or current[0] == previous[0]:
+        return None
+    return max(0, min(100, 100 * (1 - (current[1] - previous[1]) / (current[0] - previous[0]))))
+
+
 class FileState:
     def __init__(self, path):
         self.path, self.offset, self.rem, self.skip_first = path, 0, b'', False
@@ -181,6 +214,7 @@ class FileState:
         self.sid = self.parent or self.id  # session whose hook events apply
         self.cwd = self.branch = self.model = self.title = self.quest = None
         self.custom_title = None
+        self.naming = False
         self.last_kind = self.tool = self.detail = self.last_ts = self.started = None
         self.status = self.since = None
         self.history = deque(maxlen=24)
@@ -199,14 +233,19 @@ class FileState:
             self.title = self.title or clean(d.get('summary') or '', 90)
         elif t == 'last-prompt':
             if d.get('lastPrompt') and self.kind == 'main':
-                self.quest = clean(d['lastPrompt'])
+                task = title_task(d['lastPrompt'])
+                self.quest = clean(task if task is not None else d['lastPrompt'])
+                self.naming = task is not None and not self.title
         elif t == 'user':
             c = m.get('content')
-            texts = [c] if isinstance(c, str) else [b.get('text', '') for b in c if isinstance(b, dict) and b.get('type') == 'text'] if isinstance(c, list) else []
+            texts = message_texts(c)
             if any(x.startswith('[Request interrupted') for x in texts):
                 self._mark('interrupted', ts)
             real = next((x for x in texts if x and x[0] not in '<[' and not x.startswith(('Caveat:', 'This session is being continued'))), None)
             if real and not d.get('isMeta'):
+                task = title_task(real)
+                if task is not None:
+                    real, self.naming = task, True
                 if self.kind == 'main' or not self.quest:
                     self.quest = clean(real)
                 self._say('user', real, ts)
@@ -224,7 +263,14 @@ class FileState:
                 elif b.get('type') == 'thinking':
                     self._mark('thinking', ts)
                 elif b.get('type') == 'text' and (b.get('text') or '').strip():
-                    self._say('agent', b['text'], ts)
+                    text = b['text']
+                    title = generated_title(text) if self.naming else None
+                    if title:
+                        self.title, self.naming = title, False
+                        text = text.partition('\n')[2].strip()
+                        if not text:
+                            continue
+                    self._say('agent', text, ts)
                     self._mark('assistant_text', ts)
 
     def feed_codex(self, d):
@@ -377,20 +423,30 @@ def retail(fs, size):
 
 
 def restore_claude_title(fs):
+    naming = False
     try:
         with open(fs.path, 'rb') as f:
             while f.tell() <= fs.offset:
                 line = f.readline()
                 if not line:
                     break
-                if b'"custom-title"' not in line:
+                if b'"custom-title"' not in line and TITLE_PROMPT.encode() not in line and not (naming and b'"assistant"' in line):
                     continue
                 try:
                     event = json.loads(line)
                     if event.get('type') == 'custom-title':
                         fs.feed(event)
+                    elif event.get('type') == 'user':
+                        content = (event.get('message') or {}).get('content')
+                        naming = any(title_task(text) is not None for text in message_texts(content))
+                    elif naming and event.get('type') == 'assistant':
+                        texts = message_texts((event.get('message') or {}).get('content'))
+                        title = next(filter(None, map(generated_title, texts)), None)
+                        if title:
+                            fs.title, naming = title, False
                 except (ValueError, AttributeError):
                     continue
+        fs.naming = naming and not fs.title
     except OSError:
         pass
 
@@ -612,7 +668,7 @@ def state_payload(demo):
                    {'id': 'demo-spare', 'name': 'Caffeinated', 'provider': 'codex', 'origins': [],
                     'period': 'weekly', 'left': 100, 'resets_at': now + 7 * 86400, 'resets_left': 0}]
                   if demo else merge_quotas(REMOTE_QUOTAS, LOCAL_QUOTAS))
-    return {'now': now, 'demo': bool(demo), 'quotas': quotas,
+    return {'now': now, 'demo': bool(demo), 'cpu': 82 if demo else CPU_USAGE, 'quotas': quotas,
             'agents': sorted(ags, key=lambda a: a['started'] or 0)}
 
 
@@ -724,6 +780,18 @@ def main():
         return print(json.dumps(payload, indent=2))
     demo = Demo() if a.demo else None
     if not demo:
+        def cpu_loop():
+            global CPU_USAGE
+            while True:
+                try:
+                    usage = read_cpu_usage()
+                    if usage is not None:
+                        with LOCK:
+                            CPU_USAGE = usage
+                except (OSError, ValueError, StopIteration, subprocess.SubprocessError) as e:
+                    print('cpu usage error:', repr(e), flush=True)
+                time.sleep(3)
+        threading.Thread(target=cpu_loop, daemon=True).start()
         def usage_loop():
             global LOCAL_QUOTAS, REMOTE_QUOTAS
             while True:

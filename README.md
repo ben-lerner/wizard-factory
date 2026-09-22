@@ -62,9 +62,14 @@ joining the fray at a time; stronger defending support
 reflects the blast at the aggressor, while a tie still hits the target. Agents
 rarely challenge Earl Grey; those who do may bring one supporter, but he roasts each
 assailant into soot in succession. Biggles and Lucipurr bypass duels and can
-blast anyone, including Earl Grey, but are themselves immune. Earl Grey, the
-dragon barista, brews cafe orders with fire and pours milk for milk drinks.
+blast anyone, including Earl Grey, but are themselves immune. Earl Grey, the dragon
+barista, brews cafe orders with fire and pours milk for milk drinks. He sleeps when
+the factory is empty, roasts beans while agents are active, and flies alert near the
+petition board when an agent needs attention.
 The frontend polls `/api/state` every 1.5s.
+
+The laboratory crystal shows local CPU use as a rising red fill. Above 75% it
+flares and throws sparks; hover over it for the current percentage.
 
 The laboratory's usage bottles show the same configured Codex accounts as the
 `codex-quota` CLI. Blue `LOC` and red `REM` labels mark the accounts

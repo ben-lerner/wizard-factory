@@ -608,3 +608,28 @@ test('shrinking leaves the barista at its counter and preserves flight paths', (
     assert.equal(s.dragonAtBar(), !flying);
   }
 });
+
+test('dragon reports aggregate factory state', () => {
+  const s = scene();
+  s.setData({ agents: [] }); s.update(.1, 0);
+  assert.equal(s.dragon.signal, 'empty');
+  s.setData({ agents: [agent('busy')] }); s.update(.1, 1);
+  assert.equal(s.dragon.signal, 'active');
+  s.update(.1, 1.1);
+  assert.ok(s.dragon.roastUntil > 1);
+  s.setData({ agents: [agent('help', 'attention')] }); s.update(.1, 2);
+  assert.equal(s.dragon.signal, 'attention');
+  assert.equal(s.dragon.dest, 'alert');
+  assert.equal(s.dragon.mode, 'fly');
+});
+
+test('crystal fills red and flares above 75 percent cpu', () => {
+  const s = scene(), fills = [];
+  s.ctx.fillRect = (...args) => fills.push({ args, color: s.ctx.fillStyle });
+  s.SP.PR.crystal(s.ctx, 216, 98, 1, 50);
+  assert.ok(fills.some(x => x.color === '#d84a5f'));
+  fills.length = 0;
+  s.SP.PR.crystal(s.ctx, 216, 98, 1, 80);
+  assert.ok(fills.some(x => x.color === '#ff4a4a'));
+  assert.ok(fills.some(x => x.color === '#ffe89a'));
+});

@@ -9,6 +9,16 @@ import server
 
 
 class TaskTitlesTest(unittest.TestCase):
+    def test_claude_naming_prompt_becomes_title_and_actual_quest(self):
+        state = server.FileState(Path('/tmp/session.jsonl'))
+        state.feed({'type': 'user', 'timestamp': '2026-09-22T20:00:00Z', 'message': {
+            'content': server.TITLE_PROMPT + ', no punctuation, no preamble -- just the name. Task:\n\nReview the architecture'}})
+        state.feed({'type': 'assistant', 'timestamp': '2026-09-22T20:00:01Z', 'message': {
+            'content': [{'type': 'text', 'text': 'review_architecture\n\nI will inspect the codebase.'}]}})
+        self.assertEqual(state.payload()['title'], 'review architecture')
+        self.assertEqual(state.payload()['quest'], 'Review the architecture')
+        self.assertEqual(state.payload()['chat'][-1]['text'], 'I will inspect the codebase.')
+
     def test_custom_title_takes_precedence_over_generated_titles(self):
         state = server.FileState(Path('/tmp/session.jsonl'))
         state.feed({'type': 'custom-title', 'customTitle': 'Fix wizard desks'})
@@ -46,6 +56,45 @@ class TaskTitlesTest(unittest.TestCase):
                  patch.object(server, 'FILES', {}), patch.object(server, 'OVERRIDES', {}), patch.object(server, 'DEAD', {}):
                 server.scan_once(time.time())
                 self.assertEqual(server.FILES[transcript].payload()['title'], 'Named desk')
+
+    def test_generated_claude_title_before_tail_survives_startup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            transcript = root / 'project/session.jsonl'
+            transcript.parent.mkdir()
+            transcript.write_text(
+                json.dumps({'type': 'user', 'message': {'content': server.TITLE_PROMPT + ' Task: Review architecture'}}) + '\n' +
+                json.dumps({'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': 'review_architecture'}]}}) + '\n' +
+                (json.dumps({'type': 'progress', 'text': 'x' * 1024}) + '\n') * 600)
+            with patch.object(server, 'PROJECTS', root), patch.object(server, 'CODEX', root / 'sessions'), \
+                    patch.object(server, 'FILES', {}), patch.object(server, 'OVERRIDES', {}), patch.object(server, 'DEAD', {}):
+                server.scan_once(time.time())
+                self.assertEqual(server.FILES[transcript].payload()['title'], 'review architecture')
+
+    def test_generated_title_prompt_split_by_tail_boundary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'session.jsonl'
+            prompt = json.dumps({'type': 'user', 'message': {'content': server.TITLE_PROMPT + ' Task: Review architecture'}}) + '\n'
+            reply = {'type': 'assistant', 'timestamp': '2026-09-22T20:00:01Z',
+                     'message': {'content': [{'type': 'text', 'text': 'review_architecture'}]}}
+            path.write_text(prompt + json.dumps(reply) + '\n')
+            state = server.FileState(path)
+            state.offset = len(prompt) // 2
+            server.restore_claude_title(state)
+            state.feed(reply)
+            self.assertEqual(state.payload()['title'], 'review architecture')
+
+    def test_restores_generated_title_from_text_block_prompt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'session.jsonl'
+            prompt = {'type': 'user', 'message': {'content': [
+                {'type': 'text', 'text': server.TITLE_PROMPT + ' Task: Review architecture'}]}}
+            reply = {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': 'review_architecture'}]}}
+            path.write_text(json.dumps(prompt) + '\n' + json.dumps(reply) + '\n')
+            state = server.FileState(path)
+            state.offset = path.stat().st_size
+            server.restore_claude_title(state)
+            self.assertEqual(state.payload()['title'], 'review architecture')
 
     def test_claude_title_at_exact_tail_boundary(self):
         with tempfile.TemporaryDirectory() as tmp:

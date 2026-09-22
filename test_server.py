@@ -53,6 +53,26 @@ class RemoteAgentsTest(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs['timeout'], 90)
 
 
+class CpuUsageTest(unittest.TestCase):
+    def test_reads_macos_idle_percentage(self):
+        proc = MagicMock(stdout='CPU usage: 12.5% user, 7.5% sys, 80.0% idle\n')
+        with patch.object(server.sys, 'platform', 'darwin'), patch.object(server.subprocess, 'run', return_value=proc):
+            self.assertEqual(server.read_cpu_usage(), 20)
+        proc.check_returncode.assert_called_once_with()
+
+    def test_linux_cpu_usage_does_not_double_count_guest_time(self):
+        readings = ['cpu 100 0 0 900 0 0 0 0 100 0\n', 'cpu 150 0 0 950 0 0 0 0 150 0\n']
+        with patch.object(server.sys, 'platform', 'linux'), patch.object(server.Path, 'read_text', side_effect=readings), \
+                patch.object(server, 'CPU_TIMES', None):
+            self.assertIsNone(server.read_cpu_usage())
+            self.assertEqual(server.read_cpu_usage(), 50)
+
+    def test_state_payload_includes_cpu_usage(self):
+        with patch.object(server, 'CPU_USAGE', 42.5), patch.object(server, 'REMOTE_QUOTAS', []), \
+                patch.object(server, 'LOCAL_QUOTAS', []):
+            self.assertEqual(server.state_payload(None)['cpu'], 42.5)
+
+
 class ChatLogTest(unittest.TestCase):
     TURN = [{'type': 'user', 'timestamp': '2026-08-02T20:00:00Z', 'promptSource': 'typed',
              'message': {'content': 'find the flaky test'}},

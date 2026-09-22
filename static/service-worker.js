@@ -1,4 +1,4 @@
-const CACHE = 'wizard-factory-v1';
+const CACHE = 'wizard-factory-v2';
 const ASSETS = ['/', '/app.webmanifest', '/style.css', '/sprites.js', '/game.js',
   '/icon.svg', '/icon-192.png', '/icon-512.png'];
 

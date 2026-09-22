@@ -21,7 +21,7 @@
     board:    { spots: [[306, 56], [330, 56], [284, 58]], emote: 'scroll' },
     odesk:    { spots: [[313, 92], [373, 112], [336, 130]], emote: null },
     cafe:     { spots: [[308, 226], [330, 226], [352, 226], [374, 226], [394, 224]], emote: 'coffee' },
-    hearth:   { spots: [[425, 78], [425, 100]], emote: null },
+    hearth:   { spots: [[425, 70], [425, 92]], emote: null },
     door:     { spots: [[436, 248]], emote: 'star' },
   };
   for (const k in ST) ST[k].occ = ST[k].spots.map(() => null);
@@ -35,7 +35,7 @@
     { x: 86, y: 46, w: 38, h: 16 },
     { x: 216, y: 104, w: 16, h: 18 },
     { x: 299, y: 96, w: 28, h: 14 }, { x: 359, y: 116, w: 28, h: 14 },
-    { x: 438, y: 60, w: 32, h: 24 },
+    { x: 438, y: 52, w: 32, h: 24 },
     { x: 294, y: 194, w: 102, h: 25 },
   ];
   const bodyR = e => e && e.sp ? WIZ_R : e && e.frames ? DRAGON_R : CAT_R;
@@ -437,6 +437,13 @@
   ];
   const GAME_TYPES = ['magic', 'chess', 'go'], tableR = rng(4242);
   const tableById = id => TABLES.find(t => t.id === id);
+  function updateTopTable() {
+    const count = usageProbes().length;
+    const x = Math.max(276, Math.min(316, 286 + (count - 3) * 10));
+    const table = TABLES[1];
+    table.x = x;
+    table.seats = [[x - 21, 112], [x + 19, 112], [x, 84]];
+  }
   const gameName = g => g === 'magic' ? 'MAGIC THE GATHERING' : g === 'pingpong' ? 'PING PONG' : g.toUpperCase();
   const gameHas = (table, kind, id) => !!table.game && table.game.players.some(p => p.kind === kind && (!id || p.id === id));
   function waitingForGame(w) {
@@ -494,6 +501,7 @@
     if (table.game.players.length < 2) endGame(table, t, false);
   }
   function updateTableGames(t) {
+    updateTopTable();
     for (const table of (tableR() < .5 ? TABLES : [...TABLES].reverse())) {
       if (table.game) {
         table.game.players = table.game.players.filter(p => {
@@ -1004,9 +1012,14 @@
     [62, gg => PR.bench(gg, 88, 42, t)],
     [120, gg => PR.crystal(gg, 216, 98, occupied('crystal') ? t : 0)],
     [29, gg => PR.board(gg, 300, 8)],
-    ...TABLES.filter(table => table !== COURT).map(table => [table.y + 5, gg => { PR.gameTable(gg, table.x, table.y); drawTableGame(gg, table, t); }]),
-    [94, gg => PR.hearth(gg, 440, 58, t)],
-    [95, gg => PR.chair(gg, 418, 70, false)], [117, gg => PR.chair(gg, 418, 92, false)],
+    ...TABLES.filter(table => table !== COURT).map(table => [table.y + 5, gg => {
+      if (table === TABLES[1]) updateTopTable();
+      PR.gameTable(gg, table.x, table.y);
+      if (table === TABLES[1]) PR.tableStillLife(gg, table.x, table.y, t);
+      drawTableGame(gg, table, t);
+    }]),
+    [86, gg => PR.hearth(gg, 440, 50, t)],
+    [87, gg => PR.chair(gg, 418, 62, false)], [109, gg => PR.chair(gg, 418, 84, false)],
     [214.5, gg => PR.counter(gg, 296, 196)], [215, gg => PR.espresso(gg, 306, 186, t)],
     [215.2, gg => PR.beans(gg, PAN[0], PAN[1], t < dragon.roastUntil + 4)],
     [215.3, gg => { if (dragon.task) PR.cup(gg, CUP[0], CUP[1], dragon.task.drink.key, t); }],
@@ -1512,8 +1525,7 @@
   function drawTaskLabel(d) {
     const colors = DESK_COLORS[d.w.sp.demon ? 'demon' : 'wizard'];
     const title = String(d.w.a.title || d.w.a.quest || d.w.a.project || d.w.sp.name).toUpperCase();
-    const lines = title.match(/.{1,12}(?:\s|$)|.{1,12}/g) || ['UNTITLED'];
-    const shown = lines.slice(0, 2).map((line, i) => i === 1 && lines.length > 2 ? line.trim().slice(0, 9) + '...' : line.trim());
+    const shown = title.match(/.{1,12}(?:\s|$)|.{1,12}/g)?.map(line => line.trim()).filter(Boolean) || ['UNTITLED'];
     const width = Math.max(...shown.map(line => textW(line))) + 8, left = Math.round(d.x - width / 2), top = d.y + 3;
     g.save(); g.globalAlpha = d.alpha;
     g.fillStyle = colors.frame; g.fillRect(left, top, width, shown.length * 8 + 3);
@@ -1763,6 +1775,10 @@
 
   // ---------- sidebar ----------
   const ORDER = { attention: 0, working: 1, thinking: 2, responding: 3, waiting: 4, done: 5, idle: 6 };
+  const agentDisplayName = a => (wizards.get(a.id)?.sp.name || a.id || '').toLocaleUpperCase();
+  const sortAgents = agents => [...agents].sort((x, y) =>
+    (ORDER[x.status] ?? 9) - (ORDER[y.status] ?? 9) ||
+    agentDisplayName(x).localeCompare(agentDisplayName(y)) || String(x.id).localeCompare(String(y.id)));
   function journalSummary(a, w) {
     const quest = a.title || a.quest, tools = [...new Set((a.history || []).map(h => h.tool).filter(Boolean))].slice(-4);
     const state = a.status === 'waiting' ? 'Now awaiting your counsel at the café.' :
@@ -1811,18 +1827,18 @@
   }
   function renderSide() {
     const now = Date.now() / 1000 - serverSkew;
-    const ags = [...lastData.agents].sort((x, y) => (ORDER[x.status] ?? 9) - (ORDER[y.status] ?? 9) || (x.started || 0) - (y.started || 0));
+    const ags = sortAgents(lastData.agents);
     $('#num').textContent = ags.length || '';
     $('#rows').innerHTML = ags.map(a => {
       const w = wizards.get(a.id);
       if (!w) return '';
-      const task = esc(a.title || a.quest || a.project || w.sp.name);
+      const task = esc(a.title || a.quest || a.project || 'UNNAMED QUEST');
       return `<div class="row st-${a.status} ${sel === a.id ? 'sel' : ''} ${hover === a.id ? 'hover' : ''} ${a.kind}" data-id="${esc(a.id)}">
         <img class="pt" src="${w.sp.portrait}" alt="">
         <div class="mid">
-          <div class="nm">${a.kind === 'sub' ? '<span class="sub-arrow">&#8627;</span> ' : ''}${esc(w.sp.name)} <span class="ep">${esc(w.sp.epithet)}</span></div>
           <div class="task" title="${task}">${task}</div>
           <div class="ln">${esc(statusLine(a, w))}</div>
+          <div class="nm">${a.kind === 'sub' ? '<span class="sub-arrow">&#8627;</span> ' : ''}${esc(w.sp.name)} <span class="ep">${esc(w.sp.epithet)}</span></div>
           <div class="ch"><span class="chip">${esc(a.project || '?')}</span>${a.host ? `<span class="chip alt">${esc(a.host)}</span>` : ''}${a.engine === 'codex' ? '<span class="chip cdx">codex</span>' : ''}${a.branch ? `<span class="chip alt">${esc(a.branch)}</span>` : ''}<span class="time">${AGE(now - (a.since || now))}</span></div>
         </div></div>`;
     }).join('');
@@ -1932,7 +1948,7 @@
     $('#installBtn').hidden = true;
   };
   addEventListener('appinstalled', () => { $('#installBtn').hidden = true; });
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js');
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js?v=2');
 
   // ---------- main loop ----------
   // rAF drives rendering; a fallback interval keeps the simulation flowing (in 0.1s

@@ -39,7 +39,9 @@ window.SP = (() => {
   const N1 = ['AL', 'BEL', 'COR', 'DAG', 'ELD', 'FEN', 'GAL', 'HOB', 'IGN', 'JAS', 'KEL', 'LOR', 'MAG', 'NIM', 'ORM', 'PYR', 'QUIL', 'RAV', 'SOR', 'THAM', 'ULM', 'VOR', 'WEN', 'XAN', 'YBB', 'ZEPH'];
   const N2 = ['A', 'E', 'I', 'O', 'U', 'AR', 'EN', 'IL', 'OR', 'UM', 'ARA', 'IBO', 'ODO', 'UMI'];
   const N3 = ['BART', 'BERT', 'DOR', 'DRIC', 'FIUS', 'GAST', 'GRIM', 'LIN', 'LOCK', 'MIRE', 'MUND', 'NOR', 'RICK', 'STAR', 'THORN', 'WICK', 'WIN', 'WYN', 'ZAR', 'CASTER', 'MANCER'];
-  const EPITHETS = ['THE WISE', 'THE PATIENT', 'THE UNTESTED', 'BUGBANE', 'THE RECURSIVE', 'TOKENWEAVER', 'THE PARALLEL', 'NULLSEEKER', 'THE VERBOSE', 'MERGEWRIGHT', 'LINTBANE', 'THE ASYNC', 'OOMSLAYER', 'THE IDEMPOTENT', 'SHIPWRIGHT', 'THE CACHED', 'DAEMONFRIEND', 'THE WELL-TYPED', 'THE REBASED', 'OF THE LONG BUILD', 'QUERYBINDER', 'THE PROFILED', 'FLAKEBANE', 'THE VECTORIZED', 'HOTFIX', 'THE GREPWORN', 'OF THE NINTH STACK', 'SEGFAULTSBANE'];
+  const EPITHETS = ['THE WISE', 'THE PATIENT', 'THE UNTESTED', 'BUGBANE', 'THE RECURSIVE', 'TOKENWEAVER', 'THE PARALLEL', 'NULLSEEKER', 'THE VERBOSE', 'MERGEWRIGHT', 'LINTBANE', 'THE ASYNC', 'OOMSLAYER', 'THE IDEMPOTENT', 'SHIPWRIGHT', 'THE CACHED', 'DAEMONFRIEND', 'THE WELL-TYPED', 'THE REBASED', 'OF THE LONG BUILD', 'QUERYBINDER', 'THE PROFILED', 'FLAKEBANE', 'THE VECTORIZED', 'HOTFIX', 'THE GREPWORN', 'OF THE NINTH STACK', 'SEGFAULTSBANE', 'THE PROMPTSMITH', 'THE BRANCHWALKER', 'CACHEKEEPER', 'THE SMALL DIFF', 'OF THE CLEAN TREE', 'THE EDGECASE', 'THE UNBLOCKER', 'THE NIGHTLY', 'THE SHARDMENDER', 'THE QUIET FIXER', 'THE LAST RESORT', 'OF THE HIDDEN TOKEN', 'THE POLYMATH', 'THE THREADWEAVER', 'THE QUOTAKEEPER', 'THE LATENT', 'THE BOUNDARY RIDER'];
+  const APPRENTICE_EPITHETS = ['THE EAGER', 'THE QUICK', 'THE BRIGHT-EYED', 'THE UNLICENSED', 'THE SECOND PAIR OF HANDS', 'THE SPELLING BEE', 'THE JUNIOR ARCANIST', 'THE TINY TINKER', 'THE NOTE-TAKER'];
+  const INFERNAL_EPITHETS = ['OF THE INFERNAL STACK', 'THE ASHEN RECURSOR', 'THE BRIMSTONE BUILDER', 'THE FORKED TONGUE', 'KEEPER OF THE HOTFIX', 'THE RED TEAM', 'OF THE LAST RESORT'];
   const APPRENTICE = ['PIP', 'WICK', 'NIB', 'TWIG', 'MOTE', 'FIG', 'DOT', 'BRAN', 'COG', 'LUMEN', 'SPECK', 'WISP', 'FERN', 'SOOT', 'PEBBLE', 'QUILL', 'MOSS', 'FLINT', 'BEAN', 'SPROUT', 'INKY', 'PATCH'];
   const DRINKS = [
     { key: 'drip', name: 'DRIP COFFEE', milk: false },
@@ -142,7 +144,7 @@ window.SP = (() => {
     else if (o.acc === 'tome') { R(2, 14 + b, 4, 4, o.accC); R(5, 14 + b, 1, 4, '#efe6c8'); P(3, 16 + b, o.trim); }
   }
 
-  const CODEX_EPITHETS = ['OF THE CODEX ORDER', 'THE VISITING SCHOLAR', 'OF THE FOREIGN GUILD', 'THE GUEST ARTIFICER', 'THE EMISSARY'];
+  const CODEX_EPITHETS = ['OF THE CODEX ORDER', 'THE VISITING SCHOLAR', 'OF THE FOREIGN GUILD', 'THE GUEST ARTIFICER', 'THE EMISSARY', 'THE MODEL-SMITH', 'THE TOKEN DIPLOMAT', 'OF THE OPENAI ARCHIVE', 'THE REMOTE ADEPT'];
 
   function makeWizard(id, kind, engine, demon) {
     const r = rng(hash(id));
@@ -166,7 +168,7 @@ window.SP = (() => {
     o.skinD = shade(o.skin, .82);
     let name = sub ? (demon ? 'DEMON ' : 'APPRENTICE ') + pick(r, APPRENTICE) : pick(r, N1) + pick(r, N2) + pick(r, N3);
     for (let i = 0; !sub && name.length > 11 && i < 4; i++) name = pick(r, N1) + pick(r, N2) + pick(r, N3);
-    const epithet = demon ? 'OF THE INFERNAL STACK' : codex ? pick(r, CODEX_EPITHETS) : sub ? 'THE EAGER' : pick(r, EPITHETS);
+    const epithet = demon ? pick(r, INFERNAL_EPITHETS) : codex ? pick(r, CODEX_EPITHETS) : sub ? pick(r, APPRENTICE_EPITHETS) : pick(r, EPITHETS);
     const frames = {};
     for (const m of ['idleA', 'idleB', 'walkA', 'walkB', 'sleepA', 'sleepB']) {
       const c = document.createElement('canvas'); c.width = 20; c.height = 24;
@@ -332,6 +334,15 @@ window.SP = (() => {
     rc(g, x - 3, y + 3, 6, 12, '#4a3220'); rc(g, x - 9, y + 13, 18, 2, '#4a3220');
     rc(g, x - 14, y - 6, 28, 14, '#6b4932'); rc(g, x - 17, y - 3, 34, 8, '#6b4932');
     rc(g, x - 14, y - 7, 28, 12, '#a27a50'); rc(g, x - 17, y - 4, 34, 6, '#a27a50');
+  };
+
+  PR.tableStillLife = (g, x, y, t) => {
+    rc(g, x - 11, y - 5, 8, 5, '#e7dfc1'); rc(g, x - 10, y - 4, 6, 1, '#a84848');
+    px(g, x - 8, y - 2, '#4878a8'); px(g, x - 6, y - 2, '#4878a8');
+    rc(g, x - 1, y - 6, 4, 6, '#5aa9e6'); rc(g, x, y - 7, 2, 1, '#d8def0');
+    rc(g, x + 5, y - 5, 5, 4, '#d8b878'); px(g, x + 6, y - 6, '#ffd84a');
+    px(g, x + 8, y - 3, '#8a6242');
+    if ((t * 3 | 0) % 2) px(g, x + 1, y - 4, '#f7f3e8');
   };
 
   PR.blackHole = (g, cx, cy, rotating, angle) => {

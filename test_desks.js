@@ -16,7 +16,7 @@ function scene() {
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, drawUsageProbes, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, startGame, updateRally, rallyPosition, drawCourt, BREW, updateBrew, RITUALS, blocked, route, dragon, dragonAtBar, shrinkLab, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, drawUsageProbes, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, BREW, updateBrew, RITUALS, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
@@ -49,6 +49,25 @@ test('questions release desks, running commands do not', () => {
   s.reconcile({ agents: [{ ...a, tool: 'request_user_input' }] });
   assert.equal(w.station, 'cafe');
   assert.equal(w.desk, null);
+});
+test('fellowship sorting groups status, then wizard name', () => {
+  const s = scene(), agents = [agent('waiting', 'waiting'), agent('work-a'), agent('work-b'), agent('attention', 'attention')];
+  s.reconcile({ agents });
+  const sorted = s.sortAgents(agents);
+  assert.deepEqual(Array.from(sorted, a => a.status), ['attention', 'working', 'working', 'waiting']);
+  const working = sorted.filter(a => a.status === 'working');
+  assert.deepEqual(Array.from(working, a => s.wizards.get(a.id).sp.name), [...working]
+    .sort((a, b) => s.wizards.get(a.id).sp.name.localeCompare(s.wizards.get(b.id).sp.name))
+    .map(a => s.wizards.get(a.id).sp.name).slice());
+});
+test('top cafe table follows the quota bottle count', () => {
+  const s = scene();
+  for (const [count, x] of [[2, 276], [4, 296], [6, 316]]) {
+    s.setData({ quotas: Array.from({ length: count }, (_, i) => ({ id: `q${i}`, origins: [], left: 50 })) });
+    s.updateTopTable();
+    assert.equal(s.TABLES[1].x, x);
+    assert.deepEqual(JSON.parse(JSON.stringify(s.TABLES[1].seats)), [[x - 21, 112], [x + 19, 112], [x, 84]]);
+  }
 });
 test('apprentices use nearby distinct desks even when listed before their parent', () => {
   const s = scene();

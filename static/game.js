@@ -972,7 +972,7 @@
     const local = q.origins.includes('local'), remote = q.origins.includes('remote');
     return { q, i, x: 240 - (quotas.length - 1 - i) * 22, y: 43,
       label: local && remote ? 'L/R' : local ? 'LOC' : remote ? 'REM' : '',
-      color: `hsl(${(195 + i * 137.508) % 360} 65% 65%)` };
+      color: `hsl(${(195 + i * 137.508) % 360} 82% 65%)` };
   });
   const usageProbe = id => usageProbes().find(v => id === `usage:${v.q.id}`);
 

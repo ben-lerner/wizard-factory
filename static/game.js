@@ -982,6 +982,7 @@
         probes.push({ q: { ...cq, id: cq.id, name: 'Claude + Fable', origins,
           left: cq.left == null || fq.left == null ? null : (cq.left + fq.left) / 2,
           resets_at: cq.resets_at || fq.resets_at, error: cq.error || fq.error },
+          parts: [cq, fq],
           ids: [cq.id, fq.id], fills: [
             { value: cq.left == null ? 0 : cq.left / 2, color: colors[claude] },
             { value: fq.left == null ? 0 : fq.left / 2, color: colors[fable] },
@@ -1668,9 +1669,11 @@
   }
   function showUsageTip(v, left, top) {
     const q = v.q, tip = $('#tip'), stage = $('#stage').getBoundingClientRect();
+    const status = v.parts ? v.parts.map(part => `<div class="tt-status">${esc(part.name)}: ${part.left != null ? Math.round(part.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>`).join('') :
+      `<div class="tt-status">${q.left != null ? Math.round(q.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>`;
     tip.innerHTML = `<div class="tt-name">${esc(q.name)} <span>${esc((q.provider || 'codex').toUpperCase())}</span></div>
       ${q.origins.length ? `<div class="tt-meta">${esc(q.origins.join(' + ').toUpperCase())}</div>` : ''}
-      <div class="tt-status">${q.left != null ? Math.round(q.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>
+      ${status}
       <div class="tt-age">${q.resets_at ? 'RESETS IN ' + resetIn(q) : 'RESET TIME UNAVAILABLE'}${q.provider === 'claude' || q.resets_left === 0 ? '' : ' · ' + (q.resets_left ?? '?') + ' RESET' + (q.resets_left === 1 ? '' : 'S') + ' LEFT'}</div>
       ${q.error ? `<div class="tt-age">${esc(q.error)}</div>` : ''}`;
     tip.hidden = false;

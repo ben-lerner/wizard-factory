@@ -66,8 +66,8 @@ blast anyone, including Earl Grey, but are themselves immune. Earl Grey, the
 dragon barista, brews cafe orders with fire and pours milk for milk drinks.
 The frontend polls `/api/state` every 1.5s.
 
-The laboratory's usage bottles show all configured Codex accounts, plus any active
-account missing from the list. Blue `LOC` and red `REM` labels mark the accounts
+The laboratory's usage bottles show the same configured Codex accounts as the
+`codex-quota` CLI. Blue `LOC` and red `REM` labels mark the accounts
 in use locally and remotely; purple `L/R` marks an account used on both machines.
 Hover over a numbered bottle for its account name, remaining quota, and reset credits.
 Reset times above 24 hours round to the nearest day. Missing usage or reset data

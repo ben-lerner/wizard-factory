@@ -130,7 +130,7 @@ def account_quotas(listed):
     homes = {name: (config.parent / Path(home).expanduser()).resolve() for name, home in accounts.items()}
     active = account_id(active_home())
     identities = {name: account_id(home) for name, home in homes.items()}
-    if active_home() not in homes.values() and (not active or active not in identities.values()):
+    if not listed:
         name = 'In use'
         while name in homes:
             name += ' (active)'

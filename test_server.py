@@ -115,11 +115,12 @@ class QuotaTest(unittest.TestCase):
         self.assertEqual(after[0]['id'], before[0]['id'])
         self.assertNotEqual(after[0]['id'], after[1]['id'])
 
-    def test_unlisted_active_account_is_added(self):
+    def test_listed_accounts_match_the_cli_account_list(self):
         with patch.dict(server.os.environ, {'CODEX_HOME': str(self.b)}), patch.object(server, 'collect', side_effect=self.collect):
             qs = server.account_quotas(True)
-        self.assertEqual([(q['name'], q['origins']) for q in qs], [('Listed', []), ('In use', ['local'])])
-        self.assertNotEqual(qs[0]['id'], qs[1]['id'])
+            local = server.account_quotas(False)
+        self.assertEqual([(q['name'], q['origins']) for q in qs], [('Listed', [])])
+        self.assertEqual([(q['name'], q['origins']) for q in local], [('In use', ['local'])])
 
     def test_listed_home_with_missing_auth_is_not_duplicated(self):
         (self.a / 'auth.json').unlink()
@@ -127,11 +128,11 @@ class QuotaTest(unittest.TestCase):
             qs = server.account_quotas(True)
         self.assertEqual([(q['name'], q['origins']) for q in qs], [('Listed', ['local'])])
 
-    def test_missing_config_still_shows_active_account(self):
+    def test_missing_config_has_no_listed_accounts(self):
         (self.root / 'codex-quota/accounts.json').unlink()
         with patch.object(server, 'collect', side_effect=self.collect):
             qs = server.account_quotas(True)
-        self.assertEqual([(q['name'], q['origins']) for q in qs], [('In use', ['local'])])
+        self.assertEqual(qs, [])
 
     def test_quota_cache_survives_agent_polling_outage(self):
         cached = [{'id': 'a', 'name': 'Listed', 'origins': ['remote'], 'left': 50}]

@@ -164,6 +164,10 @@ test('Claude and Fable share one cylinder with half-height liquid segments', () 
   assert.equal(combined.q.name, 'Claude + Fable');
   assert.equal(combined.q.left, 95);
   assert.equal(s.usageProbe('usage:claude:Fable').q.left, combined.q.left);
+  s.showUsageTip(combined, 0, 0);
+  assert.match(s.element.innerHTML, /Claude: 100% REMAINING/);
+  assert.match(s.element.innerHTML, /Fable: 90% REMAINING/);
+  assert.doesNotMatch(s.element.innerHTML, /95% REMAINING/);
 });
 test('reset countdowns round up hours and retain minutes below one hour', () => {
   const s = scene();

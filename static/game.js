@@ -143,11 +143,14 @@
 
   // ---------- entities ----------
   const wizards = new Map();
-  const desks = [], RITUALS = [];
+  const desks = [], RITUALS = [], HAUNTED_TODOS = [];
   let sceneTime = 0;
   const atDesk = w => w.desk && !w.path.length && !w.leaving && !w.blast;
   let sel = null, hover = null, cafeChat = null, nextCafeChat = 10;
   let offline = false, isDemo = false, serverSkew = 0, lastData = { agents: [] };
+  const eggR = rng(0xe457e2), mimicR = rng(0xc4e57);
+  const MIMIC = { active: false, x: 38, y: 76, path: [], r: mimicR, phase: 'hidden', desk: null, nextAt: 45 };
+  let doorStandoff = null, nextDoorStandoff = 20;
 
   function clampZone(x, y) {
     const lab = x < 264;
@@ -289,6 +292,7 @@
       const changed = !w.station || w.a.status !== a.status || (a.status === 'working' && (w.a.tool !== a.tool || w.a.detail !== a.detail)) || w.leaving;
       if (w.desk && ['waiting', 'done'].includes(a.status) && !['waiting', 'done'].includes(w.a.status)) {
         RITUALS.push({ desk: w.desk, x: w.desk.x, y: w.desk.y, at: sceneTime, seed: hash(w.a.id + ':desk') });
+        if (eggR() < .18) spawnHauntedTodo(w, w.desk, sceneTime);
       }
       w.a = a;
       w.leaving = false;
@@ -1104,7 +1108,8 @@
     else if (!blocked(e.x, y, a.r)) e.y = y;
   }
   function collisionActors() {
-    const a = [...wizards.values()].filter(w => w.alpha > .25 && !w.blast).map(w => ({ e: w, r: WIZ_R + 1, fixed: !!atDesk(w) }));
+    const frozen = w => doorStandoff && sceneTime < doorStandoff.at + .9 && doorStandoff.ids.includes(w.a.id);
+    const a = [...wizards.values()].filter(w => w.alpha > .25 && !w.blast).map(w => ({ e: w, r: WIZ_R + 1, fixed: !!atDesk(w) || frozen(w) }));
     a.push({ e: cat, r: CAT_R + 1 });
     return a;
   }
@@ -1120,9 +1125,105 @@
     }
   }
 
+  function startMimic(desk) {
+    if (!desk || MIMIC.active) return false;
+    Object.assign(MIMIC, { active: true, x: 38, y: 76, phase: 'approach', desk, until: 0,
+      targetX: desk.x, targetY: desk.y });
+    MIMIC.path = route(MIMIC.x, MIMIC.y, desk.x - 18, desk.y - 8, CAT_R);
+    return true;
+  }
+  function retreatMimic() {
+    if (MIMIC.desk) MIMIC.desk.robbed = false;
+    MIMIC.phase = 'escape'; MIMIC.path = route(MIMIC.x, MIMIC.y, 38, 76, CAT_R);
+  }
+  function updateMimic(dt, t) {
+    if (!MIMIC.active) {
+      if (t < MIMIC.nextAt) return;
+      const targets = desks.filter(d => d.active && d.alpha > .8 && !d.robbed);
+      if (targets.length) startMimic(targets[mimicR() * targets.length | 0]);
+      else MIMIC.nextAt = t + 25;
+      return;
+    }
+    if (MIMIC.phase === 'approach') {
+      const d = MIMIC.desk;
+      if (!d || !d.active || !desks.includes(d)) retreatMimic();
+      else if (d.x !== MIMIC.targetX || d.y !== MIMIC.targetY) {
+        MIMIC.targetX = d.x; MIMIC.targetY = d.y;
+        MIMIC.path = route(MIMIC.x, MIMIC.y, d.x - 18, d.y - 8, CAT_R);
+      }
+    }
+    if (MIMIC.path.length) { moveAlong(MIMIC, dt, 34); return; }
+    if (MIMIC.phase === 'approach') {
+      MIMIC.phase = 'steal'; MIMIC.until = t + 1; MIMIC.desk.robbed = true;
+    } else if (MIMIC.phase === 'steal' && t >= MIMIC.until) {
+      retreatMimic();
+    } else if (MIMIC.phase === 'escape') {
+      if (MIMIC.desk) MIMIC.desk.robbed = false;
+      Object.assign(MIMIC, { active: false, phase: 'hidden', desk: null, nextAt: t + 90 + mimicR() * 120 });
+    }
+  }
+
+  function spawnHauntedTodo(w, desk, t) {
+    if (!w || !desk || HAUNTED_TODOS.some(todo => todo.owner === w.a.id)) return false;
+    HAUNTED_TODOS.push({ owner: w.a.id, x: desk.x, y: desk.y - 10, at: t, caughtAt: 0, phase: 'rise' });
+    return true;
+  }
+  function updateHauntedTodos(dt, t) {
+    for (let i = HAUNTED_TODOS.length - 1; i >= 0; i--) {
+      const todo = HAUNTED_TODOS[i], w = wizards.get(todo.owner), age = t - todo.at;
+      if (!w || age > 9 || todo.caughtAt && t - todo.caughtAt > 1.2) {
+        if (w && todo.caughtAt && w.emote === 'alert') w.emote = emoteFor(w);
+        HAUNTED_TODOS.splice(i, 1); continue;
+      }
+      if (age < .8) { todo.y -= dt * 10; continue; }
+      if (todo.caughtAt) continue;
+      todo.phase = 'chase';
+      const tx = w.x + (w.dir < 0 ? 8 : -8), ty = w.y - 18, dx = tx - todo.x, dy = ty - todo.y, d = Math.hypot(dx, dy);
+      if (d < 7) {
+        todo.caughtAt = t; w.emote = 'alert'; sparkleAt(w.x, w.y - 20); continue;
+      }
+      const step = Math.min(d, dt * 46);
+      todo.x += dx / d * step; todo.y += dy / d * step;
+    }
+  }
+
+  function startDoorStandoff(a, b, t) {
+    if (!a || !b || doorStandoff) return false;
+    const yielding = (hash(a.a.id + b.a.id) & 1) ? a : b;
+    doorStandoff = { ids: [a.a.id, b.a.id], yielding: yielding.a.id, at: t, until: t + 2.4,
+      sideX: yielding.x < 436 ? 416 : 456 };
+    return true;
+  }
+  function updateDoorStandoff(t) {
+    if (doorStandoff && t >= doorStandoff.until) {
+      const w = wizards.get(doorStandoff.yielding), dest = w && (w.path.at(-1) || w.home);
+      doorStandoff = null; nextDoorStandoff = t + 45;
+      if (w && dest) pathTo(w, dest[0], dest[1]);
+    }
+    if (doorStandoff || t < nextDoorStandoff) return;
+    const near = [...wizards.values()].filter(w => w.path.length && !w.game && !w.blast && w.alpha > .7 && w.x > 410 && w.y > 220);
+    for (let i = 0; i < near.length; i++) for (let j = i + 1; j < near.length; j++) {
+      const da = Math.sign(near[i].path.at(-1)[1] - near[i].y), db = Math.sign(near[j].path.at(-1)[1] - near[j].y);
+      if (da && db && da !== db && Math.hypot(near[i].x - near[j].x, near[i].y - near[j].y) < 28) {
+        startDoorStandoff(near[i], near[j], t); return;
+      }
+    }
+  }
+  function standoffMove(w, dt, t) {
+    if (!doorStandoff || !doorStandoff.ids.includes(w.a.id) || t >= doorStandoff.until) return false;
+    if (t < doorStandoff.at + .9) { w.walk = false; return true; }
+    if (w.a.id !== doorStandoff.yielding) return false;
+    const dx = doorStandoff.sideX - w.x, step = Math.min(Math.abs(dx), dt * 28);
+    w.x += Math.sign(dx) * step; w.walk = step > 0;
+    return true;
+  }
+
   function update(dt, t) {
     sceneTime = t;
     updateBrew(t);
+    updateMimic(dt, t);
+    updateHauntedTodos(dt, t);
+    updateDoorStandoff(t);
     for (let i = RITUALS.length - 1; i >= 0; i--) if (t - RITUALS[i].at > 3) RITUALS.splice(i, 1);
     for (const d of desks) d.alpha = Math.max(0, Math.min(1, d.alpha + (d.active ? 3 : -2) * dt));
     let removed = false;
@@ -1136,8 +1237,9 @@
         reformWizard(w);
         if (!w.leaving && w.home) pathTo(w, w.home[0], w.home[1]);
       }
-      w.walk = moveAlong(w, dt, SPEED);
-      unstickWizard(w, t);
+      const standingOff = standoffMove(w, dt, t);
+      if (standingOff) w.stuckAt = 0;
+      else { w.walk = moveAlong(w, dt, SPEED); unstickWizard(w, t); }
       if (atDesk(w)) { w.desk.elapsed += dt; w.x = w.desk.x; w.y = w.desk.y; w.walk = false; }
       w.alpha = Math.max(0, Math.min(1, w.alpha + (w.leaving && !w.path.length ? -3 : w.leaving && w.y > 252 ? -1.2 : 3) * dt));
       if (w.leaving && w.alpha <= 0) { wizards.delete(id); continue; }
@@ -1517,7 +1619,7 @@
       g.fillStyle = '#795d68'; g.fillRect(x - 4, y - 5, 6, 1);
       const drink = d.active && atDesk(w) && w.order && w.order.stage === 'served' ? w.order.drink.key : null;
       const seed = hash(w.a.id + ':desk');
-      PR.deskDecor(g, x, y, width, seed, drink, t);
+      if (!d.robbed) PR.deskDecor(g, x, y, width, seed, drink, t);
       if (!RITUALS.some(r => r.desk === d)) PR.deskPet(g, x + 5, y - 5, seed, t, false);
     }
     g.restore();
@@ -1552,6 +1654,8 @@
       items.push({ y: d.y + 1, f: () => drawWorkDesk(d, true, t) });
     }
     for (const w of wizards.values()) items.push({ y: w.y, f: () => drawWizardSprite(w, t) });
+    if (MIMIC.active) items.push({ y: MIMIC.y, f: () => PR.mimic(g, MIMIC.x, MIMIC.y, t, MIMIC.phase === 'steal', MIMIC.phase !== 'approach') });
+    for (const todo of HAUNTED_TODOS) items.push({ y: todo.y, f: () => PR.hauntedTodo(g, todo.x, todo.y, t, todo.phase !== 'rise') });
     items.push({ y: dragon.y, f: () => {
       if (dragon.blast) { drawBlast(dragon, dragon.blast, t, '#f08a2a'); return; }
       const busy = !!dragon.task, brewing = busy && dragon.task.phase === 'brew', firing = !!dragonFire, flying = dragon.mode === 'fly';
@@ -1581,6 +1685,8 @@
       g.globalAlpha = 1;
     } });
     items.sort((a, b) => a.y - b.y).forEach(i => i.f());
+    if (doorStandoff) tag(436, 224, t < doorStandoff.at + .9 ? 'YOU SHALL NOT PASS' : 'AFTER YOU');
+    for (const todo of HAUNTED_TODOS) if (todo.caughtAt) tag(todo.x, todo.y - 10, 'TODO!');
     const fireTarget = !dragon.blast && dragon.task && dragon.task.phase === 'brew' ? [CUP[0] + 5, CUP[1] + 4] : dragonAtBar() && t < dragon.roastUntil ? [PAN[0] + 4, PAN[1] - 2] : null;
     if (fireTarget) {  // fire breath, drawn over the counter
       const mx = dragon.x - 13, my = dragon.y - 15, tx = fireTarget[0], ty2 = fireTarget[1];

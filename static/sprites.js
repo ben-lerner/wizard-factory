@@ -330,6 +330,25 @@ window.SP = (() => {
     }
   };
 
+  PR.mimic = (g, x, y, t, open, loot) => {
+    const step = (t * 8 | 0) % 2;
+    rc(g, x - 6, y - 8, 13, 7, '#6b4226'); rc(g, x - 5, y - 7, 11, 2, '#a66a32');
+    rc(g, x - 7, y - 2, 15, 6, '#875027'); rc(g, x - 5, y - 1, 11, 1, open ? '#f7f3e8' : '#c88a43');
+    px(g, x, y + 1, '#ffd84a');
+    rc(g, x - 5, y + 4, 2, 3 + step, '#3b2820'); rc(g, x + 4, y + 4, 2, 4 - step, '#3b2820');
+    if (open) { px(g, x - 3, y - 1, '#1c1018'); px(g, x + 3, y - 1, '#1c1018'); }
+    if (loot) { px(g, x + 8, y - 5, '#8fd0ff'); px(g, x + 9, y - 6, '#f7f3e8'); }
+  };
+
+  PR.hauntedTodo = (g, x, y, t, eyes) => {
+    const bob = Math.round(Math.sin(t * 5) * 1.5), xx = Math.round(x) - 9, yy = Math.round(y) - 8 + bob;
+    rc(g, xx, yy, 18, 11, '#e8dfc0'); rc(g, xx + 1, yy + 1, 16, 1, '#b9a673');
+    px(g, xx + 17, yy, '#8f805e'); px(g, xx + 16, yy + 1, '#8f805e');
+    drawText(g, xx + 2, yy + 5, 'TODO', '#49372c');
+    if (eyes) { px(g, xx + 5, yy + 2, '#d86ad8'); px(g, xx + 12, yy + 2, '#d86ad8'); }
+    px(g, xx - 1, yy + 2, '#c8b4ff'); px(g, xx + 18, yy + 7, '#c8b4ff');
+  };
+
   PR.gameTable = (g, x, y) => {
     rc(g, x - 3, y + 3, 6, 12, '#4a3220'); rc(g, x - 9, y + 13, 18, 2, '#4a3220');
     rc(g, x - 14, y - 6, 28, 14, '#6b4932'); rc(g, x - 17, y - 3, 34, 8, '#6b4932');

@@ -16,7 +16,7 @@ function scene() {
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, drawUsageProbes, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, BREW, updateBrew, RITUALS, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, separateActors, draw, drawWorkDesk, drawUsageProbes, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
@@ -49,6 +49,66 @@ test('questions release desks, running commands do not', () => {
   s.reconcile({ agents: [{ ...a, tool: 'request_user_input' }] });
   assert.equal(w.station, 'cafe');
   assert.equal(w.desk, null);
+});
+test('mimic steals a desk item and retreats behind the shelf', () => {
+  const s = scene(), a = agent('mimic-target');
+  s.reconcile({ agents: [a] });
+  const desk = s.wizards.get(a.id).desk;
+  assert.equal(s.startMimic(desk), true);
+  s.MIMIC.path.length = 0;
+  s.updateMimic(.1, 0);
+  assert.equal(s.MIMIC.phase, 'steal');
+  assert.equal(desk.robbed, true);
+  s.updateMimic(.1, 1.1);
+  assert.equal(s.MIMIC.phase, 'escape');
+  s.MIMIC.path.length = 0;
+  s.updateMimic(.1, 2);
+  assert.equal(s.MIMIC.active, false);
+  assert.equal(desk.robbed, false);
+});
+test('mimic reroutes to a moved desk and abandons a released one', () => {
+  const s = scene(), a = agent('moving-mimic-target');
+  s.reconcile({ agents: [a] });
+  const desk = s.wizards.get(a.id).desk;
+  assert.equal(s.startMimic(desk), true);
+  desk.x += 40; desk.y += 20;
+  s.updateMimic(.1, 0);
+  assert.equal(s.MIMIC.targetX, desk.x);
+  assert.equal(s.MIMIC.targetY, desk.y);
+  desk.active = false;
+  s.updateMimic(.1, .1);
+  assert.equal(s.MIMIC.phase, 'escape');
+  assert.notEqual(desk.robbed, true);
+});
+test('haunted TODO keeps its original wizard as its target', () => {
+  const s = scene(), a = agent('todo-target');
+  s.reconcile({ agents: [a] });
+  const w = s.wizards.get(a.id), desk = w.desk;
+  assert.equal(s.spawnHauntedTodo(w, desk, 0), true);
+  const todo = s.HAUNTED_TODOS[0];
+  todo.x = w.x + (w.dir < 0 ? 8 : -8); todo.y = w.y - 18;
+  s.updateHauntedTodos(.1, 1);
+  assert.ok(todo.caughtAt);
+  assert.equal(todo.owner, a.id);
+  s.updateHauntedTodos(.1, 2.3);
+  assert.equal(s.HAUNTED_TODOS.length, 0);
+  assert.notEqual(w.emote, 'alert');
+});
+test('doorway standoff pauses both wizards before one yields', () => {
+  const s = scene(), agents = [agent('entering'), agent('leaving')];
+  s.reconcile({ agents });
+  const [a, b] = agents.map(x => s.wizards.get(x.id));
+  a.x = 432; a.y = 242; a.path = [[300, 120]];
+  b.x = 440; b.y = 246; b.path = [[436, 266]];
+  assert.equal(s.startDoorStandoff(a, b, 0), true);
+  const beforePause = [[a.x, a.y], [b.x, b.y]];
+  s.update(.1, .2);
+  assert.equal(a.stuckAt, 0);
+  assert.equal(b.stuckAt, 0);
+  assert.deepEqual([[a.x, a.y], [b.x, b.y]], beforePause);
+  const stand = s.getDoorStandoff(), yielding = s.wizards.get(stand.yielding), before = yielding.x;
+  assert.equal(s.standoffMove(yielding, .1, 1.2), true);
+  assert.notEqual(yielding.x, before);
 });
 test('fellowship sorting groups status, then wizard name', () => {
   const s = scene(), agents = [agent('waiting', 'waiting'), agent('work-a'), agent('work-b'), agent('attention', 'attention')];

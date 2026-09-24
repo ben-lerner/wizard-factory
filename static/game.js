@@ -485,6 +485,21 @@
     { id: 't2', x: 373, y: 121, seats: [[352, 132], [392, 132], [373, 104]], game: null, burnUntil: 0 },
   ];
   const GAME_TYPES = ['magic', 'chess', 'go'], tableR = rng(4242);
+  const SPORT_SHOTS = {
+    pingpong: [
+      { name: 'normal', duration: .85, lift: 12, bounce: .72 },
+      { name: 'slice', duration: 1.05, lift: 7, bounce: .78, curve: 4 },
+      { name: 'backhand', duration: .9, lift: 10, bounce: .7, curve: -3 },
+      { name: 'topspin', duration: .72, lift: 9, bounce: .62, curve: 2 },
+      { name: 'slam', duration: .58, lift: 5, bounce: .68, curve: -1 },
+    ],
+    badminton: [
+      { name: 'clear', duration: 1.5, lift: 36, drag: 1.45 },
+      { name: 'drop', duration: 1.15, lift: 24, fall: 7, drag: 1.3 },
+      { name: 'drive', duration: .82, lift: 13, drag: 1.1 },
+      { name: 'smash', duration: .62, lift: 0, drag: 1.65 },
+    ],
+  };
   const tableById = id => TABLES.find(t => t.id === id);
   function updateTopTable() {
     const count = usageProbes().length;
@@ -545,9 +560,94 @@
   }
   function startGame(table, players, t) {
     const types = table.types || GAME_TYPES;
-    table.game = { type: types[tableR() * types.length | 0], players, started: t, until: t + 28 + tableR() * 28 };
+    const type = types[tableR() * types.length | 0];
+    if (type === 'go' || type === 'chess') players = players.slice(0, 2);
+    table.game = { type, players, started: t, until: t + 28 + tableR() * 28 };
     table.game.players = players.filter((p, i) => seatPlayer(table, p, i, t));
+    if (table !== COURT) initBoardGame(table.game, t);
     if (table.game.players.length < 2) endGame(table, t, false);
+  }
+  function initBoardGame(game, t) {
+    game.turn = 0; game.nextMove = t + 2;
+    if (game.type === 'go') game.stones = [];
+    else if (game.type === 'chess') game.pieces = newChessPieces();
+    else game.cards = [];
+  }
+  const newChessPieces = () => [
+      ['rook', 0, 0, 0], ['king', 0, 1, 0], ['knight', 0, 3, 0], ['pawn', 0, 2, 1],
+      ['rook', 1, 3, 3], ['king', 1, 2, 3], ['knight', 1, 0, 3], ['pawn', 1, 1, 2],
+    ].map(([kind, side, x, y]) => ({ kind, side, x, y }));
+  function chessInCheck(pieces, side) {
+    const king = pieces.find(p => p.side === side && p.kind === 'king');
+    if (!king) return true;
+    return pieces.some(p => {
+      if (p.side === side) return false;
+      const dx = king.x - p.x, dy = king.y - p.y, ax = Math.abs(dx), ay = Math.abs(dy);
+      if (p.kind === 'pawn') return ay === 1 && ax === 1 && dy === (p.side ? -1 : 1);
+      if (p.kind === 'knight') return ax * ay === 2;
+      if (p.kind === 'king') return Math.max(ax, ay) === 1;
+      if (p.kind !== 'rook' || dx && dy) return false;
+      const sx = Math.sign(dx), sy = Math.sign(dy);
+      for (let x = p.x + sx, y = p.y + sy; x !== king.x || y !== king.y; x += sx, y += sy)
+        if (pieces.some(q => q.x === x && q.y === y)) return false;
+      return true;
+    });
+  }
+  const tableReady = game => game.players.every(p => {
+    if (p.kind === 'cat') return cat.game && !cat.path.length;
+    const w = wizards.get(p.id);
+    return w && !w.path.length && !w.blast;
+  });
+  function updateBoardGame(game, t) {
+    if (t < game.nextMove || !tableReady(game)) return;
+    const player = game.turn++ % game.players.length, seat = game.players[player].seat, duration = .75;
+    if (game.type === 'go') {
+      if (game.stones.length === 16) game.stones = [];
+      const open = Array.from({ length: 16 }, (_, i) => i).filter(i => !game.stones.some(s => s.x + s.y * 4 === i));
+      const n = open[(game.turn * 7 + 3) % open.length], stone = { x: n % 4, y: n / 4 | 0, side: seat, placedAt: t };
+      game.stones.push(stone); game.move = { player, seat, to: [stone.x, stone.y], start: t, duration };
+    } else if (game.type === 'chess') {
+      const at = (x, y) => game.pieces.find(p => p.x === x && p.y === y);
+      const candidates = [];
+      const offer = (piece, x, y, target = at(x, y)) => {
+        if (target && (target.side === piece.side || target.kind === 'king')) return;
+        const next = game.pieces.filter(p => p !== target).map(p => p === piece ? { ...p, x, y } : p);
+        if (!chessInCheck(next, piece.side)) candidates.push([piece, x, y, target]);
+      };
+      for (const piece of game.pieces.filter(p => p.side === player % 2)) {
+        if (piece.kind === 'pawn') {
+          const dy = piece.side ? -1 : 1, y = piece.y + dy;
+          if (y >= 0 && y < 4 && !at(piece.x, y)) offer(piece, piece.x, y, null);
+          for (const dx of [-1, 1]) {
+            const target = at(piece.x + dx, y);
+            if (target && target.side !== piece.side) offer(piece, piece.x + dx, y, target);
+          }
+          continue;
+        }
+        const directions = piece.kind === 'knight' ? [[1, 2], [2, 1], [-1, 2], [-2, 1], [1, -2], [2, -1], [-1, -2], [-2, -1]] :
+          piece.kind === 'king' ? [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]] : [[1, 0], [-1, 0], [0, 1], [0, -1]];
+        for (const [dx, dy] of directions) for (let n = 1; n <= (piece.kind === 'rook' ? 3 : 1); n++) {
+          const x = piece.x + dx * n, y = piece.y + dy * n;
+          if (x < 0 || x >= 4 || y < 0 || y >= 4) break;
+          const target = at(x, y);
+          offer(piece, x, y, target);
+          if (target) break;
+        }
+      }
+      if (candidates.length) {
+        const [piece, x, y, captured] = candidates[(game.turn * 5 + 1) % candidates.length];
+        game.move = { player, seat, piece, from: [piece.x, piece.y], to: [x, y], start: t, duration };
+        if (captured) game.pieces = game.pieces.filter(p => p !== captured);
+        piece.x = x; piece.y = y;
+      } else { game.pieces = newChessPieces(); game.turn = 0; delete game.move; }
+    } else {
+      if (game.cards.length === 6) game.cards.shift();
+      const slots = [[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1]], used = new Set(game.cards.map(c => c.slot));
+      const slot = slots.findIndex((_, i) => !used.has(i));
+      const card = { slot, side: seat, color: ['#4878a8', '#a84848', '#48a868', '#8b5eb5', '#d49a42'][game.turn % 5], placedAt: t };
+      game.cards.push(card); game.move = { player, seat, card, to: slots[slot], start: t, duration };
+    }
+    game.nextMove = t + 1.6 + tableR() * .7;
   }
   function updateTableGames(t) {
     updateTopTable();
@@ -563,6 +663,7 @@
         });
         if (table.game.players.length < 2 || t > table.game.until) endGame(table, t, false);
         else if (table === COURT) updateRally(table, t);
+        else updateBoardGame(table.game, t);
       }
       if (table.game || t < table.burnUntil || t < (table.nextAt || 0)) continue;
       const ws = [...wizards.values()].filter(w => waitingForGame(w)).sort((a, b) => (a.a.started || 0) - (b.a.started || 0));
@@ -583,18 +684,29 @@
     if (game.rally && t < game.rally.start + game.rally.duration) return;
     const hitter = game.rally ? game.rally.receiver : 0, receiver = 1 - hitter;
     const w = ws[hitter], other = ws[receiver], seat = table.seats[receiver];
-    const x = seat[0] + (tableR() * 8 - 4), y = seat[1] + (tableR() * 20 - 10);
+    const shots = SPORT_SHOTS[game.type], shot = shots[(game.shotIndex || 0) % shots.length];
+    game.shotIndex = (game.shotIndex || 0) + 1;
+    const next = shots[game.shotIndex % shots.length];
+    const x = seat[0] + (tableR() * 8 - 4), y = Math.max(seat[1] + (tableR() * 20 - 10), shot.name === 'smash' ? w.y - 8 : -Infinity);
     other.home = [x, y]; other.path = route(other.x, other.y, x, y, WIZ_R);
-    game.rally = { start: t, duration: game.type === 'badminton' ? 1.35 : .85, receiver,
-      from: [w.x + (hitter ? -10 : 10), w.y - 14], to: [x + (receiver ? -10 : 10), y - 14],
+    game.rally = { start: t, duration: shot.duration, receiver, shot: shot.name,
+      from: [w.x + (hitter ? -10 : 10), w.y - (shot.name === 'smash' ? 28 : 14)],
+      to: [x + (receiver ? -10 : 10), y - (game.type === 'badminton' && next.name === 'smash' ? 28 : 14)],
       hits: (game.rally ? game.rally.hits : 0) + 1 };
     game.players[hitter].hitAt = t;
   }
   function rallyPosition(game, t) {
     const r = game.rally, k = Math.max(0, Math.min(1, (t - r.start) / r.duration));
-    const arc = game.type === 'badminton' ? Math.sin(k * Math.PI) * 28 :
-      k < .75 ? Math.sin(k / .75 * Math.PI) * 12 : Math.sin((k - .75) / .25 * Math.PI) * 5;
-    return [r.from[0] + (r.to[0] - r.from[0]) * k, r.from[1] + (r.to[1] - r.from[1]) * k - arc];
+    const shot = SPORT_SHOTS[game.type].find(s => s.name === r.shot) || SPORT_SHOTS[game.type][0];
+    let arc, q = k;
+    if (game.type === 'badminton') {
+      arc = Math.sin(k * Math.PI) * (shot.lift - (shot.fall || 0) * k);
+      q = 1 - Math.pow(1 - k, shot.drag);
+    }
+    else arc = k < shot.bounce ? Math.sin(k / shot.bounce * Math.PI) * shot.lift :
+      Math.sin((k - shot.bounce) / (1 - shot.bounce) * Math.PI) * shot.lift * .42;
+    return [r.from[0] + (r.to[0] - r.from[0]) * q + Math.sin(k * Math.PI) * (shot.curve || 0),
+      r.from[1] + (r.to[1] - r.from[1]) * q - arc];
   }
   function drawCourt(gg, t) {
     if (!COURT.game) return;
@@ -614,9 +726,16 @@
     for (const [i, p] of game.players.entries()) {
       const w = wizards.get(p.id);
       if (!w || w.blast) continue;
-      const side = i ? -1 : 1, swing = Math.max(0, 1 - (t - (p.hitAt ?? -1)) / .22);
+      const side = i ? -1 : 1, returning = game.rally && game.rally.receiver === i;
+      let swing = Math.max(0, 1 - (t - (p.hitAt ?? -1)) / .22);
+      let shot = game.rally && game.rally.receiver === 1 - i ? game.rally.shot : 'normal';
+      if (badminton && returning && SPORT_SHOTS.badminton[game.shotIndex % SPORT_SHOTS.badminton.length].name === 'smash') {
+        shot = 'smash'; swing = Math.max(swing, Math.min(1, (t - game.rally.start) / game.rally.duration));
+      }
       g.save(); g.globalAlpha = Math.max(0, Math.min(1, (t - game.started - .5) / 1.5));
-      g.translate(Math.round(w.x + side * 10), Math.round(w.y - 14)); g.rotate(side * swing * .8);
+      const backhand = shot === 'backhand' ? -1 : 1, power = shot === 'slam' || shot === 'smash' ? 1.35 : shot === 'slice' || shot === 'drop' ? .55 : .8;
+      g.translate(Math.round(w.x + side * 10), Math.round(w.y - 14 - (shot === 'smash' ? 12 : shot === 'slam' ? 3 : 0) * swing));
+      g.rotate(side * backhand * swing * power + (shot === 'slice' ? side * .35 : 0));
       g.fillStyle = '#c8a678'; g.fillRect(-1, 2, 2, 6);
       if (badminton) {
         g.strokeStyle = '#eee6c6'; g.lineWidth = 1; g.beginPath(); g.ellipse(0, -2, 4, 6, 0, 0, Math.PI * 2); g.stroke();
@@ -961,21 +1080,61 @@
     gg.globalAlpha = 1;
   }
 
+  const mix = (a, b, k) => a + (b - a) * k;
+  function moveProgress(game, t) { return game.move ? Math.max(0, Math.min(1, (t - game.move.start) / game.move.duration)) : 1; }
+  function drawTableReach(gg, table, target, t) {
+    const move = table.game.move, k = moveProgress(table.game, t);
+    if (!move || k >= .72) return;
+    const [sx, sy] = table.seats[move.seat], q = Math.min(1, k / .45), hx = mix(sx, target[0], q), hy = mix(sy - 12, target[1], q);
+    gg.save(); gg.strokeStyle = move.seat % 2 ? '#6a4fd0' : '#4878a8'; gg.lineWidth = 3;
+    gg.beginPath(); gg.moveTo(sx, sy - 10); gg.lineTo(hx, hy); gg.stroke();
+    gg.fillStyle = '#d8b18b'; gg.fillRect(Math.round(hx) - 1, Math.round(hy) - 1, 3, 3); gg.restore();
+  }
+  function drawChessPiece(gg, piece, x, y) {
+    gg.fillStyle = piece.side ? '#f7f3e8' : '#1c1430';
+    gg.fillRect(Math.round(x) + 1, Math.round(y), 2, 2); gg.fillRect(Math.round(x), Math.round(y) + 2, 4, 1);
+    if (piece.kind === 'king') gg.fillRect(Math.round(x) + 1, Math.round(y) - 1, 1, 1);
+    else if (piece.kind === 'knight') gg.fillRect(Math.round(x) + (piece.side ? 2 : 0), Math.round(y) - 1, 2, 1);
+  }
   function drawTableGame(gg, table, t) {
-    const x = table.x - 10, y = table.y - 6;
-    if (table.game) {
-      if (table.game.type === 'magic') {
-        ['#4878a8', '#a84848', '#48a868', '#e8dfc0', '#30364a'].forEach((c, i) => { gg.fillStyle = c; gg.fillRect(x + i * 4, y + (i % 2), 3, 5); });
-        gg.fillStyle = '#6b4226'; gg.fillRect(x + 4, y + 7, 12, 2);
-      } else if (table.game.type === 'chess') {
-        for (let cy = 0; cy < 4; cy++) for (let cx = 0; cx < 4; cx++) { gg.fillStyle = (cx + cy) % 2 ? '#30364a' : '#f4f0e0'; gg.fillRect(x + cx * 4, y + cy * 3, 4, 3); }
-        gg.fillStyle = '#1c1430'; gg.fillRect(x + 2, y + 1, 2, 2); gg.fillRect(x + 10, y + 7, 2, 2);
-        gg.fillStyle = '#f7f3e8'; gg.fillRect(x + 6, y + 4, 2, 2); gg.fillRect(x + 14, y + 10, 2, 2);
+    const x = table.x - 10, y = table.y - 6, game = table.game;
+    if (game) {
+      if (game.type === 'magic') {
+        gg.fillStyle = '#384530'; gg.fillRect(x, y, 17, 13);
+        for (const card of game.cards) {
+          const tx = x + 1 + (card.slot % 3) * 5, ty = y + 1 + (card.slot / 3 | 0) * 6;
+          let cx = tx, cy = ty;
+          if (game.move && game.move.card === card && moveProgress(game, t) < 1) {
+            const [sx, sy] = table.seats[game.move.seat], k = moveProgress(game, t);
+            cx = mix(sx, tx, k); cy = mix(sy - 11, ty, k);
+          }
+          gg.fillStyle = '#e8dfc0'; gg.fillRect(Math.round(cx), Math.round(cy), 4, 5);
+          gg.fillStyle = card.color; gg.fillRect(Math.round(cx) + 1, Math.round(cy) + 1, 2, 2);
+        }
+        if (game.move) drawTableReach(gg, table, [x + 2 + game.move.to[0] * 5, y + 3 + game.move.to[1] * 6], t);
+      } else if (game.type === 'chess') {
+        for (let cy = 0; cy < 4; cy++) for (let cx = 0; cx < 4; cx++) { gg.fillStyle = (cx + cy) % 2 ? '#59606e' : '#e2d8b9'; gg.fillRect(x + cx * 4, y + cy * 3, 4, 3); }
+        for (const piece of game.pieces) {
+          let px = x + piece.x * 4, py = y + piece.y * 3;
+          if (game.move && game.move.piece === piece && moveProgress(game, t) < 1) {
+            const k = moveProgress(game, t); px = x + mix(game.move.from[0], piece.x, k) * 4; py = y + mix(game.move.from[1], piece.y, k) * 3;
+          }
+          drawChessPiece(gg, piece, px, py);
+        }
+        if (game.move) drawTableReach(gg, table, [x + game.move.to[0] * 4 + 2, y + game.move.to[1] * 3 + 1], t);
       } else {
         gg.fillStyle = '#d8b878'; gg.fillRect(x, y, 17, 13);
-        gg.fillStyle = '#8a6242'; for (let i = 2; i < 16; i += 4) { gg.fillRect(x + i, y + 1, 1, 11); gg.fillRect(x + 1, y + i - 1, 15, 1); }
-        gg.fillStyle = '#1c1430'; gg.fillRect(x + 4, y + 3, 2, 2); gg.fillRect(x + 12, y + 7, 2, 2);
-        gg.fillStyle = '#f7f3e8'; gg.fillRect(x + 8, y + 3, 2, 2); gg.fillRect(x + 4, y + 9, 2, 2);
+        gg.fillStyle = '#8a6242';
+        for (let i = 0; i < 4; i++) { gg.fillRect(x + 2 + i * 4, y + 1, 1, 10); gg.fillRect(x + 2, y + 1 + i * 3, 13, 1); }
+        for (const stone of game.stones) {
+          let sx = x + 2 + stone.x * 4, sy = y + 1 + stone.y * 3;
+          if (game.move && game.stones.at(-1) === stone && moveProgress(game, t) < 1) {
+            const [ox, oy] = table.seats[game.move.seat], k = moveProgress(game, t); sx = mix(ox, sx, k); sy = mix(oy - 11, sy, k);
+          }
+          gg.fillStyle = stone.side % 2 ? '#f7f3e8' : '#1c1430'; gg.fillRect(Math.round(sx) - 1, Math.round(sy) - 1, 3, 3);
+          gg.fillStyle = stone.side % 2 ? '#fffdf4' : '#4a4358'; gg.fillRect(Math.round(sx), Math.round(sy) - 1, 1, 1);
+        }
+        if (game.move) drawTableReach(gg, table, [x + 2 + game.move.to[0] * 4, y + 1 + game.move.to[1] * 3], t);
       }
     }
     if (t < table.burnUntil) {

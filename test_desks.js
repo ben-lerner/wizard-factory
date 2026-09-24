@@ -16,7 +16,7 @@ function scene() {
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, updateBoardGame, drawTableGame, chessInCheck, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
@@ -384,6 +384,89 @@ test('badminton flies higher than ping pong and both meet the rackets', () => {
   const birdie = s.rallyPosition(game, r.duration / 2);
   const ball = s.rallyPosition({ ...game, type: 'pingpong' }, r.duration / 2);
   assert.ok(birdie[1] < ball[1] - 10);
+});
+
+test('ping pong rotates through normal, slice, backhand, topspin, and slam shots', () => {
+  const s = racketGame('pingpong'), game = s.COURT.game, shots = [];
+  for (let i = 0; i < 5; i++) {
+    shots.push(game.rally.shot);
+    const mid = s.rallyPosition(game, game.rally.start + game.rally.duration / 2);
+    assert.ok(mid.every(Number.isFinite));
+    for (const w of s.wizards.values()) { [w.x, w.y] = w.home; w.path = []; }
+    s.updateRally(s.COURT, game.rally.start + game.rally.duration);
+  }
+  assert.deepEqual(shots, ['normal', 'slice', 'backhand', 'topspin', 'slam']);
+});
+
+test('badminton uses clear, drop, drive, and smash trajectories with shuttle drag', () => {
+  const s = racketGame('badminton'), game = s.COURT.game, shots = [];
+  for (let i = 0; i < 4; i++) {
+    const r = game.rally;
+    shots.push(r.shot);
+    const early = s.rallyPosition(game, r.start + r.duration * .25);
+    assert.ok(Math.abs(early[0] - r.from[0]) > Math.abs(r.to[0] - r.from[0]) * .25);
+    if (r.shot === 'smash') {
+      const ys = Array.from({ length: 9 }, (_, j) => s.rallyPosition(game, r.start + r.duration * j / 8)[1]);
+      assert.ok(ys.every((y, j) => !j || y >= ys[j - 1]), 'smash descends continuously from overhead contact');
+    }
+    assert.deepEqual([...s.rallyPosition(game, r.start + r.duration)].map(Math.round), [...r.to].map(Math.round));
+    for (const w of s.wizards.values()) { [w.x, w.y] = w.home; w.path = []; }
+    s.updateRally(s.COURT, r.start + r.duration);
+    assert.deepEqual([...game.rally.from], [...r.to], 'the next shot begins at the previous contact point');
+  }
+  assert.deepEqual(shots, ['clear', 'drop', 'drive', 'smash']);
+});
+
+for (const type of ['go', 'chess', 'magic']) {
+  test(`${type} players take visible turns that change the tabletop state`, () => {
+    const s = scene(), agents = [agent(`${type}-one`, 'waiting'), agent(`${type}-two`, 'waiting')], table = s.TABLES[1];
+    s.reconcile({ agents }); table.types = [type];
+    s.startGame(table, agents.map(a => ({ kind: 'wizard', id: a.id })), -2);
+    for (const w of s.wizards.values()) { [w.x, w.y] = w.home; w.path = []; w.alpha = 1; }
+    const before = JSON.stringify(table.game.stones || table.game.pieces || table.game.cards);
+    s.updateBoardGame(table.game, 0);
+    assert.notEqual(JSON.stringify(table.game.stones || table.game.pieces || table.game.cards), before);
+    assert.equal(table.game.move.player, 0);
+    s.calls.length = 0;
+    s.drawTableGame(s.ctx, table, .3);
+    assert.ok(s.calls.some(c => c[0] === 'lineTo'), 'player reaches toward the move');
+    assert.ok(s.calls.filter(c => c[0] === 'fillRect').every(c => c.slice(1, 5).every(Number.isFinite)));
+  });
+}
+
+test('Go and chess remain two-player games when a cat is available', () => {
+  for (const type of ['go', 'chess']) {
+    const s = scene(), agents = [agent(`${type}-a`, 'waiting'), agent(`${type}-b`, 'waiting')], table = s.TABLES[1];
+    s.reconcile({ agents }); table.types = [type];
+    s.startGame(table, [...agents.map(a => ({ kind: 'wizard', id: a.id })), { kind: 'cat', id: 'cat' }], 0);
+    assert.equal(table.game.players.length, 2);
+    assert.equal(s.COURT.game, null);
+  }
+});
+
+test('chess turns preserve both kings and never leave the mover in check', () => {
+  const s = scene(), agents = [agent('white', 'waiting'), agent('black', 'waiting')], table = s.TABLES[1];
+  s.reconcile({ agents }); table.types = ['chess'];
+  s.startGame(table, agents.map(a => ({ kind: 'wizard', id: a.id })), -2);
+  for (const w of s.wizards.values()) { [w.x, w.y] = w.home; w.path = []; }
+  for (let turn = 0; turn < 40; turn++) {
+    table.game.nextMove = turn;
+    s.updateBoardGame(table.game, turn);
+    assert.equal(table.game.pieces.filter(p => p.kind === 'king').length, 2);
+    if (table.game.move) assert.equal(s.chessInCheck(table.game.pieces, table.game.move.player), false);
+  }
+});
+
+test('Magic turns keep their original chairs after a player leaves', () => {
+  const s = scene(), agents = ['a', 'b', 'c'].map(id => agent(`magic-${id}`, 'waiting')), table = s.TABLES[1];
+  s.reconcile({ agents }); table.types = ['magic'];
+  s.startGame(table, agents.map(a => ({ kind: 'wizard', id: a.id })), -2);
+  table.game.players.shift();
+  for (const w of s.wizards.values()) { [w.x, w.y] = w.home; w.path = []; }
+  s.updateBoardGame(table.game, 0);
+  assert.equal(table.game.move.seat, 1);
+  s.calls.length = 0; s.drawTableGame(s.ctx, table, .1);
+  assert.ok(s.calls.some(c => c[0] === 'moveTo' && c[1] === table.seats[1][0] && c[2] === table.seats[1][1] - 10));
 });
 
 

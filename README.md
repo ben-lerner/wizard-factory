@@ -53,14 +53,13 @@ send wizards to the café while they wait for an answer.
 
 Appearance and name are deterministic per agent id (seeded hats, beards, robes,
 staffs, and cafe order), so the same session keeps the same wizard
-across reloads. Long quiet stretches are occasionally interrupted by a brief
-tower-wide ray battle; victims burst through faction-colored shock sigils, then
+across reloads. Long quiet stretches are occasionally interrupted by a ray duel;
+victims burst through faction-colored shock sigils, then
 magically reconstitute amid orbiting motes and reforming circles before returning
-to work, followed by a three-to-five-minute cooldown. Agents
-of the opposite rank help their faction in a duel, with only one apprentice
-joining the fray at a time; stronger defending support
+to work, followed by a three-to-five-minute cooldown. Each duel has one attacker
+and one target. Wizards and demons can call on their own apprentices; stronger defending support
 reflects the blast at the aggressor, while a tie still hits the target. Agents
-rarely challenge Earl Grey; those who do may bring one supporter, but he roasts each
+rarely challenge Earl Grey; those who do may bring their apprentices, but he roasts each
 assailant into soot in succession. Biggles and Lucipurr bypass duels and can
 blast anyone, including Earl Grey, but are themselves immune. Earl Grey, the dragon
 barista, brews cafe orders with fire and pours milk for milk drinks. He sleeps when

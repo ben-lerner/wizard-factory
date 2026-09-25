@@ -312,7 +312,7 @@
       const demon = a.origin === 'remote';
       if (!w) {
         w = { a, sp: SP.makeWizard(a.id, a.kind, a.engine, demon), x: 436 + ((hash(a.id) % 9) - 4), y: 250, dir: -1, path: [], walk: false,
-              station: null, spotI: -1, home: null, order: null, game: null, castAt: 0, rayAt: 0, blast: null, leaving: false,
+              station: null, spotI: -1, home: null, order: null, game: null, castAt: 0, blast: null, leaving: false,
               stuckAt: 0, lastX: 436, lastY: 250, alpha: 0, ph: (hash(a.id) % 100) / 16, r: rng(hash(a.id) ^ 0xbeef), emote: null };
         wizards.set(a.id, w);
         sparkleAt(436, 252);
@@ -339,10 +339,10 @@
 
   // ---------- cat & barista ----------
   const catFrames = SP.makeCat();
-  const cat = { x: 446, y: 110, state: 'sit', until: 4, path: [], dir: -1, dest: null, order: null, game: null, castAt: 0, rayAt: 0 };
+  const cat = { x: 446, y: 110, state: 'sit', until: 4, path: [], dir: -1, dest: null, order: null, game: null, castAt: 0 };
   const catR = rng(99);
   cat.r = catR;
-  const demonCat = { frames: SP.makeCat(true), x: 446, y: 110, active: false, path: [], dir: -1, alpha: 0, until: 0, summonAt: 24, dest: null, order: null, rayAt: 0 };
+  const demonCat = { frames: SP.makeCat(true), x: 446, y: 110, active: false, path: [], dir: -1, alpha: 0, until: 0, summonAt: 24, dest: null, order: null };
   const demonCatR = rng(666);
   demonCat.r = demonCatR;
   const CAT_SPECIALS = DRINKS.filter(d => ['health-potion', 'mana-potion', 'antimatter'].includes(d.key));
@@ -812,7 +812,7 @@
   const SPELLS = [];
   const battleR = rng(31337);
   const BATTLE_COOLDOWN = 180, BATTLE_COOLDOWN_JITTER = 120, EARL_GREY_TARGET_CHANCE = .08;
-  let nextBattle = 45 + battleR() * 45, battleUntil = 0, battleApprentice = null;
+  let nextBattle = 45 + battleR() * 45;
   const SPELL_TARGETS = {
     cauldron: [[68, 154], [80, 154]], shelf: [[24, 68], [24, 104], [24, 140]],
     bench: [[98, 50], [112, 50]], submit: [[112, 118], [84, 126], [140, 126]], labwait: [[112, 118], [92, 130], [132, 130]], desk: [[108, 204], [152, 204]],
@@ -878,21 +878,18 @@
     spark(sx, sy, '#d8ff58', -5, .35);
   }
   function rayOpponent(w) {
-    const rivals = [...wizards.values()].filter(v => v !== w && v.sp.demon !== w.sp.demon && !v.leaving && !v.walk && !v.game && !v.blast && v.alpha > .8 &&
-      !SPELLS.some(s => s.kind === 'ray' && s.target === v.a.id));
-    if (dragonAtBar() && w.r() < EARL_GREY_TARGET_CHANCE && !SPELLS.some(s => s.kind === 'ray' && s.target === 'dragon')) rivals.push(dragon);
+    const rivals = [...wizards.values()].filter(v => v.a.kind !== 'sub' && v.sp.demon !== w.sp.demon && !v.leaving && !v.walk && !v.game && !v.blast && v.alpha > .8);
+    if (dragonAtBar() && w.r() < EARL_GREY_TARGET_CHANCE) rivals.push(dragon);
     return rivals.length ? rivals[w.r() * rivals.length | 0] : null;
   }
-  function combatHelpers(w, opponent) {
-    const helpers = [...wizards.values()].filter(v => v !== w && v !== opponent && v.sp.demon === w.sp.demon && v.a.kind !== w.a.kind &&
-      !v.leaving && !v.game && !v.blast && v.alpha > .8);
-    return helpers.filter(v => v.a.kind !== 'sub' || v.a.id === battleApprentice).map(v => v.a.id);
+  function combatHelpers(w) {
+    return [...wizards.values()].filter(v => v.a.kind === 'sub' && v.a.parent === w.a.id && v.sp.demon === w.sp.demon &&
+      !v.leaving && !v.walk && !v.game && !v.blast && v.alpha > .8).map(v => v.a.id);
   }
   function castRay(w, target, catCaster = false) {
     const demon = catCaster ? w === demonCat : w.sp.demon, c = demon ? '#f05a3a' : catCaster ? '#d8ff58' : '#8fd0ff';
     const source = catCaster ? w === cat ? 'cat' : 'demon-cat' : w.a.id, targetId = target === dragon ? 'dragon' : target.a.id;
-    const helpers = catCaster ? [] : combatHelpers(w, target);
-    const attackers = target === dragon ? helpers.slice(0, 1) : helpers, defenders = catCaster || target === dragon ? [] : combatHelpers(target, w);
+    const attackers = catCaster ? [] : combatHelpers(w), defenders = catCaster || target === dragon ? [] : combatHelpers(target);
     w.dir = target.x < w.x ? -1 : 1;
     const sy = w.y - (catCaster ? 8 : 17), ty = target.y - (target === dragon ? 15 : 14);
     SPELLS.push({ kind: 'ray', source, target: targetId, cat: catCaster, attackers, defenders, sx: w.x + w.dir * 7, sy,
@@ -900,41 +897,21 @@
     spark(w.x + w.dir * 7, sy, c, -5, .35);
   }
   function updateBattle(t) {
-    if (battleUntil) {
-      if (t < battleUntil) return;
-      battleUntil = 0;
-      battleApprentice = null;
-      nextBattle = t + BATTLE_COOLDOWN + battleR() * BATTLE_COOLDOWN_JITTER;
-    }
     if (t < nextBattle || !wizards.size) return;
-    battleUntil = t + 4 + battleR() * 2;
-    const apprentices = [...wizards.values()].filter(w => w.a.kind === 'sub' && !w.leaving && !w.game && !w.blast && w.alpha > .8);
-    battleApprentice = apprentices.length ? apprentices[battleR() * apprentices.length | 0].a.id : null;
-    for (const w of wizards.values()) w.rayAt = t + w.r() * 1.2;
-    cat.rayAt = t + catR() * 1.2;
-    demonCat.rayAt = t + demonCatR() * 1.2;
-  }
-  function maybeRay(w, t) {
-    if (!battleUntil || t >= battleUntil) return false;
-    if (!w.rayAt) w.rayAt = t + w.r() * 1.2;
-    if (t < w.rayAt || w.walk || w.leaving || w.game || w.blast || w.alpha < .8) return false;
-    w.rayAt = t + 3 + w.r() * 3;
-    const target = rayOpponent(w);
-    if (!target) return false;
-    castRay(w, target);
-    return true;
-  }
-  function maybeCatRay(c, t) {
-    if (!battleUntil || t >= battleUntil || c === demonCat && !c.active) return false;
-    if (!c.rayAt) c.rayAt = t + c.r() * 1.2;
-    if (t < c.rayAt || c.path.length || c.game || c.state === 'walk' || c.state === 'sleep' || c.alpha !== undefined && c.alpha < .8) return false;
-    c.rayAt = t + 3.5 + c.r() * 3;
-    const targets = [...wizards.values()].filter(w => !w.leaving && !w.walk && !w.game && !w.blast && w.alpha > .8 &&
-      !SPELLS.some(s => s.kind === 'ray' && s.target === w.a.id));
-    if (dragonAtBar() && c.r() < EARL_GREY_TARGET_CHANCE && !SPELLS.some(s => s.kind === 'ray' && s.target === 'dragon')) targets.push(dragon);
-    if (!targets.length) return false;
-    castRay(c, targets[c.r() * targets.length | 0], true);
-    return true;
+    const wizardsReady = [...wizards.values()].filter(w => w.a.kind !== 'sub' && !w.walk && !w.leaving && !w.game && !w.blast && w.alpha > .8);
+    const fights = wizardsReady.map(w => [w, rayOpponent(w)]).filter(([, target]) => target);
+    const catsReady = [cat, demonCat].filter(c => (c !== demonCat || c.active) && !c.path.length && !c.game && c.state !== 'walk' && c.state !== 'sleep' && (c.alpha === undefined || c.alpha > .8));
+    const targets = [...wizards.values()].filter(w => !w.leaving && !w.walk && !w.game && !w.blast && w.alpha > .8);
+    const casters = [...fights, ...catsReady.filter(() => targets.length || dragonAtBar()).map(c => [c, null])];
+    if (!casters.length) return;
+    nextBattle = t + BATTLE_COOLDOWN + battleR() * BATTLE_COOLDOWN_JITTER;
+    let [caster, target] = casters[battleR() * casters.length | 0];
+    const catCaster = caster === cat || caster === demonCat;
+    if (catCaster) {
+      if (dragonAtBar() && caster.r() < EARL_GREY_TARGET_CHANCE) targets.push(dragon);
+      target = targets[caster.r() * targets.length | 0];
+    }
+    castRay(caster, target, catCaster);
   }
   function maybeCast(w, t) {
     if (w.a.status !== 'working' || cafeWait(w.a) || w.walk || w.leaving || w.blast || w.alpha < .8 || !w.home) return;
@@ -1493,12 +1470,11 @@
       if (w.leaving && w.alpha <= 0) { wizards.delete(id); continue; }
       if (w.a.status === 'idle' && Math.random() < dt * .5) spark(w.x + 6, w.y - 24, '#a8a2c8', -6, 1.4, 'z');
       if (w.a.status === 'attention' && Math.random() < dt * 2) spark(w.x, w.y - 26, '#ff5a5a', -10, .5);
-      if (!maybeRay(w, t)) maybeCast(w, t);
+      maybeCast(w, t);
     }
     updateDragonSignal(t);
     updateDragon(dt, t);
-    if (!maybeCatRay(cat, t)) maybeCatCast(t);
-    maybeCatRay(demonCat, t);
+    maybeCatCast(t);
     updateSpells(dt, t);
     cafeService(t);
     maybeCafeChat(t);

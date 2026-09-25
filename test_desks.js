@@ -16,10 +16,41 @@ function scene() {
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, updateBoardGame, drawTableGame, chessInCheck, playGo, goPosition, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, pickAt, usageProbe, castSpell, castRay, updateBattle, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, updateBoardGame, drawTableGame, chessInCheck, playGo, goPosition, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
+test('duels recruit only each fighter’s apprentices', () => {
+  const s = scene(), agents = [agent('wizard'), agent('demon'), agent('bystander'), agent('w-child', 'working', 'wizard'),
+    agent('d-child', 'working', 'demon'), agent('other-child', 'working', 'bystander')];
+  for (const a of agents) if (a.id.startsWith('d')) a.origin = 'remote';
+  s.reconcile({ agents });
+  for (const w of s.wizards.values()) { w.alpha = 1; w.walk = false; }
+  s.castRay(s.wizards.get('wizard'), s.wizards.get('demon'));
+  const ray = s.SPELLS.at(-1);
+  assert.deepEqual(Array.from(ray.attackers), ['w-child']);
+  assert.deepEqual(Array.from(ray.defenders), ['d-child']);
+  assert.equal(ray.source, 'wizard');
+  assert.equal(ray.target, 'demon');
+});
+test('each battle schedules one encounter', () => {
+  const s = scene(), agents = [agent('wizard'), { ...agent('demon'), origin: 'remote' }];
+  s.reconcile({ agents });
+  for (const w of s.wizards.values()) { w.alpha = 1; w.walk = false; }
+  s.updateBattle(1000);
+  assert.equal(s.SPELLS.filter(spell => spell.kind === 'ray').length, 1);
+  s.updateBattle(1001);
+  assert.equal(s.SPELLS.filter(spell => spell.kind === 'ray').length, 1);
+});
+test('a same-faction tower still gets a cat encounter', () => {
+  const s = scene(), agents = Array.from({ length: 10 }, (_, i) => agent(`wizard-${i}`));
+  s.reconcile({ agents });
+  for (const w of s.wizards.values()) { w.alpha = 1; w.walk = false; }
+  s.updateBattle(1000);
+  const rays = s.SPELLS.filter(spell => spell.kind === 'ray');
+  assert.equal(rays.length, 1);
+  assert.equal(rays[0].source, 'cat');
+});
 test('work keeps its seat through tool changes and renames, then dissolves', () => {
   const s = scene(), a = agent('main');
   s.reconcile({ agents: [a] });

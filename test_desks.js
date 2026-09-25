@@ -16,7 +16,7 @@ function scene() {
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, updateBoardGame, drawTableGame, chessInCheck, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, pickAt, usageProbe, castSpell, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, updateBoardGame, drawTableGame, chessInCheck, playGo, goPosition, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
@@ -442,6 +442,47 @@ test('Go and chess remain two-player games when a cat is available', () => {
     assert.equal(table.game.players.length, 2);
     assert.equal(s.COURT.game, null);
   }
+});
+
+test('Go captures connected groups and multiple groups with no liberties', () => {
+  const { playGo } = scene();
+  const stones = [[0, 0, 0], [2, 0, 0], [0, 1, 0], [2, 1, 0], [1, 0, 1], [1, 1, 1]]
+    .map(([x, y, side]) => ({ x, y, side }));
+  const next = playGo(stones, { x: 1, y: 2, side: 0 });
+  assert.equal(next.length, 5);
+  assert.ok(next.every(s => s.side === 0));
+  const split = [[0, 0, 0], [2, 0, 0], [0, 2, 0], [1, 0, 1], [0, 1, 1]]
+    .map(([x, y, side]) => ({ x, y, side }));
+  assert.equal(playGo(split, { x: 1, y: 1, side: 0 }).length, 4);
+});
+
+test('Go rejects occupied points, suicide, and immediate ko recapture', () => {
+  const { playGo, goPosition } = scene();
+  const surround = [[0, 1, 0], [2, 1, 0], [1, 0, 0], [1, 2, 0]]
+    .map(([x, y, side]) => ({ x, y, side }));
+  assert.equal(playGo(surround, { x: 1, y: 1, side: 1 }), null);
+  assert.equal(playGo(surround, { x: 0, y: 1, side: 1 }), null);
+  const before = [[0, 1, 0], [2, 1, 0], [1, 0, 0], [1, 1, 1], [0, 2, 1], [2, 2, 1], [1, 3, 1]]
+    .map(([x, y, side]) => ({ x, y, side }));
+  const captured = playGo(before, { x: 1, y: 2, side: 0 });
+  assert.ok(captured && captured.length === before.length);
+  assert.equal(playGo(captured, { x: 1, y: 1, side: 1 }, goPosition(before)), null);
+  assert.equal(goPosition(playGo(captured, { x: 1, y: 1, side: 1 })), goPosition(before));
+});
+
+test('Go turns remove captured stones and keep the placement animation', () => {
+  const s = scene(), agents = [agent('go-black', 'waiting'), agent('go-white', 'waiting')], table = s.TABLES[1];
+  s.reconcile({ agents }); table.types = ['go'];
+  s.startGame(table, agents.map(a => ({ kind: 'wizard', id: a.id })), -2);
+  for (const w of s.wizards.values()) { [w.x, w.y] = w.home; w.path = []; }
+  table.game.stones = [[0, 0, 0], [2, 0, 0], [0, 1, 0], [2, 1, 0], [1, 0, 1], [1, 1, 1]]
+    .map(([x, y, side]) => ({ x, y, side }));
+  s.updateBoardGame(table.game, 0);
+  assert.deepEqual(Array.from(table.game.move.to), [1, 2]);
+  assert.equal(table.game.stones.length, 5);
+  assert.equal(table.game.stones.at(-1).side, 0);
+  s.calls.length = 0; s.drawTableGame(s.ctx, table, .3);
+  assert.ok(s.calls.some(c => c[0] === 'lineTo'));
 });
 
 test('chess turns preserve both kings and never leave the mover in check', () => {

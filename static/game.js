@@ -569,7 +569,7 @@
   }
   function initBoardGame(game, t) {
     game.turn = 0; game.nextMove = t + 2;
-    if (game.type === 'go') game.stones = [];
+    if (game.type === 'go') { game.stones = []; game.passes = 0; game.previousGoPosition = null; }
     else if (game.type === 'chess') game.pieces = newChessPieces();
     else game.cards = [];
   }
@@ -593,6 +593,37 @@
       return true;
     });
   }
+  const goPoint = stone => stone.x + stone.y * 4;
+  const goNeighbors = i => [i % 4 ? i - 1 : -1, i % 4 < 3 ? i + 1 : -1, i >= 4 ? i - 4 : -1, i < 12 ? i + 4 : -1].filter(n => n >= 0);
+  const goPosition = stones => {
+    const points = Array(16).fill('.');
+    for (const stone of stones) points[goPoint(stone)] = stone.side;
+    return points.join('');
+  };
+  function playGo(stones, stone, previousPosition = null) {
+    const point = goPoint(stone), board = new Map(stones.map(s => [goPoint(s), s]));
+    if (board.has(point)) return null;
+    board.set(point, stone);
+    const group = start => {
+      const members = new Set([start]), stack = [start], side = board.get(start).side;
+      let liberty = false;
+      while (stack.length) for (const neighbor of goNeighbors(stack.pop())) {
+        const next = board.get(neighbor);
+        if (!next) liberty = true;
+        else if (next.side === side && !members.has(neighbor)) { members.add(neighbor); stack.push(neighbor); }
+      }
+      return { members, liberty };
+    };
+    for (const neighbor of goNeighbors(point)) {
+      const other = board.get(neighbor);
+      if (!other || other.side === stone.side) continue;
+      const { members, liberty } = group(neighbor);
+      if (!liberty) for (const captured of members) board.delete(captured);
+    }
+    if (!group(point).liberty) return null;
+    const next = [...board.values()];
+    return goPosition(next) === previousPosition ? null : next;
+  }
   const tableReady = game => game.players.every(p => {
     if (p.kind === 'cat') return cat.game && !cat.path.length;
     const w = wizards.get(p.id);
@@ -602,10 +633,23 @@
     if (t < game.nextMove || !tableReady(game)) return;
     const player = game.turn++ % game.players.length, seat = game.players[player].seat, duration = .75;
     if (game.type === 'go') {
-      if (game.stones.length === 16) game.stones = [];
-      const open = Array.from({ length: 16 }, (_, i) => i).filter(i => !game.stones.some(s => s.x + s.y * 4 === i));
-      const n = open[(game.turn * 7 + 3) % open.length], stone = { x: n % 4, y: n / 4 | 0, side: seat, placedAt: t };
-      game.stones.push(stone); game.move = { player, seat, to: [stone.x, stone.y], start: t, duration };
+      const moves = Array.from({ length: 16 }, (_, i) => {
+        const stone = { x: i % 4, y: i / 4 | 0, side: seat, placedAt: t };
+        return [stone, playGo(game.stones, stone, game.previousGoPosition)];
+      }).filter(([, next]) => next);
+      const captures = moves.filter(([, next]) => next.length <= game.stones.length);
+      const choices = captures.length ? captures : moves;
+      if (choices.length) {
+        const [stone, next] = choices[(game.turn * 7 + 3) % choices.length];
+        game.previousGoPosition = goPosition(game.stones);
+        game.stones = next; game.passes = 0;
+        game.move = { player, seat, to: [stone.x, stone.y], start: t, duration };
+      } else {
+        game.previousGoPosition = goPosition(game.stones);
+        game.passes++;
+        delete game.move;
+        if (game.passes === 2) { game.stones = []; game.previousGoPosition = null; game.passes = 0; }
+      }
     } else if (game.type === 'chess') {
       const at = (x, y) => game.pieces.find(p => p.x === x && p.y === y);
       const candidates = [];

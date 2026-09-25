@@ -311,7 +311,7 @@
       let w = wizards.get(a.id);
       const demon = a.origin === 'remote';
       if (!w) {
-        w = { a, sp: SP.makeWizard(a.id, a.kind, a.engine, demon), x: 436 + ((hash(a.id) % 9) - 4), y: 250, dir: -1, path: [], walk: false,
+        w = { a, sp: SP.makeWizard(a.id, a.kind, demon), x: 436 + ((hash(a.id) % 9) - 4), y: 250, dir: -1, path: [], walk: false,
               station: null, spotI: -1, home: null, order: null, game: null, castAt: 0, blast: null, leaving: false,
               stuckAt: 0, lastX: 436, lastY: 250, alpha: 0, ph: (hash(a.id) % 100) / 16, r: rng(hash(a.id) ^ 0xbeef), emote: null };
         wizards.set(a.id, w);
@@ -319,7 +319,7 @@
         w.a = a; retarget(w);
         continue;
       }
-      if (w.sp.demon !== demon) w.sp = SP.makeWizard(a.id, a.kind, a.engine, demon);
+      if (w.sp.demon !== demon) w.sp = SP.makeWizard(a.id, a.kind, demon);
       const changed = !w.station || w.a.status !== a.status || (a.status === 'working' && (w.a.tool !== a.tool || w.a.detail !== a.detail)) || w.leaving;
       if (w.desk && ['waiting', 'done'].includes(a.status) && !['waiting', 'done'].includes(w.a.status)) {
         RITUALS.push({ desk: w.desk, x: w.desk.x, y: w.desk.y, at: sceneTime, seed: hash(w.a.id + ':desk') });

@@ -182,11 +182,9 @@ window.SP = (() => {
       { hatType: 'turban', robe: '#123a44', robeD: '#08222a', hat: '#1a4a54', hatD: '#0c2a32', trim: '#f08a2a', mask: '#ece3c4', maskD: '#8a7e64' }],
   };
 
-  const CODEX_EPITHETS = ['OF THE CODEX ORDER', 'THE VISITING SCHOLAR', 'OF THE FOREIGN GUILD', 'THE GUEST ARTIFICER', 'THE EMISSARY', 'THE MODEL-SMITH', 'THE TOKEN DIPLOMAT', 'OF THE OPENAI ARCHIVE', 'THE REMOTE ADEPT'];
-
-  function makeWizard(id, kind, engine, demon) {
+  function makeWizard(id, kind, demon) {
     const r = rng(hash(id));
-    const sub = kind === 'sub', codex = engine === 'codex';
+    const sub = kind === 'sub';
     const hue = (r() * 360) | 0;
     const robe = hsl(hue, 42, 40), robeD = hsl(hue, 44, 28);
     const trim = pick(r, ['#e8c04a', '#d8def0', hsl((hue + 150) % 360, 55, 62), '#e8c04a']);
@@ -195,20 +193,20 @@ window.SP = (() => {
       sub, robe, robeD, trim,
       hat: hsl(hatHue, 48, 36), hatD: hsl(hatHue, 48, 24),
       skin: pick(r, SKINS), beardC: pick(r, BEARDS),
-      hatType: demon ? 'bare' : codex ? 'hood' : sub ? pick(r, ['cap', 'bare', 'pointy', 'cap']) : pick(r, ['pointy', 'pointy', 'pointy', 'bent', 'wide', 'hood', 'bare']),
+      hatType: demon ? 'bare' : sub ? pick(r, ['cap', 'bare', 'pointy', 'cap']) : pick(r, ['pointy', 'pointy', 'pointy', 'bent', 'wide', 'hood', 'bare']),
       beardType: sub ? 'none' : pick(r, ['long', 'long', 'short', 'short', 'forked', 'stache', 'none']),
       acc: pick(r, sub ? ['none', 'tome', 'wand', 'none'] : ['staff', 'staff', 'wand', 'tome', 'none']),
       accC: hsl((hue + 90) % 360, 45, 45),
     };
     r(); // preserve seeded appearances after retiring glasses
     o.decal = r() < .5 ? (r() < .5 ? 'star' : 'moon') : null;
-    const job = !sub && !codex && r() < .4 ? pick(r, Object.keys(JOBS)) : null;
+    const job = !sub && r() < .4 ? pick(r, Object.keys(JOBS)) : null;
     if (demon) Object.assign(o, { demon, skin: '#b84a48', beardC: '#241622', robe: '#542238', robeD: '#321424', trim: '#f08a2a' });
     if (job) Object.assign(o, { job, decal: null, beardType: job === 'black' ? 'none' : o.beardType }, JOBS[job][demon ? 1 : 0]);
     o.skinD = shade(o.skin, .82);
     let name = sub ? (demon ? 'DEMON ' : 'APPRENTICE ') + pick(r, APPRENTICE) : pick(r, N1) + pick(r, N2) + pick(r, N3);
     for (let i = 0; !sub && name.length > 11 && i < 4; i++) name = pick(r, N1) + pick(r, N2) + pick(r, N3);
-    const epithet = job ? (demon ? 'THE FALLEN ' : 'THE ') + job.toUpperCase() + ' MAGE' : demon ? pick(r, INFERNAL_EPITHETS) : codex ? pick(r, CODEX_EPITHETS) : sub ? pick(r, APPRENTICE_EPITHETS) : pick(r, EPITHETS);
+    const epithet = job ? (demon ? 'THE FALLEN ' : 'THE ') + job.toUpperCase() + ' MAGE' : demon ? pick(r, INFERNAL_EPITHETS) : sub ? pick(r, APPRENTICE_EPITHETS) : pick(r, EPITHETS);
     const frames = {};
     for (const m of ['idleA', 'idleB', 'walkA', 'walkB', 'sleepA', 'sleepB']) {
       const c = document.createElement('canvas'); c.width = 20; c.height = 24;

@@ -742,6 +742,14 @@ test('crystal fills red and flares above 75 percent cpu', () => {
   assert.ok(fills.some(x => x.color === '#ffe89a'));
 });
 
+test('pixel font renders percent signs instead of question marks', () => {
+  const s = scene(), render = text => {
+    s.calls.length = 0; s.SP.drawText(s.ctx, 0, 0, text, '#fff');
+    return s.calls.filter(c => c[0] === 'fillRect').map(c => c.slice(1));
+  };
+  assert.notDeepEqual(render('%'), render('?'));
+});
+
 test('idle summoning circle keeps bright runes and a moving glint', () => {
   const s = scene(), fills = [];
   s.ctx.fillRect = (...args) => fills.push({ args, color: s.ctx.fillStyle });

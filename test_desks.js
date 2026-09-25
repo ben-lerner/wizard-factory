@@ -736,6 +736,8 @@ test('crystal fills red and flares above 75 percent cpu', () => {
   s.ctx.fillRect = (...args) => fills.push({ args, color: s.ctx.fillStyle });
   s.SP.PR.crystal(s.ctx, 216, 98, 1, 50);
   assert.ok(fills.some(x => x.color === '#d84a5f'));
+  assert.ok(fills.some(x => x.color === '#8fd0ff'));
+  assert.ok(fills.some(x => x.args[2] === 10), 'crystal orb reaches ten pixels wide');
   fills.length = 0;
   s.SP.PR.crystal(s.ctx, 216, 98, 1, 80);
   assert.ok(fills.some(x => x.color === '#ff4a4a'));

@@ -559,9 +559,9 @@ window.SP = (() => {
   PR.crystal = (g, x, y, t, usage) => {
     rc(g, x + 3, y + 12, 8, 7, '#5e6478'); rc(g, x + 9, y + 12, 2, 7, '#4c5164');
     rc(g, x + 1, y + 19, 12, 3, '#4c5164'); rc(g, x + 2, y + 10, 10, 2, '#6c7390');
-    const value = Math.max(0, Math.min(100, Number(usage) || 0)), rows = [6, 8, 8, 8, 8, 6];
-    rows.forEach((width, i) => rc(g, x + 7 - width / 2, y + 2 + i, width, 1,
-      i >= rows.length - Math.ceil(rows.length * value / 100) ? (value > 75 ? '#ff4a4a' : '#d84a5f') : '#243047'));
+    const value = Math.max(0, Math.min(100, Number(usage) || 0)), rows = [6, 8, 10, 10, 10, 10, 8, 6];
+    rows.forEach((width, i) => rc(g, x + 7 - width / 2, y + 1 + i, width, 1,
+      i >= rows.length - Math.ceil(rows.length * value / 100) ? (value > 75 ? '#ff4a4a' : '#d84a5f') : '#8fd0ff'));
     const pulse = (t * 2 | 0) % 2;
     rc(g, x + 5, y + 3, 1 + pulse, 1, value > 75 ? '#ffe89a' : '#e6f6ff');
     if (value > 75 && (t * 5 | 0) % 2) {

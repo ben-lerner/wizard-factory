@@ -103,8 +103,9 @@ window.SP = (() => {
     R(cx + feet[0], 22, 2, 2, '#241a2e'); R(cx + feet[1], 22, 2, 2, '#241a2e');
     // head
     R(cx - 3, 5 + b, 6, 6, o.skin); R(cx + 2, 5 + b, 1, 6, o.skinD);
-    if (sleeping) { R(cx - 3, 9 + b, 2, 1, '#1c1430'); R(cx + 1, 9 + b, 2, 1, '#1c1430'); }
-    else { P(cx - 2, 8 + b, '#1c1430'); P(cx + 1, 8 + b, '#1c1430'); }
+    const eye = o.eyes || '#1c1430';
+    if (sleeping) { R(cx - 3, 9 + b, 2, 1, eye); R(cx + 1, 9 + b, 2, 1, eye); }
+    else { P(cx - 2, 8 + b, eye); P(cx + 1, 8 + b, eye); }
     // beard
     const bc = o.beardC, bh = shade(bc, 1.2);
     if (o.beardType === 'stache') { R(cx - 3, 10 + b, 2, 1, bc); R(cx + 1, 10 + b, 2, 1, bc); P(cx, 11 + b, bc); }
@@ -135,6 +136,19 @@ window.SP = (() => {
       R(cx - 4, 3 + b, 8, 2, H); R(cx - 4, 5 + b, 1, 6, H); R(cx + 3, 5 + b, 1, 6, HD); R(cx - 5, 11 + b, 10, 1, H);
     } else if (o.hatType === 'cap') {
       R(cx - 2, 3 + b, 4, 1, H); R(cx - 3, 4 + b, 6, 1, H); R(cx - 3, 5 + b, 6, 1, o.trim);
+    } else if (o.hatType === 'straw') { // black mage
+      R(cx - 7, 5 + b, 14, 1, H); R(cx - 6, 6 + b, 12, 1, HD); R(cx - 3, 4 + b, 6, 1, o.trim);
+      R(cx - 3, 2 + b, 6, 2, H); R(cx - 2, 1 + b, 4, 1, H); R(cx, 0 + b, 3, 1, H); P(cx + 3, 1 + b, HD); P(cx + 2, 2 + b, HD);
+    } else if (o.hatType === 'plume') { // red mage
+      R(cx - 6, 5 + b, 12, 2, H); R(cx - 6, 6 + b, 12, 1, HD); R(cx - 3, 3 + b, 6, 2, H);
+      R(cx + 2, 1 + b, 1, 2, o.feather); R(cx + 3, 0 + b, 1, 2, o.feather); P(cx + 4, 0 + b, o.feather); P(cx + 1, 2 + b, o.feather);
+    } else if (o.hatType === 'cowl') { // white mage
+      R(cx - 4, 3 + b, 8, 2, H); R(cx - 1, 2 + b, 2, 1, H); R(cx - 4, 5 + b, 1, 6, H); R(cx + 3, 5 + b, 1, 6, HD);
+      R(cx - 5, 11 + b, 10, 1, H); P(cx - 4, 11 + b, o.trim); P(cx - 2, 11 + b, o.trim); P(cx, 11 + b, o.trim); P(cx + 2, 11 + b, o.trim);
+      R(cx - 5, 20 + b, 1, 1, o.trim); R(cx - 3, 20 + b, 1, 1, o.trim); R(cx + 2, 20 + b, 1, 1, o.trim); R(cx + 4, 20 + b, 1, 1, o.trim);
+    } else if (o.hatType === 'turban') { // blue mage
+      R(cx - 4, 3 + b, 8, 3, H); R(cx - 4, 5 + b, 8, 1, HD); R(cx + 3, 2 + b, 1, 2, o.trim); P(cx + 4, 1 + b, o.trim);
+      R(cx - 3, 9 + b, 6, 2, o.mask); P(cx - 1, 10 + b, o.maskD); P(cx + 1, 10 + b, o.maskD);
     } else { // bare: hair
       R(cx - 3, 4 + b, 6, 1, bc); P(cx - 4, 5 + b, bc); P(cx - 4, 6 + b, bc); P(cx + 3, 5 + b, bc); P(cx + 3, 6 + b, bc);
     }
@@ -151,6 +165,22 @@ window.SP = (() => {
     else if (o.acc === 'wand') { P(15, 15 + b, '#8a5a32'); P(16, 14 + b, '#8a5a32'); P(17, 13 + b, o.trim); }
     else if (o.acc === 'tome') { R(2, 14 + b, 4, 4, o.accC); R(5, 14 + b, 1, 4, '#efe6c8'); P(3, 16 + b, o.trim); }
   }
+
+  // Final Fantasy job mages: [hat, robe, robeD, hatC, hatD, trim, extra], then the demonic version.
+  const JOBS = {
+    black: [
+      { hatType: 'straw', robe: '#3a56b0', robeD: '#243a80', hat: '#c8a458', hatD: '#8a6e34', trim: '#6a4a2a', skin: '#12101c', eyes: '#ffd84a' },
+      { hatType: 'straw', robe: '#2a1432', robeD: '#170a1e', hat: '#4a3024', hatD: '#2a1a14', trim: '#f08a2a', skin: '#0a0608', eyes: '#ff3a1a' }],
+    red: [
+      { hatType: 'plume', robe: '#b42a2a', robeD: '#7a1a1e', hat: '#c43232', hatD: '#801c20', trim: '#e8c04a', feather: '#f4f4f4' },
+      { hatType: 'plume', robe: '#5a0e16', robeD: '#34060c', hat: '#6a1018', hatD: '#3a0810', trim: '#f08a2a', feather: '#241622' }],
+    white: [
+      { hatType: 'cowl', robe: '#eeeae0', robeD: '#bcb6aa', hat: '#f6f2e8', hatD: '#c4beb2', trim: '#c83232' },
+      { hatType: 'cowl', robe: '#b8a8a0', robeD: '#7e6c68', hat: '#c4b4ac', hatD: '#86746e', trim: '#4a0a14' }],
+    blue: [
+      { hatType: 'turban', robe: '#3a7ac8', robeD: '#24528e', hat: '#4a8ad8', hatD: '#2c5c9c', trim: '#e8c04a', mask: '#e8c04a', maskD: '#a8822a' },
+      { hatType: 'turban', robe: '#123a44', robeD: '#08222a', hat: '#1a4a54', hatD: '#0c2a32', trim: '#f08a2a', mask: '#ece3c4', maskD: '#8a7e64' }],
+  };
 
   const CODEX_EPITHETS = ['OF THE CODEX ORDER', 'THE VISITING SCHOLAR', 'OF THE FOREIGN GUILD', 'THE GUEST ARTIFICER', 'THE EMISSARY', 'THE MODEL-SMITH', 'THE TOKEN DIPLOMAT', 'OF THE OPENAI ARCHIVE', 'THE REMOTE ADEPT'];
 
@@ -172,11 +202,13 @@ window.SP = (() => {
     };
     r(); // preserve seeded appearances after retiring glasses
     o.decal = r() < .5 ? (r() < .5 ? 'star' : 'moon') : null;
+    const job = !sub && !codex && r() < .4 ? pick(r, Object.keys(JOBS)) : null;
     if (demon) Object.assign(o, { demon, skin: '#b84a48', beardC: '#241622', robe: '#542238', robeD: '#321424', trim: '#f08a2a' });
+    if (job) Object.assign(o, { job, decal: null, beardType: job === 'black' ? 'none' : o.beardType }, JOBS[job][demon ? 1 : 0]);
     o.skinD = shade(o.skin, .82);
     let name = sub ? (demon ? 'DEMON ' : 'APPRENTICE ') + pick(r, APPRENTICE) : pick(r, N1) + pick(r, N2) + pick(r, N3);
     for (let i = 0; !sub && name.length > 11 && i < 4; i++) name = pick(r, N1) + pick(r, N2) + pick(r, N3);
-    const epithet = demon ? pick(r, INFERNAL_EPITHETS) : codex ? pick(r, CODEX_EPITHETS) : sub ? pick(r, APPRENTICE_EPITHETS) : pick(r, EPITHETS);
+    const epithet = job ? (demon ? 'THE FALLEN ' : 'THE ') + job.toUpperCase() + ' MAGE' : demon ? pick(r, INFERNAL_EPITHETS) : codex ? pick(r, CODEX_EPITHETS) : sub ? pick(r, APPRENTICE_EPITHETS) : pick(r, EPITHETS);
     const frames = {};
     for (const m of ['idleA', 'idleB', 'walkA', 'walkB', 'sleepA', 'sleepB']) {
       const c = document.createElement('canvas'); c.width = 20; c.height = 24;
@@ -186,7 +218,7 @@ window.SP = (() => {
     const pc = document.createElement('canvas'); pc.width = 42; pc.height = 42;
     const pg = pc.getContext('2d'); pg.imageSmoothingEnabled = false;
     pg.drawImage(frames.idleA, 3, sub ? 1 : 0, 14, 14, 0, 0, 42, 42);
-    return { name, epithet, frames, portrait: pc.toDataURL(), hue, sub, demon, drink: drinkFor(id, demon) };
+    return { name, epithet, frames, portrait: pc.toDataURL(), hue, sub, demon, job: o.job, drink: drinkFor(id, demon) };
   }
 
   // ---------- the staff cat ----------

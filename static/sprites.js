@@ -182,7 +182,7 @@ window.SP = (() => {
       { hatType: 'turban', robe: '#123a44', robeD: '#08222a', hat: '#1a4a54', hatD: '#0c2a32', trim: '#f08a2a', mask: '#ece3c4', maskD: '#8a7e64' }],
   };
 
-  function makeWizard(id, kind, demon) {
+  function makeWizard(id, kind, demon, takenJobs = new Set()) {
     const r = rng(hash(id));
     const sub = kind === 'sub';
     const hue = (r() * 360) | 0;
@@ -200,7 +200,8 @@ window.SP = (() => {
     };
     r(); // preserve seeded appearances after retiring glasses
     o.decal = r() < .5 ? (r() < .5 ? 'star' : 'moon') : null;
-    const job = !sub && r() < .4 ? pick(r, Object.keys(JOBS)) : null;
+    const free = Object.keys(JOBS).filter(j => !takenJobs.has(j + (demon ? ':demon' : '')));
+    const job = !sub && free.length && r() < .4 ? pick(r, free) : null;
     if (demon) Object.assign(o, { demon, skin: '#b84a48', beardC: '#241622', robe: '#542238', robeD: '#321424', trim: '#f08a2a' });
     if (job) Object.assign(o, { job, decal: null, beardType: job === 'black' ? 'none' : o.beardType }, JOBS[job][demon ? 1 : 0]);
     o.skinD = shade(o.skin, .82);
@@ -216,7 +217,7 @@ window.SP = (() => {
     const pc = document.createElement('canvas'); pc.width = 42; pc.height = 42;
     const pg = pc.getContext('2d'); pg.imageSmoothingEnabled = false;
     pg.drawImage(frames.idleA, 3, sub ? 1 : 0, 14, 14, 0, 0, 42, 42);
-    return { name, epithet, frames, portrait: pc.toDataURL(), hue, sub, demon, job: o.job, drink: drinkFor(id, demon) };
+    return { name, epithet, frames, portrait: pc.toDataURL(), hue, sub, demon, job: o.job && o.job + (demon ? ':demon' : ''), drink: drinkFor(id, demon) };
   }
 
   // ---------- the staff cat ----------

@@ -258,6 +258,21 @@ test('usage tooltips omit zero resets and retain positive or unknown credits', (
     else assert.match(s.element.innerHTML, new RegExp((count ?? '\\?') + ' RESETS? LEFT'));
   }
 });
+test('usage tooltip shows detailed reset timing for each quota', () => {
+  const s = scene();
+  s.showUsageTip({ q: { name: 'Work', origins: [], left: 50,
+    resets_at: Date.now() / 1000 + 86400, reset_detail: '1 Day 2 Hours 3 Minutes', resets_left: 0 } }, 0, 0);
+  assert.match(s.element.innerHTML, /RESETS IN 1 Day 2 Hours 3 Minutes/);
+  s.setData({ quotas: [
+    { id: 'claude:active', name: 'Claude', provider: 'claude', origins: [], left: 50,
+      resets_at: Date.now() / 1000 + 86400, reset_detail: '1 Day 2 Hours 3 Minutes' },
+    { id: 'claude:Fable', name: 'Fable', provider: 'claude', origins: [], left: 40,
+      resets_at: Date.now() / 1000 + 172800, reset_detail: '2 Days 4 Hours 5 Minutes' },
+  ] });
+  s.showUsageTip(s.usageProbe('usage:claude:active'), 0, 0);
+  assert.match(s.element.innerHTML, /Claude: RESETS IN 1 Day 2 Hours 3 Minutes/);
+  assert.match(s.element.innerHTML, /Fable: RESETS IN 2 Days 4 Hours 5 Minutes/);
+});
 test('additional quota accounts render distinct bottles and remain hoverable', () => {
   const s = scene(), bottles = [];
   s.SP.PR.quotaVat = (g, x, y, shape, fill) => bottles.push({ x, y, fill });
@@ -304,9 +319,9 @@ test('Claude and Fable share one cylinder with half-height liquid segments', () 
   assert.match(s.element.innerHTML, /Fable: 90% REMAINING/);
   assert.doesNotMatch(s.element.innerHTML, /95% REMAINING/);
 });
-test('reset countdowns round up hours and retain minutes below one hour', () => {
+test('reset tooltips show days, hours, and minutes without CLI detail', () => {
   const s = scene();
-  for (const [seconds, label] of [[15 * 3600 + 53 * 60, '16H'], [3601, '2H'], [3599, '59M'], [30, '0M'], [-1, '0M'], [86400, '24H'], [2 * 86400, '2D']]) {
+  for (const [seconds, label] of [[15 * 3600 + 53 * 60, '15 Hours 53 Minutes'], [3601, '1 Hour 1 Minute'], [3599, '1 Hour 0 Minutes'], [30, '1 Minute'], [-1, '0 Minutes'], [86400, '1 Day 0 Minutes'], [2 * 86400, '2 Days 0 Minutes']]) {
     s.showUsageTip({ q: { name: 'Test', origins: [], resets_left: 0, resets_at: Date.now() / 1000 + seconds } }, 0, 0);
     assert.ok(s.element.innerHTML.includes(`RESETS IN ${label}<`), s.element.innerHTML);
   }

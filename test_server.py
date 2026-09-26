@@ -116,7 +116,7 @@ class QuotaTest(unittest.TestCase):
         config = Path(args[args.index('--config') + 1]) if '--config' in args else None
         names = json.loads(config.read_text()) if config else {}
         accounts = [dict(name=name, provider='codex', weeklyUsedPercent=25,
-                         weeklyResetsAt=123, availableResets=2, error=None)
+                         weeklyResetsAt=123, weeklyResetDetail='2 Minutes', availableResets=2, error=None)
                     for name in names]
         if '--codex-only' not in args:
             accounts.append(dict(name='Claude', provider='claude', weeklyUsedPercent=35,
@@ -126,25 +126,34 @@ class QuotaTest(unittest.TestCase):
     def test_listed_accounts_use_installed_cli_and_include_claude(self):
         with patch.object(server.subprocess, 'run', side_effect=self.cli) as run:
             quotas = server.account_quotas(True)
-        self.assertEqual(run.call_args.args[0], ['token-quota', '--json', '--config',
+        self.assertEqual(run.call_args.args[0], ['token-quota', '--json', '--detailed-reset-timing', '--config',
                          str(self.root / 'codex-quota/accounts.json')])
         self.assertEqual([(q['name'], q['origins'], q['left']) for q in quotas],
                          [('Listed', ['local'], 75), ('Claude', ['local'], 65)])
         self.assertEqual(quotas[1]['id'], 'claude:active')
+        self.assertEqual(quotas[0]['reset_detail'], '2 Minutes')
+
+    def test_older_cli_is_retried_without_detailed_flag(self):
+        old = MagicMock(returncode=2, stdout='', stderr='error: unrecognized arguments: --detailed-reset-timing')
+        with patch.object(server.subprocess, 'run', side_effect=[old, self.cli(
+                ['--config', str(self.root / 'codex-quota/accounts.json')])]) as run:
+            quotas = server.account_quotas(True)
+        self.assertEqual(len(quotas), 2)
+        self.assertNotIn('--detailed-reset-timing', run.call_args.args[0])
 
     def test_local_account_uses_temporary_config_even_if_not_listed(self):
         with patch.dict(server.os.environ, {'CODEX_HOME': str(self.b)}), \
                 patch.object(server.subprocess, 'run', side_effect=self.cli) as run:
             quotas = server.account_quotas(False)
         self.assertEqual([(q['name'], q['origins']) for q in quotas], [('In use', ['local'])])
-        self.assertEqual(run.call_args.args[0][:2], ['token-quota', '--json'])
+        self.assertEqual(run.call_args.args[0][:3], ['token-quota', '--json', '--detailed-reset-timing'])
         self.assertIn('--codex-only', run.call_args.args[0])
 
     def test_missing_config_still_reads_claude(self):
         (self.root / 'codex-quota/accounts.json').unlink()
         with patch.object(server.subprocess, 'run', side_effect=self.cli) as run:
             quotas = server.account_quotas(True)
-        self.assertEqual(run.call_args.args[0], ['token-quota', '--json', '--claude-only'])
+        self.assertEqual(run.call_args.args[0], ['token-quota', '--json', '--detailed-reset-timing', '--claude-only'])
         self.assertEqual([q['name'] for q in quotas], ['Claude'])
 
     def test_disconnected_local_account_does_not_call_cli(self):

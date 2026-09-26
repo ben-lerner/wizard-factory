@@ -1173,6 +1173,14 @@
     if (s >= 3600) return `${Math.ceil(s / 3600)}H`;
     return `${s / 60 | 0}M`;
   }
+  function detailedResetIn(q) {
+    if (q.reset_detail) return q.reset_detail;
+    const remaining = Math.ceil(Math.max(0, q.resets_at - (Date.now() / 1000 - serverSkew)) / 60);
+    const days = Math.floor(remaining / 1440), hours = Math.floor(remaining % 1440 / 60), minutes = remaining % 60;
+    return [[days, 'Day'], [hours, 'Hour'], [minutes, 'Minute']]
+      .filter(([value, unit]) => value || unit === 'Minute')
+      .map(([value, unit]) => `${value} ${unit}${value === 1 ? '' : 's'}`).join(' ');
+  }
   function drawUsageProbes(t) {
     for (const v of usageProbes()) {
       const q = v.q, color = v.color;
@@ -2016,12 +2024,13 @@
   }
   function showUsageTip(v, left, top) {
     const q = v.q, tip = $('#tip'), stage = $('#stage').getBoundingClientRect();
-    const status = v.parts ? v.parts.map(part => `<div class="tt-status">${esc(part.name)}: ${part.left != null ? Math.round(part.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>`).join('') :
+    const status = v.parts ? v.parts.map(part => `<div class="tt-status">${esc(part.name)}: ${part.left != null ? Math.round(part.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>
+      <div class="tt-age">${esc(part.name)}: ${part.resets_at ? 'RESETS IN ' + esc(detailedResetIn(part)) : 'RESET TIME UNAVAILABLE'}</div>`).join('') :
       `<div class="tt-status">${q.left != null ? Math.round(q.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>`;
     tip.innerHTML = `<div class="tt-name">${esc(q.name)} <span>${esc((q.provider || 'codex').toUpperCase())}</span></div>
       ${q.origins.length ? `<div class="tt-meta">${esc(q.origins.join(' + ').toUpperCase())}</div>` : ''}
       ${status}
-      <div class="tt-age">${q.resets_at ? 'RESETS IN ' + resetIn(q) : 'RESET TIME UNAVAILABLE'}${q.provider === 'claude' || q.resets_left === 0 ? '' : ' · ' + (q.resets_left ?? '?') + ' RESET' + (q.resets_left === 1 ? '' : 'S') + ' LEFT'}</div>
+      ${v.parts ? '' : `<div class="tt-age">${q.resets_at ? 'RESETS IN ' + esc(detailedResetIn(q)) : 'RESET TIME UNAVAILABLE'}${q.provider === 'claude' || q.resets_left === 0 ? '' : ' · ' + (q.resets_left ?? '?') + ' RESET' + (q.resets_left === 1 ? '' : 'S') + ' LEFT'}</div>`}
       ${q.error ? `<div class="tt-age">${esc(q.error)}</div>` : ''}`;
     tip.hidden = false;
     tip.style.left = Math.max(4, Math.min(left, stage.width - tip.offsetWidth - 4)) + 'px';

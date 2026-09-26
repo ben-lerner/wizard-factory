@@ -139,6 +139,14 @@ def account_id(home):
         return None
 
 
+def run_quota(args):
+    result = subprocess.run(args, capture_output=True, text=True, timeout=QUOTA_TIMEOUT)
+    if result.returncode == 2 and 'unrecognized arguments: --detailed-reset-timing' in result.stderr:
+        result = subprocess.run([arg for arg in args if arg != '--detailed-reset-timing'],
+                                capture_output=True, text=True, timeout=QUOTA_TIMEOUT)
+    return result
+
+
 def account_quotas(listed):
     config = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config') / 'codex-quota/accounts.json'
     accounts = json.loads(config.read_text()) if listed and config.exists() else {}
@@ -152,7 +160,7 @@ def account_quotas(listed):
         while name in homes:
             name += ' (active)'
         homes[name], identities[name] = active_home(), active
-    args = ['token-quota', '--json']
+    args = ['token-quota', '--json', '--detailed-reset-timing']
     if listed:
         if not homes:
             args.append('--claude-only')
@@ -165,9 +173,9 @@ def account_quotas(listed):
             path = Path(directory) / 'accounts.json'
             path.write_text(json.dumps({name: str(home) for name, home in homes.items()}))
             args += ['--config', str(path)]
-            result = subprocess.run(args, capture_output=True, text=True, timeout=QUOTA_TIMEOUT)
+            result = run_quota(args)
     if listed:
-        result = subprocess.run(args, capture_output=True, text=True, timeout=QUOTA_TIMEOUT)
+        result = run_quota(args)
     if result.returncode not in (0, 1):
         raise RuntimeError(result.stderr.strip() or 'token-quota failed')
     cli_accounts = json.loads(result.stdout)['accounts']
@@ -182,7 +190,8 @@ def account_quotas(listed):
     return [{'id': r['id'], 'name': r['name'], 'provider': r['provider'],
              'period': 'weekly', 'origins': r['origins'],
              'left': max(0, min(100, 100 - r['weeklyUsedPercent'])) if r['weeklyUsedPercent'] is not None else None,
-             'resets_at': r['weeklyResetsAt'], 'resets_left': r['availableResets'], 'error': r['error'],
+             'resets_at': r['weeklyResetsAt'], 'reset_detail': r.get('weeklyResetDetail'),
+             'resets_left': r['availableResets'], 'error': r['error'],
              **{key: r[key] for key in ('updatedAt', 'cached', 'stale', 'retryAt', 'timerPrompt') if key in r}}
             for r in readings]
 

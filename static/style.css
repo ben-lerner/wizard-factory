@@ -55,6 +55,25 @@ main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 304px; min-
   font: 18px var(--font); cursor: pointer;
 }
 #journalClose:hover { color: var(--gold); }
+#timerWindow {
+  position: absolute; left: 24px; top: 24px; z-index: 8;
+  width: min(400px, calc(100% - 24px)); max-height: calc(100% - 24px);
+  overflow: hidden; background: #191326; border: 2px solid #000;
+  box-shadow: 0 0 0 2px var(--gold), 0 10px 28px #000;
+}
+#timerTitle {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 7px 9px; color: var(--gold); background: var(--panel2);
+  border-bottom: 1px solid var(--edge); cursor: move; touch-action: none;
+  font-size: 11px; letter-spacing: 1px; user-select: none;
+}
+#timerClose { border: 0; background: none; color: var(--dim); font: 18px var(--font); cursor: pointer; }
+#timerClose:hover { color: var(--gold); }
+#timerBody { max-height: min(50vh, 340px); overflow-y: auto; padding: 10px 12px; }
+.timerReply { padding: 5px 0 9px; border-bottom: 1px solid var(--edge); }
+.timerReply:last-child { border-bottom: 0; }
+.timerName { color: var(--blue); font-size: 10px; margin-bottom: 5px; }
+.timerFact { line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .j-head { color: var(--gold); letter-spacing: 2px; font-size: 13px; padding-right: 24px; }
 .j-chat { max-height: 40vh; overflow-y: auto; background: #120e1d; border: 1px solid #2c2340; padding: 6px 8px; }
 .j-chat::-webkit-scrollbar { width: 8px; }

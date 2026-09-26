@@ -17,8 +17,8 @@ python3 server.py --port N         # different port
 ```
 
 Agent polling has no Python dependencies and uses the system `ssh` command.
-Usage displays require `~/token-quota` and an authenticated Codex CLI on each
-machine. Configure the accounts to display in
+Usage displays require the `token-quota` CLI and authenticated Codex and Claude CLIs on each
+machine; the `token-quota` source checkout is not needed. Configure the accounts to display in
 `~/.config/codex-quota/accounts.json` on `mage-tower` (or locally when remote
 polling is disabled). A disconnected local Codex home does not add a usage bottle.
 
@@ -71,19 +71,19 @@ The laboratory crystal shows local CPU use as a rising red fill. Above 75% it
 flares and throws sparks; hover over it for the current percentage.
 
 The laboratory's usage bottles show the same configured Codex accounts as the
-`codex-quota` CLI. Blue `LOC` and red `REM` labels mark the accounts
+`token-quota` CLI. Blue `LOC` and red `REM` labels mark the accounts
 in use locally and remotely; purple `L/R` marks an account used on both machines.
 Hover over a numbered bottle for its account name, remaining quota, and reset credits.
 Reset times above 24 hours round to the nearest day. Missing usage or reset data
 shows a floating ∅ inside the bottle. Usage refreshes once a minute independently
-of agent polling; these checks never send prompts or redeem reset credits.
+of agent polling. A full quota starts its timer with a small prompt through the CLI;
+the response appears in a draggable window that stays until you close it. Usage checks
+never redeem reset credits.
 
-Claude and Fable use the reader in `~/token-quota`, sharing its five-minute disk
-cache and rate-limit backoff with the quota CLI on the same machine and login.
-Keep that checkout updated on the machine performing quota reads: the remote host
-when remote polling is enabled, or this machine with `--remote-host ''`.
-Restart a running server after updating the reader; `watch_server.py` detects local
-reader changes and restarts automatically.
+Claude and Fable readings come from the same CLI call, so its five-minute disk cache
+and rate-limit backoff apply on the machine performing quota reads. Keep the installed
+CLI updated on the remote host when remote polling is enabled, or on this machine with
+`--remote-host ''`.
 
 During throttling, the last successful percentages remain visible and the bottle's
 tooltip reports that the reading is cached and how old it is. Without a previous

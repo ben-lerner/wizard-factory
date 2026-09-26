@@ -16,6 +16,7 @@ import os
 import random
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections import deque
@@ -23,18 +24,6 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
-
-sys.path.insert(0, str(Path.home() / 'token-quota'))
-try:
-    from bridge.quota import collect as collect_accounts
-    collect = collect_accounts
-except ImportError:
-    collect = None
-
-try:
-    from claude_quota import read_claude
-except ImportError:
-    read_claude = None
 
 ROOT = Path(__file__).resolve().parent
 PROJECTS = Path.home() / '.claude' / 'projects'
@@ -44,6 +33,7 @@ HOOK_MARK = '#wizard-factory'
 HOOK_EVENTS = ['Notification', 'Stop', 'UserPromptSubmit', 'SessionStart', 'SessionEnd']
 SCAN_SEC, FRESH_SEC, TAIL_BYTES = 1.0, 3 * 3600, 512 * 1024
 REMOTE_SCAN_SEC, REMOTE_STALE_SEC, REMOTE_USAGE_SEC = 3.0, 15, 60
+QUOTA_TIMEOUT = 600
 RESPONDING_SEC, IDLE_SEC, GONE_SEC = 6, 15 * 60, 45 * 60
 ABANDON_SEC, SUB_GONE_SEC = 2 * 3600, 150
 CHAT_TURNS, CHAT_CHARS = 30, 700
@@ -56,6 +46,7 @@ OVERRIDES = {}  # session_id -> latest hook event {event, ts, msg}
 DEAD = {}       # session_id -> epoch of SessionEnd hook
 REMOTE_AGENTS, REMOTE_QUOTAS, REMOTE_SEEN = [], [], 0
 LOCAL_QUOTAS = []
+TIMER_PROMPTS = []
 CPU_USAGE, CPU_TIMES = None, None
 LOCK = threading.Lock()
 
@@ -149,8 +140,6 @@ def account_id(home):
 
 
 def account_quotas(listed):
-    if collect is None:
-        raise RuntimeError('token-quota library is unavailable')
     config = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config') / 'codex-quota/accounts.json'
     accounts = json.loads(config.read_text()) if listed and config.exists() else {}
     homes = {name: (config.parent / Path(home).expanduser()).resolve() for name, home in accounts.items()}
@@ -163,23 +152,53 @@ def account_quotas(listed):
         while name in homes:
             name += ' (active)'
         homes[name], identities[name] = active_home(), active
+    args = ['token-quota', '--json']
+    if listed:
+        if not homes:
+            args.append('--claude-only')
+        else:
+            args += ['--config', str(config)]
+    else:
+        args.append('--codex-only')
+        # The local login may differ from the accounts configured on the remote host.
+        with tempfile.TemporaryDirectory(prefix='wizard-quota-') as directory:
+            path = Path(directory) / 'accounts.json'
+            path.write_text(json.dumps({name: str(home) for name, home in homes.items()}))
+            args += ['--config', str(path)]
+            result = subprocess.run(args, capture_output=True, text=True, timeout=QUOTA_TIMEOUT)
+    if listed:
+        result = subprocess.run(args, capture_output=True, text=True, timeout=QUOTA_TIMEOUT)
+    if result.returncode not in (0, 1):
+        raise RuntimeError(result.stderr.strip() or 'token-quota failed')
+    cli_accounts = json.loads(result.stdout)['accounts']
     readings = [{**r, 'id': identities[r['name']] or 'unknown:' + r['name'],
                  'provider': 'codex',
                  'origins': ['local'] if homes[r['name']] == active_home() or
                             (active and identities[r['name']] == active) else []}
-                for r in collect(homes)['accounts']]
-    if listed and read_claude is not None:
-        claude = read_claude()
-        if isinstance(claude, dict):
-            claude = [claude]
-        readings.extend({**r, 'id': 'claude:active' if r['name'] == 'Claude' else 'claude:' + r['id'],
-                         'origins': ['local']} for r in claude)
+                for r in cli_accounts if r.get('provider') != 'claude']
+    if listed:
+        readings.extend({**r, 'id': 'claude:active' if r['name'] == 'Claude' else 'claude:' + r.get('id', r['name']),
+                         'origins': ['local']} for r in cli_accounts if r.get('provider') == 'claude')
     return [{'id': r['id'], 'name': r['name'], 'provider': r['provider'],
              'period': 'weekly', 'origins': r['origins'],
              'left': max(0, min(100, 100 - r['weeklyUsedPercent'])) if r['weeklyUsedPercent'] is not None else None,
              'resets_at': r['weeklyResetsAt'], 'resets_left': r['availableResets'], 'error': r['error'],
-             **{key: r[key] for key in ('updatedAt', 'cached', 'stale', 'retryAt') if key in r}}
+             **{key: r[key] for key in ('updatedAt', 'cached', 'stale', 'retryAt', 'timerPrompt') if key in r}}
             for r in readings]
+
+
+def record_timer_prompts(quotas):
+    with LOCK:
+        seen = {(p['id'], p['fact']) for p in TIMER_PROMPTS}
+        for quota in quotas:
+            prompt = quota.get('timerPrompt') or {}
+            if prompt.get('status') != 'sent' or not prompt.get('fact'):
+                continue
+            key = (quota['id'], prompt['fact'])
+            if key not in seen:
+                TIMER_PROMPTS.append({'id': quota['id'], 'name': quota['name'],
+                                      'provider': quota['provider'], 'fact': prompt['fact']})
+                seen.add(key)
 
 
 def merge_quotas(remote, local):
@@ -662,7 +681,7 @@ def scan_remote(host, refresh_usage=False):
     proc = subprocess.run(
         args,
         input=source, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-        timeout=90 if refresh_usage else 10,
+        timeout=QUOTA_TIMEOUT + 10 if refresh_usage else 10,
     )
     proc.check_returncode()
     return remote_snapshot(host, json.loads(proc.stdout))
@@ -686,6 +705,7 @@ def state_payload(demo):
                     'period': 'weekly', 'left': 100, 'resets_at': now + 7 * 86400, 'resets_left': 0}]
                   if demo else merge_quotas(REMOTE_QUOTAS, LOCAL_QUOTAS))
     return {'now': now, 'demo': bool(demo), 'cpu': 82 if demo else CPU_USAGE, 'quotas': quotas,
+            'timerPrompts': list(TIMER_PROMPTS),
             'agents': sorted(ags, key=lambda a: a['started'] or 0)}
 
 
@@ -814,6 +834,7 @@ def main():
             while True:
                 try:
                     quotas = account_quotas(not a.remote_host)
+                    record_timer_prompts(quotas)
                     with LOCK:
                         LOCAL_QUOTAS = quotas
                 except Exception as e:
@@ -821,6 +842,7 @@ def main():
                 if a.remote_host:
                     try:
                         _, quotas = scan_remote(a.remote_host, True)
+                        record_timer_prompts(quotas)
                         with LOCK:
                             REMOTE_QUOTAS = quotas
                     except Exception as e:

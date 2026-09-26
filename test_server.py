@@ -1,6 +1,5 @@
 import base64
 import json
-import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -33,7 +32,8 @@ class RemoteAgentsTest(unittest.TestCase):
         payload = {'agents': [], 'quotas': [
             {'id': 'claude:active', 'provider': 'claude', 'period': 'weekly', 'left': 30, 'origins': ['local']},
             {'id': 'other', 'provider': 'other'},
-            {'id': 'work', 'provider': 'codex', 'period': 'weekly', 'left': 60, 'origins': ['local']},
+            {'id': 'work', 'provider': 'codex', 'period': 'weekly', 'left': 60, 'origins': ['local'],
+             'timerPrompt': {'status': 'sent', 'fact': 'A remote timer fact'}},
         ]}
 
         agents, quotas = server.remote_snapshot('mage-tower', payload)
@@ -43,6 +43,7 @@ class RemoteAgentsTest(unittest.TestCase):
             'id': 'claude:active', 'provider': 'claude', 'period': 'weekly', 'left': 30, 'origins': ['remote'],
         }, {
             'id': 'work', 'provider': 'codex', 'period': 'weekly', 'left': 60, 'origins': ['remote'],
+            'timerPrompt': {'status': 'sent', 'fact': 'A remote timer fact'},
         }])
 
     def test_usage_refresh_has_a_larger_remote_timeout(self):
@@ -50,7 +51,7 @@ class RemoteAgentsTest(unittest.TestCase):
         with patch.object(server.subprocess, 'run', return_value=proc) as run:
             server.scan_remote('mage-tower', True)
 
-        self.assertEqual(run.call_args.kwargs['timeout'], 90)
+        self.assertEqual(run.call_args.kwargs['timeout'], server.QUOTA_TIMEOUT + 10)
 
 
 class CpuUsageTest(unittest.TestCase):
@@ -96,9 +97,6 @@ class ChatLogTest(unittest.TestCase):
 
 class QuotaTest(unittest.TestCase):
     def setUp(self):
-        reader = patch.object(server, 'read_claude', None)
-        reader.start()
-        self.addCleanup(reader.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -114,136 +112,97 @@ class QuotaTest(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
 
-    def collect(self, homes):
-        return {'accounts': [{'name': name, 'weeklyUsedPercent': 25, 'weeklyResetsAt': 123,
-                              'availableResets': 2, 'error': None} for name in homes]}
+    def cli(self, args, **kwargs):
+        config = Path(args[args.index('--config') + 1]) if '--config' in args else None
+        names = json.loads(config.read_text()) if config else {}
+        accounts = [dict(name=name, provider='codex', weeklyUsedPercent=25,
+                         weeklyResetsAt=123, availableResets=2, error=None)
+                    for name in names]
+        if '--codex-only' not in args:
+            accounts.append(dict(name='Claude', provider='claude', weeklyUsedPercent=35,
+                                 weeklyResetsAt=456, availableResets=None, error=None))
+        return MagicMock(returncode=0, stdout=json.dumps({'accounts': accounts}), stderr='')
 
-    def test_listed_active_account_is_not_duplicated(self):
-        with patch.object(server, 'collect', side_effect=self.collect):
-            qs = server.account_quotas(True)
-        self.assertEqual([(q['name'], q['origins'], q['left']) for q in qs], [('Listed', ['local'], 75)])
+    def test_listed_accounts_use_installed_cli_and_include_claude(self):
+        with patch.object(server.subprocess, 'run', side_effect=self.cli) as run:
+            quotas = server.account_quotas(True)
+        self.assertEqual(run.call_args.args[0], ['token-quota', '--json', '--config',
+                         str(self.root / 'codex-quota/accounts.json')])
+        self.assertEqual([(q['name'], q['origins'], q['left']) for q in quotas],
+                         [('Listed', ['local'], 75), ('Claude', ['local'], 65)])
+        self.assertEqual(quotas[1]['id'], 'claude:active')
 
-    def test_added_account_appears_on_next_refresh(self):
-        with patch.object(server, 'collect', side_effect=self.collect):
+    def test_local_account_uses_temporary_config_even_if_not_listed(self):
+        with patch.dict(server.os.environ, {'CODEX_HOME': str(self.b)}), \
+                patch.object(server.subprocess, 'run', side_effect=self.cli) as run:
+            quotas = server.account_quotas(False)
+        self.assertEqual([(q['name'], q['origins']) for q in quotas], [('In use', ['local'])])
+        self.assertEqual(run.call_args.args[0][:2], ['token-quota', '--json'])
+        self.assertIn('--codex-only', run.call_args.args[0])
+
+    def test_missing_config_still_reads_claude(self):
+        (self.root / 'codex-quota/accounts.json').unlink()
+        with patch.object(server.subprocess, 'run', side_effect=self.cli) as run:
+            quotas = server.account_quotas(True)
+        self.assertEqual(run.call_args.args[0], ['token-quota', '--json', '--claude-only'])
+        self.assertEqual([q['name'] for q in quotas], ['Claude'])
+
+    def test_disconnected_local_account_does_not_call_cli(self):
+        (self.b / 'auth.json').unlink()
+        with patch.dict(server.os.environ, {'CODEX_HOME': str(self.b)}), \
+                patch.object(server.subprocess, 'run') as run:
+            self.assertEqual(server.account_quotas(False), [])
+        run.assert_not_called()
+
+    def test_new_config_account_appears_on_next_read(self):
+        with patch.object(server.subprocess, 'run', side_effect=self.cli):
             before = server.account_quotas(True)
             (self.root / 'codex-quota/accounts.json').write_text(
                 json.dumps({'Listed': '../a', 'Additional': '../b'}))
             after = server.account_quotas(True)
-        self.assertEqual(len(before), 1)
-        self.assertEqual([(q['name'], q['origins'], q['left']) for q in after],
-                         [('Listed', ['local'], 75), ('Additional', [], 75)])
-        self.assertEqual(after[0]['id'], before[0]['id'])
+        self.assertEqual([q['name'] for q in before], ['Listed', 'Claude'])
+        self.assertEqual([q['name'] for q in after], ['Listed', 'Additional', 'Claude'])
         self.assertNotEqual(after[0]['id'], after[1]['id'])
 
-    def test_listed_accounts_match_the_cli_account_list(self):
-        with patch.dict(server.os.environ, {'CODEX_HOME': str(self.b)}), patch.object(server, 'collect', side_effect=self.collect):
-            qs = server.account_quotas(True)
-            local = server.account_quotas(False)
-        self.assertEqual([(q['name'], q['origins']) for q in qs], [('Listed', [])])
-        self.assertEqual([(q['name'], q['origins']) for q in local], [('In use', ['local'])])
+    def test_cli_exit_one_still_uses_partial_readings_and_timer_prompt(self):
+        account = dict(name='Listed', provider='codex', weeklyUsedPercent=0,
+                       weeklyResetsAt=123, availableResets=2, error='one account failed',
+                       timerPrompt={'status': 'sent', 'fact': 'A timer fact'})
+        proc = MagicMock(returncode=1, stdout=json.dumps({'accounts': [account]}), stderr='')
+        with patch.object(server.subprocess, 'run', return_value=proc):
+            quotas = server.account_quotas(True)
+        self.assertEqual(quotas[0]['timerPrompt']['fact'], 'A timer fact')
+        self.assertEqual(quotas[0]['error'], 'one account failed')
 
-    def test_disconnected_local_account_has_no_quota_bottle(self):
-        (self.b / 'auth.json').unlink()
-        with patch.dict(server.os.environ, {'CODEX_HOME': str(self.b)}), \
-                patch.object(server, 'collect', side_effect=self.collect) as collect:
-            self.assertEqual(server.account_quotas(False), [])
-        collect.assert_not_called()
+    def test_cli_setup_error_is_reported(self):
+        proc = MagicMock(returncode=2, stdout='', stderr='missing configuration')
+        with patch.object(server.subprocess, 'run', return_value=proc):
+            with self.assertRaisesRegex(RuntimeError, 'missing configuration'):
+                server.account_quotas(True)
 
-    def test_listed_home_with_missing_auth_is_not_duplicated(self):
-        (self.a / 'auth.json').unlink()
-        with patch.object(server, 'collect', side_effect=self.collect):
-            qs = server.account_quotas(True)
-        self.assertEqual([(q['name'], q['origins']) for q in qs], [('Listed', ['local'])])
-
-    def test_missing_config_has_no_listed_accounts(self):
-        (self.root / 'codex-quota/accounts.json').unlink()
-        with patch.object(server, 'collect', side_effect=self.collect):
-            qs = server.account_quotas(True)
-        self.assertEqual(qs, [])
+    def test_timer_prompts_stay_in_state_until_server_reset(self):
+        prompt = {'id': 'a', 'name': 'Listed', 'provider': 'codex',
+                  'timerPrompt': {'status': 'sent', 'fact': 'A timer fact'}}
+        with patch.object(server, 'TIMER_PROMPTS', []), patch.object(server, 'REMOTE_QUOTAS', []), \
+                patch.object(server, 'LOCAL_QUOTAS', []):
+            server.record_timer_prompts([prompt, prompt])
+            self.assertEqual(server.state_payload(None)['timerPrompts'],
+                             [{'id': 'a', 'name': 'Listed', 'provider': 'codex', 'fact': 'A timer fact'}])
+            server.record_timer_prompts([])
+            self.assertEqual(len(server.state_payload(None)['timerPrompts']), 1)
 
     def test_quota_cache_survives_agent_polling_outage(self):
         cached = [{'id': 'a', 'name': 'Listed', 'origins': ['remote'], 'left': 50}]
-        with patch.object(server, 'REMOTE_QUOTAS', cached), patch.object(server, 'LOCAL_QUOTAS', []), patch.object(server, 'REMOTE_SEEN', 0):
+        with patch.object(server, 'REMOTE_QUOTAS', cached), patch.object(server, 'LOCAL_QUOTAS', []), \
+                patch.object(server, 'REMOTE_SEEN', 0):
             self.assertEqual(server.state_payload(None)['quotas'], cached)
-
-    def test_claude_is_collected_with_the_listed_accounts(self):
-        reading = {'name': 'Claude', 'provider': 'claude', 'weeklyUsedPercent': 35,
-                   'weeklyResetsAt': 123, 'availableResets': None, 'error': None}
-        with patch.object(server, 'collect', side_effect=self.collect), \
-                patch.object(server, 'read_claude', return_value=reading) as reader:
-            quotas = server.account_quotas(True)
-            local = server.account_quotas(False)
-        reader.assert_called_once_with()
-        self.assertEqual(len(local), 1)
-        self.assertEqual(quotas[-1], {'id': 'claude:active', 'name': 'Claude', 'provider': 'claude',
-                                    'period': 'weekly', 'origins': ['local'], 'left': 65,
-                                    'resets_at': 123, 'resets_left': None, 'error': None})
-
-    def test_claude_and_fable_get_separate_containers(self):
-        readings = [{'id': name, 'name': name, 'provider': 'claude', 'weeklyUsedPercent': used,
-                     'weeklyResetsAt': reset, 'availableResets': None, 'error': None}
-                    for name, used, reset in [('Claude', 35, 123), ('Fable', 60, 456)]]
-        with patch.object(server, 'collect', side_effect=self.collect), \
-                patch.object(server, 'read_claude', return_value=readings):
-            quotas = server.account_quotas(True)
-        _, remote = server.remote_snapshot('mage-tower', {'quotas': quotas})
-        merged = server.merge_quotas(remote, quotas)
-        self.assertEqual([(q['id'], q['name'], q['left'], q['resets_at']) for q in merged[1:]],
-                         [('claude:active', 'Claude', 65, 123), ('claude:Fable', 'Fable', 40, 456)])
-        self.assertTrue(all(q['origins'] == ['remote', 'local'] for q in merged))
-
-    def test_cli_and_dashboard_share_claude_cache_and_rate_limit_backoff(self):
-        # Exercise the real token-quota reader; only credentials/network are mocked.
-        import claude_quota
-        import codex_quota
-        from urllib.error import HTTPError
-        with patch.dict(server.os.environ, {'XDG_CACHE_HOME': str(self.root / 'cache')}), \
-                patch.object(server, 'collect', side_effect=self.collect), \
-                patch.object(server, 'read_claude', claude_quota.read_claude), \
-                patch.object(claude_quota, 'access_token', return_value='test-token'), \
-                patch.object(claude_quota.time, 'time', return_value=1000):
-            data = {'seven_day': {'utilization': 35, 'resets_at': None}, 'limits': [
-                {'kind': 'weekly_scoped', 'percent': 60,
-                 'scope': {'model': {'display_name': 'Fable'}}},
-            ]}
-            with patch.object(claude_quota, 'urlopen', return_value=io.StringIO(json.dumps(data))) as fetch:
-                codex_quota.read_claude()
-                quotas = server.account_quotas(True)
-            fetch.assert_called_once()
-            self.assertEqual([(q['name'], q['left']) for q in quotas[-2:]], [('Claude', 65), ('Fable', 40)])
-            self.assertTrue(all(q['cached'] for q in quotas[-2:]))
-
-            with patch.object(claude_quota.time, 'time', return_value=1300), \
-                    patch.object(claude_quota, 'urlopen', side_effect=HTTPError('url', 429, 'limited', {}, None)) as fetch:
-                quotas = server.account_quotas(True)
-                codex_quota.read_claude()
-                again = server.account_quotas(True)
-            fetch.assert_called_once()
-            self.assertEqual(quotas, again)
-            _, remote = server.remote_snapshot('mage-tower', {'quotas': quotas})
-            for q in remote[-2:]:
-                self.assertTrue(q['stale'])
-                self.assertEqual(q['updatedAt'], 1000)
-                self.assertEqual(q['retryAt'], 1600)
-                self.assertIn('cached reading', q['error'])
-                self.assertIsNotNone(q['left'])
-
-    def test_failed_account_is_still_displayed(self):
-        reading = {'name': 'Listed', 'weeklyUsedPercent': None, 'weeklyResetsAt': None,
-                   'availableResets': None, 'error': 'unavailable'}
-        with patch.object(server, 'collect', return_value={'accounts': [reading]}):
-            qs = server.account_quotas(True)
-        self.assertIsNone(qs[0]['left'])
-        self.assertEqual(qs[0]['error'], 'unavailable')
 
     def test_local_and_remote_account_merge_keeps_name_and_both_origins(self):
         remote = [{'id': 'a', 'name': 'Listed', 'origins': ['remote'], 'left': None, 'error': 'unavailable'}]
-        local = [{'id': 'a', 'name': 'In use', 'origins': ['local'], 'left': 75, 'error': None},
-                 {'id': 'b', 'name': 'In use', 'origins': ['local'], 'left': 50}]
-        qs = server.merge_quotas(remote, local)
-        self.assertEqual(len(qs), 2)
-        self.assertEqual((qs[0]['name'], qs[0]['origins'], qs[0]['left']), ('Listed', ['remote', 'local'], 75))
-        self.assertEqual(remote[0]['origins'], ['remote'])
+        local = [{'id': 'a', 'name': 'In use', 'origins': ['local'], 'left': 75, 'error': None}]
+        quotas = server.merge_quotas(remote, local)
+        self.assertEqual((quotas[0]['name'], quotas[0]['origins'], quotas[0]['left']),
+                         ('Listed', ['remote', 'local'], 75))
 
     def test_unreadable_auth_does_not_match_another_account(self):
         (self.a / 'auth.json').write_text('{}')

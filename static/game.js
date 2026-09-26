@@ -2243,6 +2243,49 @@
   }
 
   // ---------- polling ----------
+  const timerWindow = $('#timerWindow'), timerBody = $('#timerBody');
+  const dismissedPrompts = new Set();
+  let shownPrompts = new Set();
+  function renderTimerPrompts(prompts) {
+    const available = prompts.filter(p => p.fact && !dismissedPrompts.has(`${p.id}:${p.fact}`));
+    const next = new Set(available.map(p => `${p.id}:${p.fact}`));
+    if (!available.length) { timerWindow.hidden = true; shownPrompts = next; return; }
+    if ([...next].some(key => !shownPrompts.has(key))) {
+      timerBody.replaceChildren();
+      for (const prompt of available) {
+        const reply = document.createElement('div');
+        reply.className = 'timerReply';
+        const name = document.createElement('div');
+        name.className = 'timerName';
+        name.textContent = `${prompt.name} · ${prompt.provider === 'claude' ? 'OPUS LOW' : 'SOL LOW'}`;
+        const fact = document.createElement('div');
+        fact.className = 'timerFact';
+        fact.textContent = prompt.fact;
+        reply.append(name, fact);
+        timerBody.append(reply);
+      }
+      timerWindow.hidden = false;
+    }
+    shownPrompts = next;
+  }
+  $('#timerClose').onclick = () => {
+    for (const key of shownPrompts) dismissedPrompts.add(key);
+    timerWindow.hidden = true;
+  };
+  $('#timerTitle').addEventListener('pointerdown', e => {
+    if (e.target.id === 'timerClose') return;
+    const bounds = timerWindow.getBoundingClientRect();
+    const stage = $('#stage').getBoundingClientRect();
+    const startX = e.clientX, startY = e.clientY;
+    const left = bounds.left - stage.left, top = bounds.top - stage.top;
+    const title = e.currentTarget;
+    title.setPointerCapture(e.pointerId);
+    title.onpointermove = move => {
+      timerWindow.style.left = `${Math.max(0, Math.min(stage.width - bounds.width, left + move.clientX - startX))}px`;
+      timerWindow.style.top = `${Math.max(0, Math.min(stage.height - bounds.height, top + move.clientY - startY))}px`;
+    };
+    title.onpointerup = title.onpointercancel = () => { title.onpointermove = null; };
+  });
   async function poll() {
     try {
       const res = await fetch('/api/state');
@@ -2253,6 +2296,7 @@
       reconcile(lastData);
       renderSide();
       renderJournal();
+      renderTimerPrompts(lastData.timerPrompts || []);
     } catch {
       offline = true;
     }

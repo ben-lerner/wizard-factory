@@ -7,14 +7,14 @@ import watch_server
 
 
 class WatchServerTest(unittest.TestCase):
-    def test_quota_reader_changes_trigger_restart_snapshot(self):
+    def test_local_source_changes_trigger_restart_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            with patch.object(watch_server, 'QUOTA_ROOT', root):
+            with patch.object(watch_server, 'ROOT', root):
                 before = watch_server.snapshot()
-                reader = root / 'claude_quota.py'
-                reader.write_text('# reader v1\n')
+                source = root / 'server.py'
+                source.write_text('# server v1\n')
                 added = watch_server.snapshot()
                 self.assertNotEqual(before, added)
-                reader.write_text('# reader with updated cache handling\n')
+                source.write_text('# server with updated quota handling\n')
                 self.assertNotEqual(added, watch_server.snapshot())

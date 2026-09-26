@@ -10,12 +10,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 SELF = Path(__file__).resolve()
-QUOTA_ROOT = Path.home() / 'token-quota'
 
 
 def snapshot():
-    paths = [ROOT / 'server.py', SELF, *(ROOT / 'static').rglob('*'),
-             QUOTA_ROOT / 'claude_quota.py', QUOTA_ROOT / 'bridge' / 'quota.py']
+    paths = [ROOT / 'server.py', SELF, *(ROOT / 'static').rglob('*')]
     out = {}
     for p in paths:
         try:

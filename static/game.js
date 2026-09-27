@@ -1223,13 +1223,14 @@
       if (combined && i === fable) continue;
       if (combined && i === claude) {
         const cq = quotas[claude], fq = quotas[fable], origins = [...new Set([...(cq.origins || []), ...(fq.origins || [])])];
+        const fableFill = Math.min((fq.left ?? 0) / 2, cq.left ?? 0);
         probes.push({ q: { ...cq, id: cq.id, name: 'Claude + Fable', origins,
-          left: cq.left == null || fq.left == null ? null : (cq.left + fq.left) / 2,
+          left: cq.left == null || fq.left == null ? null : cq.left,
           resets_at: cq.resets_at || fq.resets_at, error: cq.error || fq.error },
           parts: [cq, fq],
           ids: [cq.id, fq.id], fills: [
-            { value: cq.left == null ? 0 : cq.left / 2, color: colors[claude] },
-            { value: fq.left == null ? 0 : fq.left / 2, color: colors[fable] },
+            { value: fableFill, color: colors[fable] },
+            { value: (cq.left ?? 0) - fableFill, color: colors[claude] },
           ], color: colors[fable] });
         continue;
       }

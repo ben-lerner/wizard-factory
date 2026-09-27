@@ -298,7 +298,7 @@ test('additional quota accounts render distinct bottles and remain hoverable', (
     });
   }
 });
-test('Claude and Fable share one cylinder with half-height liquid segments', () => {
+test('Claude and Fable share one cylinder with Fable capped by Claude remaining', () => {
   const s = scene(), bottles = [];
   s.SP.PR.quotaVat = (g, x, y, shape, fill, color) => bottles.push({ x, y, shape, fill, color });
   s.setData({ quotas: [
@@ -308,11 +308,11 @@ test('Claude and Fable share one cylinder with half-height liquid segments', () 
   s.drawUsageProbes(0);
   assert.equal(bottles.length, 1);
   assert.equal(bottles[0].shape, 'vat');
-  assert.deepEqual([...bottles[0].fill].map(part => part.value), [50, 45]);
+  assert.deepEqual([...bottles[0].fill].map(part => part.value), [45, 55]);
   assert.notEqual(bottles[0].fill[0].color, bottles[0].fill[1].color);
   const combined = s.usageProbe('usage:claude:active');
   assert.equal(combined.q.name, 'Claude + Fable');
-  assert.equal(combined.q.left, 95);
+  assert.equal(combined.q.left, 100);
   assert.equal(s.usageProbe('usage:claude:Fable').q.left, combined.q.left);
   s.showUsageTip(combined, 0, 0);
   assert.match(s.element.innerHTML, /Claude: 100% REMAINING/);

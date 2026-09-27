@@ -130,6 +130,7 @@ class QuotaTest(unittest.TestCase):
                          str(self.root / 'codex-quota/accounts.json')])
         self.assertEqual([(q['name'], q['origins'], q['left']) for q in quotas],
                          [('Listed', ['local'], 75), ('Claude', ['local'], 65)])
+        self.assertEqual([q['resets_left'] for q in quotas], [2, None])
         self.assertEqual(quotas[1]['id'], 'claude:active')
         self.assertEqual(quotas[0]['reset_detail'], '2 Minutes')
 

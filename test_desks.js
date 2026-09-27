@@ -668,12 +668,13 @@ test('One Ring is a possible decoration with animated fiery lettering and an ope
   assert.equal(first.some(p => p[1] === 30 && p[2] === 30), false);
   assert.notDeepEqual(first, render(1));
 });
-test('Claude quota tooltip labels the provider without reset credits', () => {
+test('Claude quota tooltip shows the unified available resets count', () => {
   const s = scene();
-  s.showUsageTip({ i: 3, q: { name: 'Claude', provider: 'claude', origins: ['remote'], left: 65, resets_left: null } }, 0, 0);
+  s.showUsageTip({ i: 3, q: { name: 'Claude', provider: 'claude', origins: ['remote'], left: 65, resets_left: 2 } }, 0, 0);
   assert.match(s.element.innerHTML, /<span>CLAUDE<\/span>/);
   assert.match(s.element.innerHTML, /REMOTE/);
-  assert.doesNotMatch(s.element.innerHTML, /RESETS? LEFT|CODEX/);
+  assert.match(s.element.innerHTML, /2 RESETS LEFT/);
+  assert.doesNotMatch(s.element.innerHTML, /CODEX/);
 });
 
 test('completion draws only the celebrating pet while its old desk fades', () => {

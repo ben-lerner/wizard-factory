@@ -1266,19 +1266,23 @@
   const occupied = key => [...wizards.values()].some(w => w.station === key && !w.path.length && (w.a.status === 'working' || w.a.status === 'attention'));
 
   const brewR = rng(20260920), BREW_COLORS = ['#58d878', '#71bcf2', '#c18bea', '#ef8fa8', '#f4c565'];
-  const BREW = { from: BREW_COLORS[0], color: BREW_COLORS[0], next: 7, changed: -5, strike: -5, fire: -5, count: 0 };
+  const BREW = { from: BREW_COLORS[0], color: BREW_COLORS[0], next: 7, changed: -5, strike: -5, fireStart: -5, fire: -5, flame: 0, count: 0 };
   function updateBrew(t) {
-    if (t < BREW.next) return;
-    BREW.count++;
-    if (BREW.count % 3 !== 0) {
-      BREW.from = BREW.color;
-      const i = BREW_COLORS.indexOf(BREW.color);
-      BREW.color = BREW_COLORS[(i + 1 + Math.floor(brewR() * 4)) % BREW_COLORS.length];
-      BREW.changed = t;
+    if (t >= BREW.next) {
+      BREW.count++;
+      if (BREW.count % 3 !== 0) {
+        BREW.from = BREW.color;
+        const i = BREW_COLORS.indexOf(BREW.color);
+        BREW.color = BREW_COLORS[(i + 1 + Math.floor(brewR() * 4)) % BREW_COLORS.length];
+        BREW.changed = t;
+      }
+      if (BREW.count % 2) BREW.strike = t;
+      BREW.fireStart = t;
+      BREW.fire = t + 2 + brewR() * 2;
+      BREW.next = t + 12 + brewR() * 14;
     }
-    if (BREW.count % 2) BREW.strike = t;
-    BREW.fire = t + 2 + brewR() * 2;
-    BREW.next = t + 12 + brewR() * 14;
+    const p = Math.max(0, Math.min(1, (t - BREW.fireStart) / .7, (BREW.fire - t) / .7));
+    BREW.flame = p * p * (3 - 2 * p);
   }
 
   // ---------- update ----------
@@ -1491,7 +1495,7 @@
     updateTableGames(t);
     updateLightning(t);
     // ambient particles
-    if (Math.random() < dt * (t < BREW.fire ? 9 : 2)) spark(62 + Math.random() * 16, 154, BREW.color, -14, .8);
+    if (Math.random() < dt * (2 + BREW.flame * 7)) spark(62 + Math.random() * 16, 154, BREW.color, -14, .8);
     const circleActive = occupied('circle');
     if (Math.random() < dt * (circleActive ? 7 : .45)) { const a = Math.random() * 6.28; spark(430 + Math.cos(a) * 22, 220 + Math.sin(a) * 9, circleActive ? '#d8c8ff' : '#9a7cf0', -12, .9); }
     if ((lastData.cpu || 0) > 75 && Math.random() < dt * 12) spark(223 + Math.random() * 12 - 6, 101, Math.random() < .5 ? '#ff5a5a' : '#ffe89a', -12, .7);

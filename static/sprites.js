@@ -322,7 +322,7 @@ window.SP = (() => {
     const p = Math.max(0, Math.min(1, (t - brew.changed) / 2));
     const rgb = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
     const a = rgb(brew.from), b = rgb(brew.color), color = hex(...a.map((v, i) => v + (b[i] - v) * p));
-    const active = t < brew.fire;
+    const flame = brew.flame;
     if (t - brew.strike >= 0 && t - brew.strike < .65) {
       g.save(); g.globalAlpha = 1 - (t - brew.strike) / .65;
       g.strokeStyle = brew.color; g.lineWidth = 2; g.beginPath();
@@ -330,10 +330,12 @@ window.SP = (() => {
       g.stroke(); g.restore();
     }
     rc(g, x + 6, y + 19, 3, 3, '#23272f'); rc(g, x + 19, y + 19, 3, 3, '#23272f');
-    if (active) {
+    if (flame) {
+      g.save(); g.globalAlpha *= flame;
       const f = (t * 7 | 0) % 2;
       [[10, 19], [13, 18 + f], [17, 19 - f], [11, 20], [15, 20]].forEach(([dx, dy]) => px(g, x + dx, y + dy, color));
       [[12, 19 + f], [14, 20]].forEach(([dx, dy]) => px(g, x + dx, y + dy, '#ffd84a'));
+      g.restore();
     }
     rc(g, x + 5, y + 8, 18, 1, '#3d4356');
     rc(g, x + 3, y + 9, 22, 6, '#444c62');
@@ -343,10 +345,14 @@ window.SP = (() => {
     rc(g, x + 2, y + 5, 24, 3, '#525c7a'); rc(g, x + 2, y + 5, 24, 1, '#6c7796'); rc(g, x + 23, y + 5, 3, 3, '#414a62');
     rc(g, x + 4, y + 6, 20, 1, color);
     px(g, x + 7 + ((t * 3 | 0) % 3) * 5, y + 6, '#ecffe2');
-    if (active) for (let i = 0; i < 5; i++) {
-      const h = 4 + Math.round((Math.sin(t * 10 + i * 3) + 1) * 4);
-      rc(g, x + 5 + i * 4, y + 5 - h, 3, h, color);
-      rc(g, x + 6 + i * 4, y + 8 - h, 1, Math.max(1, h - 4), '#fff1cd');
+    if (flame) {
+      g.save(); g.globalAlpha *= flame;
+      for (let i = 0; i < 5; i++) {
+        const h = 4 + Math.round((Math.sin(t * 10 + i * 3) + 1) * 4);
+        rc(g, x + 5 + i * 4, y + 5 - h, 3, h, color);
+        rc(g, x + 6 + i * 4, y + 8 - h, 1, Math.max(1, h - 4), '#fff1cd');
+      }
+      g.restore();
     }
   };
 

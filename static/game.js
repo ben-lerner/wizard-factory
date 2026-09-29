@@ -28,8 +28,9 @@
 
   // ---------- collision ----------
   const RESOURCE_BALLS = ['cpu', 'memory'].flatMap((metric, row) => ['local', 'remote'].map((origin, col) =>
-    ({ id: `${origin}:${metric}`, origin, metric, x: 216 + col * 22, y: 98 + row * 34,
-      color: metric === 'cpu' ? '#d84a5f' : '#2859b8', hotColor: metric === 'cpu' ? '#ff4a4a' : '#3972d5' })));
+    ({ id: `${origin}:${metric}`, origin, metric, x: 216 + col * 22, y: 98 + row * 28,
+      color: metric === 'cpu' ? '#d84a5f' : '#2859b8', hotColor: metric === 'cpu' ? '#ff4a4a' : '#3972d5',
+      accents: metric === 'cpu' ? {} : { glass: '#416bca', glint: '#9db9ff', flare: '#b2c9ff', spark: '#5587f2' } })));
   const GRID = 8, WIZ_R = 5, CAT_R = 4, DRAGON_R = 8, TELEPORT_CHANCE = .05;
   const BLOCKERS = [
     { x: 264, y: 34, w: 8, h: 78 }, { x: 264, y: 168, w: 8, h: 92 },
@@ -178,7 +179,7 @@
     { x: 56, y: 150, w: 30, h: 26 }, // cauldron
     { x: 8, y: 58, w: 26, h: 70 }, // shelves
     { x: 88, y: 42, w: 34, h: 20 }, // bench
-    ...RESOURCE_BALLS.map(({ x, y }) => ({ x, y, w: 16, h: 30 })),
+    ...RESOURCE_BALLS.map(({ x, y, metric }) => ({ x, y, w: 16, h: metric === 'cpu' ? 24 : 30 })),
   ];
   const quotaSpace = () => {
     const x = 236 - (Math.max(6, usageProbes().length) - 1) * 22;
@@ -1258,7 +1259,7 @@
     [91, gg => PR.shelf(gg, 10, 60, 11)], [127, gg => PR.shelf(gg, 10, 96, 23)],
     [62, gg => PR.bench(gg, 88, 42, t)],
     ...RESOURCE_BALLS.map(ball => [ball.y + 22, gg =>
-      PR.crystal(gg, ball.x, ball.y, t, ballReading(ball), ball.color, ball.hotColor)]),
+      PR.crystal(gg, ball.x, ball.y, t, ballReading(ball), ball.color, ball.hotColor, ball.accents)]),
     [29, gg => PR.board(gg, 300, 8)],
     ...TABLES.filter(table => table !== COURT).map(table => [table.y + 5, gg => {
       if (table === TABLES[1]) updateTopTable();
@@ -1509,7 +1510,7 @@
     const circleActive = occupied('circle');
     if (Math.random() < dt * (circleActive ? 7 : .45)) { const a = Math.random() * 6.28; spark(430 + Math.cos(a) * 22, 220 + Math.sin(a) * 9, circleActive ? '#d8c8ff' : '#9a7cf0', -12, .9); }
     for (const ball of RESOURCE_BALLS) if (ballReading(ball) > 75 && Math.random() < dt * 12)
-      spark(ball.x + 7 + Math.random() * 12 - 6, ball.y + 3, Math.random() < .5 ? ball.hotColor : '#ffe89a', -12, .7);
+      spark(ball.x + 7 + Math.random() * 12 - 6, ball.y + 3, Math.random() < .5 ? ball.hotColor : ball.accents.flare || '#ffe89a', -12, .7);
     if (occupied('crystal') && Math.random() < dt * 3) spark(223, 100, '#cfe8ff', -8, .7);
     if ([...wizards.values()].some(w => w.station === 'cafe') && Math.random() < dt * 4) spark(312, 184, '#d8d4e4', -9, 1);
     const dBar = dragonAtBar();
@@ -2025,7 +2026,7 @@
     const r = cv.getBoundingClientRect(), mx = (e.clientX - r.left - cv.clientLeft) / S - labExtra, my = (e.clientY - r.top - cv.clientTop) / S;
     const vat = usageProbes().reverse().find(v => mx >= v.x - 3 && mx < v.x + 19 && my >= v.y - 12 && my <= v.y + 44);
     if (vat) return `usage:${vat.q.id}`;
-    const ball = RESOURCE_BALLS.find(b => mx >= b.x - 1 && mx <= b.x + 14 && my >= b.y - 2 && my <= b.y + 30);
+    const ball = RESOURCE_BALLS.find(b => mx >= b.x - 1 && mx <= b.x + 14 && my >= b.y - 2 && my <= b.y + (b.metric === 'cpu' ? 24 : 30));
     if (ball) return ball.id;
     for (const w of [...wizards.values()].sort((a, b) => b.y - a.y))
       if (Math.abs(mx - w.x) <= 9 && my >= w.y - 26 && my <= w.y + 3) return w.a.id;

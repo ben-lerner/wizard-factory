@@ -601,17 +601,18 @@ window.SP = (() => {
     }
   };
 
-  PR.crystal = (g, x, y, t, usage, color = '#d84a5f', hotColor = '#ff4a4a') => {
+  PR.crystal = (g, x, y, t, usage, color = '#d84a5f', hotColor = '#ff4a4a', accents = {}) => {
+    const { glass = '#8fd0ff', glint = '#e6f6ff', flare = '#ffe89a', spark = '#ff8a6a' } = accents;
     rc(g, x + 3, y + 12, 8, 7, '#5e6478'); rc(g, x + 9, y + 12, 2, 7, '#4c5164');
     rc(g, x + 1, y + 19, 12, 3, '#4c5164'); rc(g, x + 2, y + 10, 10, 2, '#6c7390');
     const value = Math.max(0, Math.min(100, Number(usage) || 0)), rows = [6, 8, 10, 10, 10, 10, 8, 6];
     rows.forEach((width, i) => rc(g, x + 7 - width / 2, y + 1 + i, width, 1,
-      i >= rows.length - Math.ceil(rows.length * value / 100) ? (value > 75 ? hotColor : color) : '#8fd0ff'));
+      i >= rows.length - Math.ceil(rows.length * value / 100) ? (value > 75 ? hotColor : color) : glass));
     const pulse = (t * 2 | 0) % 2;
-    rc(g, x + 5, y + 3, 1 + pulse, 1, value > 75 ? '#ffe89a' : '#e6f6ff');
+    rc(g, x + 5, y + 3, 1 + pulse, 1, value > 75 ? flare : glint);
     if (value > 75 && (t * 5 | 0) % 2) {
-      px(g, x, y + 2, '#ff8a6a'); px(g, x + 13, y + 4, '#ff8a6a');
-      px(g, x + 2, y - 1, '#ffe89a'); px(g, x + 11, y, '#ffe89a');
+      px(g, x, y + 2, spark); px(g, x + 13, y + 4, spark);
+      px(g, x + 2, y - 1, flare); px(g, x + 11, y, flare);
     }
   };
 

@@ -27,13 +27,16 @@
   for (const k in ST) ST[k].occ = ST[k].spots.map(() => null);
 
   // ---------- collision ----------
+  const RESOURCE_BALLS = ['cpu', 'memory'].flatMap((metric, row) => ['local', 'remote'].map((origin, col) =>
+    ({ id: `${origin}:${metric}`, origin, metric, x: 216 + col * 22, y: 98 + row * 34,
+      color: metric === 'cpu' ? '#d84a5f' : '#49d58a', hotColor: metric === 'cpu' ? '#ff4a4a' : '#76f5ab' })));
   const GRID = 8, WIZ_R = 5, CAT_R = 4, DRAGON_R = 8, TELEPORT_CHANCE = .05;
   const BLOCKERS = [
     { x: 264, y: 34, w: 8, h: 78 }, { x: 264, y: 168, w: 8, h: 92 },
     { x: 58, y: 154, w: 24, h: 18 },
     { x: 8, y: 58, w: 26, h: 34 }, { x: 8, y: 94, w: 26, h: 34 },
     { x: 86, y: 46, w: 38, h: 16 },
-    { x: 216, y: 104, w: 16, h: 18 },
+    ...RESOURCE_BALLS.map(({ x, y }) => ({ x, y: y + 6, w: 16, h: 18 })),
     { x: 299, y: 96, w: 28, h: 14 }, { x: 359, y: 116, w: 28, h: 14 },
     { x: 438, y: 52, w: 32, h: 24 },
     { x: 294, y: 194, w: 102, h: 25 },
@@ -148,6 +151,11 @@
   const atDesk = w => w.desk && !w.path.length && !w.leaving && !w.blast;
   let sel = null, hover = null, cafeChat = null, nextCafeChat = 10;
   let offline = false, isDemo = false, serverSkew = 0, lastData = { agents: [] };
+  const ballReading = ball => {
+    const machine = lastData.resources?.[ball.origin] || {};
+    return ball.metric === 'cpu' ? machine.cpu : machine.memoryTotal > 0 && machine.memoryUsed != null ?
+      100 * machine.memoryUsed / machine.memoryTotal : null;
+  };
   const eggR = rng(0xe457e2), mimicR = rng(0xc4e57);
   const MIMIC = { active: false, x: 38, y: 76, path: [], r: mimicR, phase: 'hidden', desk: null, nextAt: 45 };
   let doorStandoff = null, nextDoorStandoff = 20;
@@ -170,7 +178,7 @@
     { x: 56, y: 150, w: 30, h: 26 }, // cauldron
     { x: 8, y: 58, w: 26, h: 70 }, // shelves
     { x: 88, y: 42, w: 34, h: 20 }, // bench
-    { x: 216, y: 98, w: 16, h: 24 }, // crystal
+    ...RESOURCE_BALLS.map(({ x, y }) => ({ x, y, w: 16, h: 30 })),
   ];
   const quotaSpace = () => {
     const x = 236 - (Math.max(6, usageProbes().length) - 1) * 22;
@@ -1249,7 +1257,8 @@
     [174, gg => PR.cauldron(gg, 56, 150, t, BREW)],
     [91, gg => PR.shelf(gg, 10, 60, 11)], [127, gg => PR.shelf(gg, 10, 96, 23)],
     [62, gg => PR.bench(gg, 88, 42, t)],
-    [120, gg => PR.crystal(gg, 216, 98, t, lastData.cpu)],
+    ...RESOURCE_BALLS.map(ball => [ball.y + 22, gg =>
+      PR.crystal(gg, ball.x, ball.y, t, ballReading(ball), ball.color, ball.hotColor)]),
     [29, gg => PR.board(gg, 300, 8)],
     ...TABLES.filter(table => table !== COURT).map(table => [table.y + 5, gg => {
       if (table === TABLES[1]) updateTopTable();
@@ -1499,8 +1508,9 @@
     if (Math.random() < dt * (2 + BREW.flame * 7)) spark(62 + Math.random() * 16, 154, BREW.color, -14, .8);
     const circleActive = occupied('circle');
     if (Math.random() < dt * (circleActive ? 7 : .45)) { const a = Math.random() * 6.28; spark(430 + Math.cos(a) * 22, 220 + Math.sin(a) * 9, circleActive ? '#d8c8ff' : '#9a7cf0', -12, .9); }
-    if ((lastData.cpu || 0) > 75 && Math.random() < dt * 12) spark(223 + Math.random() * 12 - 6, 101, Math.random() < .5 ? '#ff5a5a' : '#ffe89a', -12, .7);
-    else if (occupied('crystal') && Math.random() < dt * 3) spark(223, 100, '#cfe8ff', -8, .7);
+    for (const ball of RESOURCE_BALLS) if (ballReading(ball) > 75 && Math.random() < dt * 12)
+      spark(ball.x + 7 + Math.random() * 12 - 6, ball.y + 3, Math.random() < .5 ? ball.hotColor : '#ffe89a', -12, .7);
+    if (occupied('crystal') && Math.random() < dt * 3) spark(223, 100, '#cfe8ff', -8, .7);
     if ([...wizards.values()].some(w => w.station === 'cafe') && Math.random() < dt * 4) spark(312, 184, '#d8d4e4', -9, 1);
     const dBar = dragonAtBar();
     if (dBar && !dragon.task && Math.random() < dt * 3) spark(450 + Math.random() * 6, 86, '#f0a83c', -11, .7);
@@ -1969,12 +1979,13 @@
     if (hover === 'cat') tag(cat.x, cat.y - 20, 'BIGGLES, STAFF CAT');
     if (hover === 'demon-cat' && demonCat.active) tag(demonCat.x, demonCat.y - 20, 'LUCIPURR');
     if (hover === 'barista') tag(dragon.x, dragon.y - 32, `EARL GREY: ${dragon.signal === 'attention' ? 'ALERT' : dragon.signal === 'active' ? 'ROASTING' : dragon.signal === 'empty' ? 'ASLEEP' : 'BARISTA'}`);
-    if (hover === 'cpu') tag(223, 89, lastData.cpu == null ? 'CPU UNAVAILABLE' : `LOCAL CPU ${Math.round(lastData.cpu)}%`);
     drawText(g, 320, 240, 'MANA CAFE', '#ffd84a');
     drawText(g, 60 - labExtra / 2, 240 + labDown, 'LABORATORIVM', '#8a84a0');
     for (const d of desks) drawTaskLabel(d);
     drawUsageProbes(t);
     drawUsageLabels();
+    for (const ball of RESOURCE_BALLS)
+      drawText(g, ball.x + 1, ball.y + 25, ball.origin === 'local' ? 'LOC' : 'REM', ball.color);
     if (!wizards.size) {
       g.fillStyle = 'rgba(12,9,20,.55)'; g.fillRect(90, 110, 300, 44);
       drawText(g, 240 - textW('THE TOWER SLEEPS', 2) / 2, 120, 'THE TOWER SLEEPS', '#cdc6e0', 2);
@@ -2009,7 +2020,8 @@
     const r = cv.getBoundingClientRect(), mx = (e.clientX - r.left - cv.clientLeft) / S - labExtra, my = (e.clientY - r.top - cv.clientTop) / S;
     const vat = usageProbes().reverse().find(v => mx >= v.x - 3 && mx < v.x + 19 && my >= v.y - 12 && my <= v.y + 44);
     if (vat) return `usage:${vat.q.id}`;
-    if (mx >= 215 && mx <= 230 && my >= 96 && my <= 122) return 'cpu';
+    const ball = RESOURCE_BALLS.find(b => mx >= b.x - 1 && mx <= b.x + 14 && my >= b.y - 2 && my <= b.y + 30);
+    if (ball) return ball.id;
     for (const w of [...wizards.values()].sort((a, b) => b.y - a.y))
       if (Math.abs(mx - w.x) <= 9 && my >= w.y - 26 && my <= w.y + 3) return w.a.id;
     if (mx >= dragon.x - 25 && mx <= dragon.x + 25 && my >= dragon.y - 40 && my <= dragon.y + 3) return 'barista';
@@ -2041,6 +2053,20 @@
     tip.style.left = Math.max(4, Math.min(left, stage.width - tip.offsetWidth - 4)) + 'px';
     tip.style.top = Math.max(4, Math.min(top, stage.height - tip.offsetHeight - 4)) + 'px';
   }
+  function showResourceTip(ball, left, top) {
+    const machine = lastData.resources?.[ball.origin] || {}, value = ballReading(ball), tip = $('#tip');
+    const gib = bytes => (bytes / 2**30).toFixed(1) + ' GiB';
+    tip.innerHTML = `<div class="tt-name">${ball.origin.toUpperCase()} ${ball.metric === 'cpu' ? 'CPU' : 'MEMORY'}</div>
+      <div class="tt-meta">${esc(machine.host || ball.origin)}</div>
+      <div class="tt-status">${value == null ? 'USAGE UNAVAILABLE' : Math.round(value) + '% USED'}</div>
+      <div class="tt-age">${ball.metric === 'cpu' ? (machine.cores == null ? 'CORE COUNT UNAVAILABLE' : machine.cores + ' LOGICAL CORES') :
+        (machine.memoryTotal == null ? 'MEMORY CAPACITY UNAVAILABLE' :
+          (machine.memoryUsed == null ? '' : gib(machine.memoryUsed) + ' / ') + gib(machine.memoryTotal) + ' RAM')}</div>`;
+    const stage = $('#stage').getBoundingClientRect();
+    tip.hidden = false;
+    tip.style.left = Math.max(4, Math.min(left, stage.width - tip.offsetWidth - 4)) + 'px';
+    tip.style.top = Math.max(4, Math.min(top, stage.height - tip.offsetHeight - 4)) + 'px';
+  }
   function clearHover(id) {
     if (id && hover !== id) return;
     hover = null;
@@ -2057,7 +2083,9 @@
       showTip(w, e.clientX - sr.left + 14, e.clientY - sr.top + 10);
     } else {
       const v = usageProbe(hover), sr = $('#stage').getBoundingClientRect();
+      const ball = RESOURCE_BALLS.find(b => b.id === hover);
       if (v) showUsageTip(v, e.clientX - sr.left + 14, e.clientY - sr.top + 10);
+      else if (ball) showResourceTip(ball, e.clientX - sr.left + 14, e.clientY - sr.top + 10);
       else $('#tip').hidden = true;
     }
   });

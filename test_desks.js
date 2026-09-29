@@ -16,7 +16,7 @@ function scene() {
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, pickAt, usageProbe, castSpell, castRay, updateBattle, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, updateBoardGame, drawTableGame, chessInCheck, playGo, goPosition, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, showResourceTip, RESOURCE_BALLS, ballReading, pickAt, usageProbe, castSpell, castRay, updateBattle, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, updateBoardGame, drawTableGame, chessInCheck, playGo, goPosition, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
@@ -847,4 +847,34 @@ test('idle summoning circle keeps bright runes and a moving glint', () => {
   assert.ok(fills.some(x => x.color === '#8068bd'));
   assert.ok(fills.some(x => x.color === '#e8dcff'));
   assert.ok(fills.some(x => x.color === '#b9a5e8'));
+});
+
+
+test('all resource balls have separate hit targets and capacity tooltips', () => {
+  const s = scene();
+  s.setData({ resources: {
+    local: { host: 'local-test', cpu: 50, cores: 12, memoryUsed: 8 * 2**30, memoryTotal: 32 * 2**30 },
+    remote: { host: 'mage-tower', cpu: 80, cores: 64, memoryUsed: 64 * 2**30, memoryTotal: 128 * 2**30 },
+  } });
+  const { S } = s.layout();
+  for (const ball of s.RESOURCE_BALLS) {
+    assert.equal(s.pickAt({ clientX: (ball.x + 7) * S, clientY: (ball.y + 5) * S }), ball.id);
+    s.showResourceTip(ball, 0, 0);
+    assert.match(s.element.innerHTML, ball.origin === 'local' ? /local-test/ : /mage-tower/);
+    assert.match(s.element.innerHTML, ball.metric === 'cpu' ? /LOGICAL CORES/ : /GiB RAM/);
+    assert.ok(s.blocked(ball.x + 7, ball.y + 15, 5), 'walking actors avoid each pedestal');
+  }
+  assert.equal(s.ballReading(s.RESOURCE_BALLS[2]), 25);
+  s.setData({ resources: { local: {} } });
+  s.showResourceTip(s.RESOURCE_BALLS[3], 0, 0);
+  assert.match(s.element.innerHTML, /USAGE UNAVAILABLE/);
+  assert.match(s.element.innerHTML, /MEMORY CAPACITY UNAVAILABLE/);
+});
+
+test('memory crystal remains green at high usage', () => {
+  const s = scene(), fills = [];
+  s.ctx.fillRect = () => fills.push(s.ctx.fillStyle);
+  s.SP.PR.crystal(s.ctx, 216, 132, 1, 90, '#49d58a', '#76f5ab');
+  assert.ok(fills.includes('#76f5ab'));
+  assert.ok(!fills.includes('#ff4a4a'));
 });

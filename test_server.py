@@ -55,6 +55,35 @@ class RemoteAgentsTest(unittest.TestCase):
 
 
 class CpuUsageTest(unittest.TestCase):
+    def test_macos_memory_includes_inactive_app_memory_and_excludes_cache(self):
+        memory = 'Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages active: 100.\nAnonymous pages: 150.\nPages wired down: 20.\nPages occupied by compressor: 10.\nPages purgeable: 5.\n'
+        procs = [MagicMock(stdout=str(256 * 16384)), MagicMock(stdout=memory)]
+        with patch.object(server.sys, 'platform', 'darwin'), patch.object(server, 'read_cpu_usage', return_value=30), \
+                patch.object(server.subprocess, 'run', side_effect=procs), patch.object(server.os, 'cpu_count', return_value=12):
+            resources = server.read_resources()
+        self.assertEqual((resources['memoryUsed'], resources['memoryTotal'], resources['cores']),
+                         (175 * 16384, 256 * 16384, 12))
+
+    def test_linux_memory_uses_available_including_reclaimable_cache(self):
+        with patch.object(server.sys, 'platform', 'linux'), patch.object(server, 'read_cpu_usage', side_effect=[None, 40]), \
+                patch.object(server.time, 'sleep'), patch.object(server.Path, 'read_text',
+                    return_value='MemTotal: 1000 kB\nMemFree: 100 kB\nMemAvailable: 400 kB\n'):
+            resources = server.read_resources()
+        self.assertEqual((resources['cpu'], resources['memoryUsed'], resources['memoryTotal']), (40, 600 * 1024, 1000 * 1024))
+
+    def test_remote_scan_returns_machine_resources(self):
+        resources = {'cpu': 30, 'cores': 8, 'memoryUsed': 1024, 'memoryTotal': 2048}
+        proc = MagicMock(stdout=json.dumps({'resources': {'local': resources}}))
+        with patch.object(server.subprocess, 'run', return_value=proc):
+            self.assertEqual(server.scan_remote('mage-tower')[2], resources)
+
+    def test_remote_resources_expire_with_remote_polling(self):
+        with patch.object(server, 'REMOTE_RESOURCES', {'cpu': 40}), patch.object(server, 'REMOTE_SEEN', 100), \
+                patch.object(server.time, 'time', return_value=101):
+            self.assertEqual(server.state_payload(None)['resources']['remote'], {'cpu': 40})
+        with patch.object(server, 'REMOTE_RESOURCES', {'cpu': 40}), patch.object(server, 'REMOTE_SEEN', 0):
+            self.assertEqual(server.state_payload(None)['resources']['remote'], {})
+
     def test_reads_macos_idle_percentage(self):
         proc = MagicMock(stdout='CPU usage: 12.5% user, 7.5% sys, 80.0% idle\n')
         with patch.object(server.sys, 'platform', 'darwin'), patch.object(server.subprocess, 'run', return_value=proc):

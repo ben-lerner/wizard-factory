@@ -48,6 +48,7 @@ REMOTE_AGENTS, REMOTE_QUOTAS, REMOTE_SEEN = [], [], 0
 LOCAL_QUOTAS = []
 TIMER_PROMPTS = []
 CPU_USAGE, CPU_TIMES = None, None
+LOCAL_RESOURCES, REMOTE_RESOURCES = {}, {}
 LOCK = threading.Lock()
 
 
@@ -235,6 +236,30 @@ def read_cpu_usage():
     if previous is None or current[0] == previous[0]:
         return None
     return max(0, min(100, 100 * (1 - (current[1] - previous[1]) / (current[0] - previous[0]))))
+
+
+def read_resources():
+    cpu = read_cpu_usage()
+    if cpu is None:
+        time.sleep(.2)
+        cpu = read_cpu_usage()
+    if sys.platform == 'darwin':
+        proc = subprocess.run(['sysctl', '-n', 'hw.memsize'], capture_output=True, text=True, timeout=5)
+        proc.check_returncode()
+        total = int(proc.stdout)
+        proc = subprocess.run(['vm_stat'], capture_output=True, text=True, timeout=5)
+        proc.check_returncode()
+        lines = proc.stdout.splitlines()
+        page = int(lines[0].split('page size of ')[1].split()[0])
+        pages = {k: int(v.strip().rstrip('.')) for k, v in (line.split(':', 1) for line in lines[1:] if ':' in line)}
+        used = page * (pages['Anonymous pages'] + pages['Pages wired down'] +
+                       pages['Pages occupied by compressor'] - pages['Pages purgeable'])
+    else:
+        mem = {k: int(v.split()[0]) * 1024 for k, v in
+               (line.split(':', 1) for line in Path('/proc/meminfo').read_text().splitlines())}
+        total, used = mem['MemTotal'], mem['MemTotal'] - mem['MemAvailable']
+    return {'cpu': cpu, 'cores': os.cpu_count(), 'memoryUsed': max(0, min(total, used)),
+            'memoryTotal': total, 'host': os.uname().nodename}
 
 
 class FileState:
@@ -693,7 +718,8 @@ def scan_remote(host, refresh_usage=False):
         timeout=QUOTA_TIMEOUT + 10 if refresh_usage else 10,
     )
     proc.check_returncode()
-    return remote_snapshot(host, json.loads(proc.stdout))
+    payload = json.loads(proc.stdout)
+    return (*remote_snapshot(host, payload), payload.get('resources', {}).get('local', {}))
 
 
 def state_payload(demo):
@@ -713,7 +739,13 @@ def state_payload(demo):
                    {'id': 'demo-spare', 'name': 'Caffeinated', 'provider': 'codex', 'origins': [],
                     'period': 'weekly', 'left': 100, 'resets_at': now + 7 * 86400, 'resets_left': 0}]
                   if demo else merge_quotas(REMOTE_QUOTAS, LOCAL_QUOTAS))
-    return {'now': now, 'demo': bool(demo), 'cpu': 82 if demo else CPU_USAGE, 'quotas': quotas,
+        resources = ({'local': {'host': 'local', 'cpu': 82, 'cores': 12,
+                                'memoryUsed': 20 * 2**30, 'memoryTotal': 32 * 2**30},
+                      'remote': {'host': 'mage-tower', 'cpu': 43, 'cores': 64,
+                                 'memoryUsed': 80 * 2**30, 'memoryTotal': 128 * 2**30}}
+                     if demo else {'local': LOCAL_RESOURCES,
+                                   'remote': REMOTE_RESOURCES if now - REMOTE_SEEN < REMOTE_STALE_SEC else {}})
+    return {'now': now, 'demo': bool(demo), 'cpu': 82 if demo else CPU_USAGE, 'resources': resources, 'quotas': quotas,
             'timerPrompts': list(TIMER_PROMPTS),
             'agents': sorted(ags, key=lambda a: a['started'] or 0)}
 
@@ -822,19 +854,21 @@ def main():
         with LOCK:
             scan_once(time.time())
         payload = state_payload(None)
+        payload['resources']['local'] = read_resources()
         payload['quotas'] = account_quotas(True) if a.refresh_usage else []
         return print(json.dumps(payload, indent=2))
     demo = Demo() if a.demo else None
     if not demo:
         def cpu_loop():
-            global CPU_USAGE
+            global CPU_USAGE, LOCAL_RESOURCES
             while True:
                 try:
-                    usage = read_cpu_usage()
-                    if usage is not None:
-                        with LOCK:
-                            CPU_USAGE = usage
+                    resources = read_resources()
+                    with LOCK:
+                        LOCAL_RESOURCES, CPU_USAGE = resources, resources['cpu']
                 except (OSError, ValueError, StopIteration, subprocess.SubprocessError) as e:
+                    with LOCK:
+                        LOCAL_RESOURCES, CPU_USAGE = {}, None
                     print('cpu usage error:', repr(e), flush=True)
                 time.sleep(3)
         threading.Thread(target=cpu_loop, daemon=True).start()
@@ -850,7 +884,7 @@ def main():
                     print('usage error:', repr(e), flush=True)
                 if a.remote_host:
                     try:
-                        _, quotas = scan_remote(a.remote_host, True)
+                        _, quotas, _ = scan_remote(a.remote_host, True)
                         record_timer_prompts(quotas)
                         with LOCK:
                             REMOTE_QUOTAS = quotas
@@ -870,13 +904,14 @@ def main():
         threading.Thread(target=local_loop, daemon=True).start()
         if a.remote_host:
             def remote_loop():
-                global REMOTE_AGENTS, REMOTE_SEEN
+                global REMOTE_AGENTS, REMOTE_SEEN, REMOTE_RESOURCES
                 while True:
                     t = time.time()
                     try:
-                        agents, _ = scan_remote(a.remote_host)
+                        agents, _, resources = scan_remote(a.remote_host)
                         with LOCK:
                             REMOTE_AGENTS, REMOTE_SEEN = agents, time.time()
+                            REMOTE_RESOURCES = {**resources, 'host': a.remote_host}
                     except Exception:
                         pass
                     time.sleep(max(0.1, REMOTE_SCAN_SEC - (time.time() - t)))

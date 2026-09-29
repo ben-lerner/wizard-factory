@@ -67,8 +67,11 @@ the factory is empty, roasts beans while agents are active, and flies alert near
 petition board when an agent needs attention.
 The frontend polls `/api/state` every 1.5s.
 
-The laboratory crystal shows local CPU use as a rising red fill. Above 75% it
-flares and throws sparks; hover over it for the current percentage.
+The laboratory's four crystals show local and remote CPU use in red on the top row,
+and memory use in green below. `LOC` and `REM` identify the machines. Hover for the
+percentage, logical core count, or used/total RAM. Memory use excludes reclaimable
+cache. Above 75% the crystals flare and throw sparks. Remote readings become
+unavailable after 15 seconds without a successful poll.
 
 The laboratory's usage bottles show the same configured Codex accounts as the
 `token-quota` CLI. Blue `LOC` and red `REM` labels mark the accounts

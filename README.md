@@ -68,7 +68,7 @@ petition board when an agent needs attention.
 The frontend polls `/api/state` every 1.5s.
 
 The laboratory's four crystals show local and remote CPU use in red on the top row,
-and memory use in green below. `LOC` and `REM` identify the machines. Hover for the
+and memory use in dark blue below. `LOC` and `REM` identify the machines. Hover for the
 percentage, logical core count, or used/total RAM. Memory use excludes reclaimable
 cache. Above 75% the crystals flare and throw sparks. Remote readings become
 unavailable after 15 seconds without a successful poll.

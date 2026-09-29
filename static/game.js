@@ -29,7 +29,7 @@
   // ---------- collision ----------
   const RESOURCE_BALLS = ['cpu', 'memory'].flatMap((metric, row) => ['local', 'remote'].map((origin, col) =>
     ({ id: `${origin}:${metric}`, origin, metric, x: 216 + col * 22, y: 98 + row * 34,
-      color: metric === 'cpu' ? '#d84a5f' : '#49d58a', hotColor: metric === 'cpu' ? '#ff4a4a' : '#76f5ab' })));
+      color: metric === 'cpu' ? '#d84a5f' : '#2859b8', hotColor: metric === 'cpu' ? '#ff4a4a' : '#3972d5' })));
   const GRID = 8, WIZ_R = 5, CAT_R = 4, DRAGON_R = 8, TELEPORT_CHANCE = .05;
   const BLOCKERS = [
     { x: 264, y: 34, w: 8, h: 78 }, { x: 264, y: 168, w: 8, h: 92 },
@@ -1984,8 +1984,13 @@
     for (const d of desks) drawTaskLabel(d);
     drawUsageProbes(t);
     drawUsageLabels();
-    for (const ball of RESOURCE_BALLS.filter(b => b.metric === 'memory'))
-      drawText(g, ball.x + 1, ball.y + 25, ball.origin === 'local' ? 'LOC' : 'REM', ball.color);
+    for (const ball of RESOURCE_BALLS.filter(b => b.metric === 'memory')) {
+      const label = ball.origin === 'local' ? 'LOC' : 'REM', x = ball.x + 1, y = ball.y + 25;
+      drawText(g, x, y, label, '#d84a5f');
+      g.save(); g.beginPath(); g.rect(x, y + 2, textW(label), 3); g.clip();
+      drawText(g, x, y, label, ball.color);
+      g.restore();
+    }
     if (!wizards.size) {
       g.fillStyle = 'rgba(12,9,20,.55)'; g.fillRect(90, 110, 300, 44);
       drawText(g, 240 - textW('THE TOWER SLEEPS', 2) / 2, 120, 'THE TOWER SLEEPS', '#cdc6e0', 2);
@@ -2055,7 +2060,7 @@
   }
   function showResourceTip(ball, left, top) {
     const machine = lastData.resources?.[ball.origin] || {}, value = ballReading(ball), tip = $('#tip');
-    const gib = bytes => (bytes / 2**30).toFixed(1) + ' GiB';
+    const gib = bytes => Math.round(bytes / 2**30) + ' GiB';
     tip.innerHTML = `<div class="tt-name">${ball.origin.toUpperCase()} ${ball.metric === 'cpu' ? 'CPU' : 'MEMORY'}</div>
       <div class="tt-meta">${esc(machine.host || ball.origin)}</div>
       <div class="tt-status">${value == null ? 'USAGE UNAVAILABLE' : Math.round(value) + '% USED'}</div>

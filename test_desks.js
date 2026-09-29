@@ -871,10 +871,10 @@ test('all resource balls have separate hit targets and capacity tooltips', () =>
   assert.match(s.element.innerHTML, /MEMORY CAPACITY UNAVAILABLE/);
 });
 
-test('memory crystal remains green at high usage', () => {
+test('memory crystal remains blue at high usage', () => {
   const s = scene(), fills = [];
   s.ctx.fillRect = () => fills.push(s.ctx.fillStyle);
-  s.SP.PR.crystal(s.ctx, 216, 132, 1, 90, '#49d58a', '#76f5ab');
-  assert.ok(fills.includes('#76f5ab'));
+  s.SP.PR.crystal(s.ctx, 216, 132, 1, 90, '#2859b8', '#3972d5');
+  assert.ok(fills.includes('#3972d5'));
   assert.ok(!fills.includes('#ff4a4a'));
 });

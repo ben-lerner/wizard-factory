@@ -1984,7 +1984,7 @@
     for (const d of desks) drawTaskLabel(d);
     drawUsageProbes(t);
     drawUsageLabels();
-    for (const ball of RESOURCE_BALLS)
+    for (const ball of RESOURCE_BALLS.filter(b => b.metric === 'memory'))
       drawText(g, ball.x + 1, ball.y + 25, ball.origin === 'local' ? 'LOC' : 'REM', ball.color);
     if (!wizards.size) {
       g.fillStyle = 'rgba(12,9,20,.55)'; g.fillRect(90, 110, 300, 44);

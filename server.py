@@ -10,6 +10,7 @@ the tower at http://127.0.0.1:7777. No registration needed.
 """
 import argparse
 import base64
+import ctypes
 import hashlib
 import json
 import os
@@ -50,6 +51,11 @@ TIMER_PROMPTS = []
 CPU_USAGE, CPU_TIMES = None, None
 LOCAL_RESOURCES, REMOTE_RESOURCES = {}, {}
 LOCK = threading.Lock()
+MACH = ctypes.CDLL('/usr/lib/libSystem.B.dylib') if sys.platform == 'darwin' else None
+if MACH:
+    MACH.mach_host_self.restype = ctypes.c_uint
+    MACH.host_statistics.argtypes = [ctypes.c_uint, ctypes.c_int, ctypes.POINTER(ctypes.c_uint), ctypes.POINTER(ctypes.c_uint)]
+    MACH_HOST = MACH.mach_host_self()
 
 
 def epoch(ts):
@@ -226,14 +232,15 @@ def merge_quotas(remote, local):
 def read_cpu_usage():
     global CPU_TIMES
     if sys.platform == 'darwin':
-        proc = subprocess.run(['top', '-l', '1', '-n', '0'], capture_output=True, text=True, timeout=5)
-        proc.check_returncode()
-        line = next(line for line in proc.stdout.splitlines() if line.startswith('CPU usage:'))
-        return max(0, min(100, 100 - float(line.rsplit(',', 1)[-1].split('%', 1)[0])))
-    fields = [int(n) for n in Path('/proc/stat').read_text().splitlines()[0].split()[1:]]
-    current = sum(fields[:8]), fields[3] + (fields[4] if len(fields) > 4 else 0)
+        ticks, count = (ctypes.c_uint * 4)(), ctypes.c_uint(4)
+        if error := MACH.host_statistics(MACH_HOST, 3, ticks, ctypes.byref(count)):
+            raise OSError(f'host_statistics failed: {error}')
+        current = sum(ticks), ticks[2]
+    else:
+        fields = [int(n) for n in Path('/proc/stat').read_text().splitlines()[0].split()[1:]]
+        current = sum(fields[:8]), fields[3] + (fields[4] if len(fields) > 4 else 0)
     previous, CPU_TIMES = CPU_TIMES, current
-    if previous is None or current[0] == previous[0]:
+    if previous is None or current[0] <= previous[0]:
         return None
     return max(0, min(100, 100 * (1 - (current[1] - previous[1]) / (current[0] - previous[0]))))
 

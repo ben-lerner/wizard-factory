@@ -84,11 +84,27 @@ class CpuUsageTest(unittest.TestCase):
         with patch.object(server, 'REMOTE_RESOURCES', {'cpu': 40}), patch.object(server, 'REMOTE_SEEN', 0):
             self.assertEqual(server.state_payload(None)['resources']['remote'], {})
 
-    def test_reads_macos_idle_percentage(self):
-        proc = MagicMock(stdout='CPU usage: 12.5% user, 7.5% sys, 80.0% idle\n')
-        with patch.object(server.sys, 'platform', 'darwin'), patch.object(server.subprocess, 'run', return_value=proc):
-            self.assertEqual(server.read_cpu_usage(), 20)
-        proc.check_returncode.assert_called_once_with()
+    def test_reads_macos_cpu_counters_without_spawning_top(self):
+        readings = iter([(100, 50, 850, 0), (110, 60, 930, 0)])
+        def read(_host, flavor, ticks, count):
+            self.assertEqual(flavor, 3)
+            ticks[:] = next(readings)
+            return 0
+        mach = MagicMock()
+        mach.host_statistics.side_effect = read
+        with patch.object(server.sys, 'platform', 'darwin'), patch.object(server, 'MACH', mach), \
+                patch.object(server, 'MACH_HOST', 1, create=True), patch.object(server, 'CPU_TIMES', None), \
+                patch.object(server.subprocess, 'run') as run:
+            self.assertIsNone(server.read_cpu_usage())
+            self.assertAlmostEqual(server.read_cpu_usage(), 20)
+        run.assert_not_called()
+
+    def test_macos_cpu_counter_failure_is_reported(self):
+        mach = MagicMock()
+        mach.host_statistics.return_value = 5
+        with patch.object(server.sys, 'platform', 'darwin'), patch.object(server, 'MACH', mach), \
+                patch.object(server, 'MACH_HOST', 1, create=True), self.assertRaises(OSError):
+            server.read_cpu_usage()
 
     def test_linux_cpu_usage_does_not_double_count_guest_time(self):
         readings = ['cpu 100 0 0 900 0 0 0 0 100 0\n', 'cpu 150 0 0 950 0 0 0 0 150 0\n']

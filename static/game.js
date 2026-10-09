@@ -610,29 +610,60 @@
     for (const stone of stones) points[goPoint(stone)] = stone.side;
     return points.join('');
   };
+  function goGroup(board, start) {
+    const members = new Set([start]), liberties = new Set(), stack = [start], side = board.get(start).side;
+    while (stack.length) for (const neighbor of goNeighbors(stack.pop())) {
+      const next = board.get(neighbor);
+      if (!next) liberties.add(neighbor);
+      else if (next.side === side && !members.has(neighbor)) { members.add(neighbor); stack.push(neighbor); }
+    }
+    return { members, liberties, side };
+  }
+  function goGroups(board) {
+    const groups = [], seen = new Set();
+    for (const point of board.keys()) {
+      if (seen.has(point)) continue;
+      const group = goGroup(board, point);
+      groups.push(group);
+      for (const member of group.members) seen.add(member);
+    }
+    return groups;
+  }
   function playGo(stones, stone, previousPosition = null) {
     const point = goPoint(stone), board = new Map(stones.map(s => [goPoint(s), s]));
     if (board.has(point)) return null;
     board.set(point, stone);
-    const group = start => {
-      const members = new Set([start]), stack = [start], side = board.get(start).side;
-      let liberty = false;
-      while (stack.length) for (const neighbor of goNeighbors(stack.pop())) {
-        const next = board.get(neighbor);
-        if (!next) liberty = true;
-        else if (next.side === side && !members.has(neighbor)) { members.add(neighbor); stack.push(neighbor); }
-      }
-      return { members, liberty };
-    };
     for (const neighbor of goNeighbors(point)) {
       const other = board.get(neighbor);
       if (!other || other.side === stone.side) continue;
-      const { members, liberty } = group(neighbor);
-      if (!liberty) for (const captured of members) board.delete(captured);
+      const { members, liberties } = goGroup(board, neighbor);
+      if (!liberties.size) for (const captured of members) board.delete(captured);
     }
-    if (!group(point).liberty) return null;
+    if (!goGroup(board, point).liberties.size) return null;
     const next = [...board.values()];
     return goPosition(next) === previousPosition ? null : next;
+  }
+  function chooseGoMove(stones, side, t, previousPosition) {
+    const board = new Map(stones.map(s => [goPoint(s), s])), groups = goGroups(board);
+    const danger = (groups, friendly) => groups.reduce((sum, group) =>
+      sum + ((group.side === side) === friendly && group.liberties.size === 1 ? group.members.size : 0), 0);
+    const ownDanger = danger(groups, true), enemyDanger = danger(groups, false), moves = [];
+    for (let i = 0; i < 16; i++) {
+      const stone = { x: i % 4, y: i / 4 | 0, side, placedAt: t }, next = playGo(stones, stone, previousPosition);
+      if (!next) continue;
+      const after = goGroups(new Map(next.map(s => [goPoint(s), s]))), neighbors = goNeighbors(i);
+      const group = after.find(g => g.members.has(i));
+      const connections = groups.filter(g => g.side === side && neighbors.some(n => g.members.has(n))).length;
+      const eye = neighbors.every(n => board.get(n)?.side === side);
+      const score = (stones.length + 1 - next.length) * 12 + (ownDanger - danger(after, true)) * 8 +
+        (danger(after, false) - enemyDanger) * 3 + Math.max(0, connections - 1) * 1.5 +
+        Math.min(group.liberties.size, 4) * .25 + neighbors.length * .5 - (eye ? 6 : 0);
+      moves.push({ stone, next, score });
+    }
+    const best = Math.max(...moves.map(m => m.score));
+    if (best <= 0) return null;
+    const choices = moves.filter(m => m.score > 0 && m.score >= best - .5);
+    return choices[Math.random() * choices.length | 0];
   }
   const tableReady = game => game.players.every(p => {
     if (p.kind === 'cat') return cat.game && !cat.path.length;
@@ -643,14 +674,9 @@
     if (t < game.nextMove || !tableReady(game)) return;
     const player = game.turn++ % game.players.length, seat = game.players[player].seat, duration = .75;
     if (game.type === 'go') {
-      const moves = Array.from({ length: 16 }, (_, i) => {
-        const stone = { x: i % 4, y: i / 4 | 0, side: seat, placedAt: t };
-        return [stone, playGo(game.stones, stone, game.previousGoPosition)];
-      }).filter(([, next]) => next);
-      const captures = moves.filter(([, next]) => next.length <= game.stones.length);
-      const choices = captures.length ? captures : moves;
-      if (choices.length) {
-        const [stone, next] = choices[Math.random() * choices.length | 0];
+      const choice = chooseGoMove(game.stones, seat, t, game.previousGoPosition);
+      if (choice) {
+        const { stone, next } = choice;
         game.previousGoPosition = goPosition(game.stones);
         game.stones = next; game.passes = 0;
         game.move = { player, seat, to: [stone.x, stone.y], start: t, duration };

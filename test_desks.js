@@ -16,7 +16,7 @@ function scene(random = Math.random) {
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, showResourceTip, RESOURCE_BALLS, ballReading, pickAt, usageProbe, castSpell, castRay, updateBattle, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, updateBoardGame, drawTableGame, chessInCheck, playGo, goPosition, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, showResourceTip, RESOURCE_BALLS, ballReading, pickAt, usageProbe, castSpell, castRay, updateBattle, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, updateBoardGame, drawTableGame, chessInCheck, playGo, goPosition, chooseGoMove, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
@@ -516,6 +516,34 @@ test('Go rejects occupied points, suicide, and immediate ko recapture', () => {
   assert.equal(goPosition(playGo(captured, { x: 1, y: 1, side: 1 })), goPosition(before));
 });
 
+test('Go choices save threatened groups and prefer the larger capture', () => {
+  for (const random of [0, .5, .99]) {
+    const { chooseGoMove } = scene(() => random);
+    for (const [position, expected] of [
+      [[[0, 0, 0], [1, 0, 1]], [0, 1]],
+      [[[0, 0, 1], [1, 0, 0], [2, 2, 1], [3, 2, 1], [2, 1, 0], [3, 1, 0], [1, 2, 0], [2, 3, 0]], [3, 3]],
+      [[[1, 1, 0], [3, 1, 0]], [2, 1]],
+    ]) {
+      const stones = position.map(([x, y, side]) => ({ x, y, side }));
+      const { stone } = chooseGoMove(stones, 0, 0, null);
+      assert.deepEqual([stone.x, stone.y], expected);
+    }
+  }
+});
+
+test('Go avoids self-atari and passes instead of filling its own eyes', () => {
+  for (const random of [0, .5, .99]) {
+    const { chooseGoMove } = scene(() => random);
+    const surround = [[0, 1], [1, 0], [2, 1]].map(([x, y]) => ({ x, y, side: 1 }));
+    const { stone } = chooseGoMove(surround, 0, 0, null);
+    assert.notDeepEqual([stone.x, stone.y], [1, 1]);
+    const stones = Array.from({ length: 16 }, (_, i) => ({ x: i % 4, y: i / 4 | 0, side: 0 }))
+      .filter(s => !(s.x === 1 && s.y === 1 || s.x === 2 && s.y === 2));
+    assert.equal(chooseGoMove(stones, 0, 0, null), null);
+    assert.equal(chooseGoMove(stones, 1, 0, null), null);
+  }
+});
+
 test('Go games vary their openings and move sequences with the same players', () => {
   let random = 0;
   const s = scene(() => random), agents = [agent('go-black', 'waiting'), agent('go-white', 'waiting')], table = s.TABLES[1];
@@ -532,6 +560,7 @@ test('Go games vary their openings and move sequences with the same players', ()
     }
     games.push(moves);
   }
+  assert.ok(games.every(moves => ['1,1', '2,1', '1,2', '2,2'].includes(moves[0])));
   assert.equal(new Set(games.map(moves => moves[0])).size, games.length);
   assert.equal(new Set(games.map(moves => moves.join(';'))).size, games.length);
 });

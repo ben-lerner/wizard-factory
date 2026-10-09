@@ -650,7 +650,7 @@
       const captures = moves.filter(([, next]) => next.length <= game.stones.length);
       const choices = captures.length ? captures : moves;
       if (choices.length) {
-        const [stone, next] = choices[(game.turn * 7 + 3) % choices.length];
+        const [stone, next] = choices[Math.random() * choices.length | 0];
         game.previousGoPosition = goPosition(game.stones);
         game.stones = next; game.passes = 0;
         game.move = { player, seat, to: [stone.x, stone.y], start: t, duration };

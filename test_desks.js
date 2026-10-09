@@ -3,11 +3,11 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-function scene() {
+function scene(random = Math.random) {
   const calls = [];
   const ctx = new Proxy({}, { get: (target, key) => key in target ? target[key] : (...args) => calls.push([key, ...args]) });
   const element = { getContext: () => ctx, toDataURL: () => '', addEventListener() {}, style: {}, getBoundingClientRect: () => ({ left: 0, top: 0, width: 960, height: 544 }), clientLeft: 0, clientTop: 0, offsetWidth: 200, offsetHeight: 80 };
-  const sandbox = { console, ResizeObserver: class { observe() {} }, document: { querySelector: () => element, createElement: () => element }, window: { addEventListener() {} } };
+  const sandbox = { console, Math: Object.assign(Object.create(Math), { random }), ResizeObserver: class { observe() {} }, document: { querySelector: () => element, createElement: () => element }, window: { addEventListener() {} } };
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync('static/sprites.js', 'utf8'), sandbox);
   sandbox.SP = sandbox.window.SP;
@@ -514,6 +514,26 @@ test('Go rejects occupied points, suicide, and immediate ko recapture', () => {
   assert.ok(captured && captured.length === before.length);
   assert.equal(playGo(captured, { x: 1, y: 1, side: 1 }, goPosition(before)), null);
   assert.equal(goPosition(playGo(captured, { x: 1, y: 1, side: 1 })), goPosition(before));
+});
+
+test('Go games vary their openings and move sequences with the same players', () => {
+  let random = 0;
+  const s = scene(() => random), agents = [agent('go-black', 'waiting'), agent('go-white', 'waiting')], table = s.TABLES[1];
+  s.reconcile({ agents }); table.types = ['go'];
+  const games = [];
+  for (random of [.05, .3, .55, .8]) {
+    s.startGame(table, agents.map(a => ({ kind: 'wizard', id: a.id })), -2);
+    for (const w of s.wizards.values()) { [w.x, w.y] = w.home; w.path = []; }
+    const moves = [];
+    for (let turn = 0; turn < 12; turn++) {
+      table.game.nextMove = turn;
+      s.updateBoardGame(table.game, turn);
+      moves.push(table.game.move ? table.game.move.to.join(',') : 'pass');
+    }
+    games.push(moves);
+  }
+  assert.equal(new Set(games.map(moves => moves[0])).size, games.length);
+  assert.equal(new Set(games.map(moves => moves.join(';'))).size, games.length);
 });
 
 test('Go turns remove captured stones and keep the placement animation', () => {

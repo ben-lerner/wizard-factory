@@ -1,14 +1,18 @@
-"""Queue continuation for Codex turns interrupted by a subscription usage limit."""
+"""Continue coding sessions interrupted by subscription usage limits."""
 import fcntl
+import hashlib
 import json
 import os
 import re
 import sqlite3
+import socket
+import stat
 import subprocess
 import time
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 def reset_time(error):
@@ -79,6 +83,103 @@ def limited_turns(home):
     return turns
 
 
+def claude_home():
+    return Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude').expanduser().resolve()
+
+
+def claude_reset(event):
+    if not event.get('isApiErrorMessage') or event.get('error') != 'rate_limit':
+        return None
+    text = ' '.join(b.get('text', '') for b in (event.get('message') or {}).get('content', [])
+                    if b.get('type') == 'text')
+    # A session-reset hint does not clear an org spending cap or depleted credits.
+    if re.search(r'monthly|spend limit|credits', text, re.I):
+        return None
+    match = re.search(r'resets\s+(?:(\w{3})\s+(\d{1,2})(?:,\s*(\d{4}))?(?:\s+at\s+|,\s*))?'
+                      r'(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^)]+)\)', text, re.I)
+    if not match:
+        return None
+    month, day, year, hour, minute, period, zone = match.groups()
+    try:
+        stamp = datetime.fromisoformat(event['timestamp'].replace('Z', '+00:00')).astimezone(ZoneInfo(zone))
+        hour = int(hour) % 12 + (12 if period.lower() == 'pm' else 0)
+        reset = stamp.replace(hour=hour, minute=int(minute or 0), second=0, microsecond=0)
+        if month:
+            reset = reset.replace(year=int(year or stamp.year),
+                                  month=datetime.strptime(month.title(), '%b').month, day=int(day))
+            if not year and reset + timedelta(minutes=1) < stamp:
+                reset = reset.replace(year=reset.year + 1)
+        elif reset + timedelta(minutes=1) < stamp:
+            reset += timedelta(days=1)
+        return reset.timestamp() + 60
+    except (ValueError, KeyError, ZoneInfoNotFoundError):
+        return None
+
+
+def limited_claude_turns(home):
+    turns = {}
+    for path in (home / 'projects').glob('*/*.jsonl'):
+        error = None
+        with path.open('rb') as stream:
+            size = path.stat().st_size
+            if size > 512 * 1024:
+                stream.seek(size - 512 * 1024)
+                stream.readline()
+            for line in stream:
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if event.get('type') in ('user', 'assistant') and not event.get('isMeta'):
+                    error = event if claude_reset(event) else None
+        reset = claude_reset(error) if error else None
+        if reset and error.get('cwd') and not error.get('isSidechain'):
+            turns['claude:' + path.stem] = {'turn': error.get('uuid') or error['timestamp'],
+                                          'reset': reset, 'engine': 'claude'}
+    return turns
+
+
+class AmbiguousDelivery(Exception):
+    pass
+
+
+def send_claude(home, sid):
+    # Use Claude's authenticated peer inbox, retaining the session's inbound policy.
+    for path in (home / 'sessions').glob('*.json'):
+        try:
+            peer = json.loads(path.read_text())
+            if not isinstance(peer, dict) or peer.get('sessionId') != sid or not peer.get('messagingSocketPath'):
+                continue
+            os.kill(peer['pid'], 0)
+            address = Path(peer['messagingSocketPath'])
+            digest = hashlib.sha256(str(address).encode()).hexdigest()
+            key = home / 'sessions' / f"{peer['pid']}.{digest}.key"
+            for target, kind in ((address, stat.S_ISSOCK), (key, stat.S_ISREG)):
+                info = target.lstat()
+                if info.st_uid != os.getuid() or not kind(info.st_mode) or info.st_mode & 0o022:
+                    raise OSError('Unsafe Claude inbox or key')
+            token = json.loads(key.read_text())['peerToken']
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if not isinstance(token, str) or not re.fullmatch('[0-9a-f]{32}', token):
+            continue
+        frames = [{'type': 'auth', 'token': token}, {'type': 'user', 'session_id': sid,
+                  'from': 'wizard-factory', 'message': {'role': 'user', 'content': 'continue'}}]
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(5)
+            try:
+                client.connect(str(address))
+            except OSError:
+                continue
+            try:
+                client.sendall(('\n'.join(map(json.dumps, frames)) + '\n').encode())
+                client.shutdown(socket.SHUT_WR)
+            except OSError as error:
+                raise AmbiguousDelivery('Claude inbox write may have been delivered') from error
+        return
+    raise OSError('No live Claude inbox for session ' + sid)
+
+
 def resume_limited(home, now):
     directory = home / 'wizard-factory'
     directory.mkdir(parents=True, exist_ok=True)
@@ -92,7 +193,7 @@ def resume_limited(home, now):
             tmp.write_text(json.dumps(saved))
             os.replace(tmp, path)
 
-        turns = limited_turns(home)
+        turns = {**limited_turns(home), **limited_claude_turns(claude_home())}
         for sid in list(saved):
             if sid not in turns or saved[sid]['turn'] != turns[sid]['turn']:
                 del saved[sid]
@@ -109,10 +210,14 @@ def resume_limited(home, now):
             item['status'] = 'attempted'
             save()
             try:
-                result = subprocess.run(['codex', 'queue', '--thread', sid, '--message', 'continue'],
-                                        env={**os.environ, 'CODEX_HOME': str(home)},
-                                        capture_output=True, text=True, timeout=30)
-            except (OSError, subprocess.TimeoutExpired) as error:
+                if turn.get('engine') == 'claude':
+                    send_claude(claude_home(), sid.removeprefix('claude:'))
+                    result = subprocess.CompletedProcess('claude inbox', 0, stderr='')
+                else:
+                    result = subprocess.run(['codex', 'queue', '--thread', sid, '--message', 'continue'],
+                                            env={**os.environ, 'CODEX_HOME': str(home)},
+                                            capture_output=True, text=True, timeout=30)
+            except (OSError, subprocess.TimeoutExpired, AmbiguousDelivery) as error:
                 print('auto-continue delivery error:', sid, repr(error), flush=True)
                 if isinstance(error, OSError):
                     item['status'] = 'pending'

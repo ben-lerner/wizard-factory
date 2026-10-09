@@ -1,4 +1,7 @@
+import hashlib
 import json
+import os
+import socket
 import sqlite3
 import subprocess
 import tempfile
@@ -6,6 +9,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import auto_continue as resume
 
@@ -20,6 +24,9 @@ class ContinuationTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.home = Path(self.tmp.name)
+        env = patch.dict(os.environ, {'CLAUDE_CONFIG_DIR': str(self.home / 'claude')})
+        env.start()
+        self.addCleanup(env.stop)
         self.history = sqlite3.connect(self.home / 'thread_history_1.sqlite')
         self.addCleanup(self.history.close)
         self.history.execute('CREATE TABLE thread_turns (thread_id, turn_id, rollout_ordinal, status, error_json)')
@@ -106,6 +113,99 @@ class ContinuationTest(unittest.TestCase):
         with path.open('a') as stream:
             stream.write(json.dumps({'type': 'event_msg', 'payload': {'type': 'task_complete'}}) + '\n')
         self.assertNotIn('legacy', resume.limited_turns(self.home))
+
+
+class ClaudeContinuationTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(dir='/tmp')
+        self.addCleanup(self.tmp.cleanup)
+        self.home = Path(self.tmp.name).resolve()
+        env = patch.dict(os.environ, {'CLAUDE_CONFIG_DIR': str(self.home)})
+        env.start()
+        self.addCleanup(env.stop)
+        codex = patch.object(resume, 'limited_turns', return_value={})
+        codex.start()
+        self.addCleanup(codex.stop)
+        self.error = {'type': 'assistant', 'error': 'rate_limit', 'isApiErrorMessage': True,
+                      'uuid': 'failed-turn', 'timestamp': '2026-10-09T16:00:00Z', 'cwd': '/repo',
+                      'message': {'content': [{'type': 'text', 'text':
+                          "You've hit your limit · resets 4pm (America/New_York)"}]}}
+        self.reset = datetime(2026, 10, 9, 16, 1, tzinfo=ZoneInfo('America/New_York')).timestamp()
+        self.path = self.home / 'projects/repo/session.jsonl'
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text(json.dumps(self.error) + '\n')
+
+    def test_session_and_weekly_reset_times_use_error_timezone(self):
+        self.assertEqual(resume.claude_reset(self.error), self.reset)
+        for text, expected in [
+                ('resets Oct 12 at 9:30am (America/New_York)', datetime(2026, 10, 12, 9, 31)),
+                ('resets Oct 12, 9:30am (America/New_York)', datetime(2026, 10, 12, 9, 31)),
+                ('resets Jan 1, 2027, 9am (America/New_York)', datetime(2027, 1, 1, 9, 1)),
+                ('resets 1am (America/New_York)', datetime(2026, 10, 10, 1, 1)),
+                ('resets 12pm (America/New_York)', datetime(2026, 10, 9, 12, 1))]:
+            event = {**self.error, 'message': {'content': [{'type': 'text', 'text': text}]}}
+            self.assertEqual(resume.claude_reset(event), expected.replace(tzinfo=ZoneInfo('America/New_York')).timestamp())
+        for text in ("You've hit your org's monthly spend limit · your session limit resets 4pm (America/New_York)",
+                     'Too many requests', 'resets 4pm (Invalid/Timezone)'):
+            self.assertIsNone(resume.claude_reset({**self.error, 'message': {'content': [{'type': 'text', 'text': text}]}}))
+
+    def test_continuation_waits_sends_once_and_cancels_after_user_message(self):
+        with patch.object(resume, 'send_claude') as send:
+            resume.resume_limited(self.home, self.reset - 300)
+            send.assert_not_called()
+            resume.resume_limited(self.home, self.reset)
+            resume.resume_limited(self.home, self.reset + 300)
+            send.assert_called_once_with(self.home, 'session')
+        self.path.write_text(json.dumps({**self.error, 'uuid': 'another-turn'}) + '\n')
+        resume.resume_limited(self.home, self.reset - 60)
+        with self.path.open('a') as stream:
+            stream.write(json.dumps({'type': 'user', 'message': {'content': 'stop'}}) + '\n')
+        with patch.object(resume, 'send_claude') as send:
+            resume.resume_limited(self.home, self.reset)
+            send.assert_not_called()
+
+    def test_subagents_and_successful_turns_do_not_qualify(self):
+        self.path.write_text(json.dumps({**self.error, 'isSidechain': True}) + '\n')
+        self.assertEqual(resume.limited_claude_turns(self.home), {})
+        self.path.write_text(json.dumps(self.error) + '\n' + json.dumps({
+            'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': 'Finished'}]}}) + '\n')
+        self.assertEqual(resume.limited_claude_turns(self.home), {})
+
+    def test_inbox_delivery_uses_peer_auth_and_exact_session(self):
+        address = self.home / 'inbox.sock'
+        sessions = self.home / 'sessions'
+        sessions.mkdir()
+        (sessions / 'peer.json').write_text(json.dumps({'pid': os.getpid(), 'sessionId': 'session',
+                                                     'messagingSocketPath': str(address)}))
+        stale = sessions / 'stale.json'
+        stale.write_text(json.dumps({'pid': os.getpid(), 'sessionId': 'session',
+                                     'messagingSocketPath': str(self.home / 'missing.sock')}))
+        digest = hashlib.sha256(str(address).encode()).hexdigest()
+        key = sessions / f'{os.getpid()}.{digest}.key'
+        key.write_text(json.dumps({'peerToken': 'a' * 32}))
+        key.chmod(0o600)
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+            server.bind(str(address))
+            server.listen(1)
+            server.settimeout(2)
+            with patch.object(Path, 'glob', return_value=iter([stale, sessions / 'peer.json'])):
+                resume.send_claude(self.home, 'session')
+            client, _ = server.accept()
+            with client:
+                frames = [json.loads(line) for line in client.makefile().read().splitlines()]
+        self.assertEqual(frames[0], {'type': 'auth', 'token': 'a' * 32})
+        self.assertEqual(frames[1]['session_id'], 'session')
+        self.assertEqual(frames[1]['message']['content'], 'continue')
+        with self.assertRaises(OSError):
+            resume.send_claude(self.home, 'different-session')
+
+    def test_unavailable_inbox_retries_and_ambiguous_write_does_not(self):
+        with patch.object(resume, 'send_claude', side_effect=[OSError('no inbox'),
+                          resume.AmbiguousDelivery('partial write')]) as send:
+            resume.resume_limited(self.home, self.reset)
+            resume.resume_limited(self.home, self.reset + 60)
+            resume.resume_limited(self.home, self.reset + 120)
+        self.assertEqual(send.call_count, 2)
 
 
 if __name__ == '__main__':

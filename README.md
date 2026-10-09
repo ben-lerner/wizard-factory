@@ -82,16 +82,20 @@ bottle's tooltip. Bottle labels above 24 hours round to the nearest day. Missing
 shows a floating ∅ inside the bottle. Usage refreshes once a minute independently
 of agent polling. A full quota starts its timer with a small prompt through the CLI;
 the response appears in a draggable window that stays until you close it. Usage checks
-never redeem reset credits.
+never redeem reset credits. The initial weekly-reset ping is separate from task
+continuation: it asks Codex or Claude for a short fact to start the new weekly window.
 
-While the dashboard is running, Codex sessions interrupted by a subscription usage limit
+While the dashboard is running, Codex and Claude sessions interrupted by a subscription usage limit
 automatically receive `continue` after the reset time reported in their failed turn,
 including five-hour limits. This runs locally and on the configured remote host and
-requires a Codex CLI with `codex queue` support. A newer turn or archived session cancels
-the continuation. Completed tasks, subagents, and Claude sessions are excluded.
+requires a Codex CLI with `codex queue` support. Claude must still be running with a
+session inbox; continuation uses its authenticated peer socket and respects its inbound
+message policy. A newer turn (or an archived Codex session) cancels the continuation.
+Completed tasks and subagents are excluded. Organization spending caps and depleted
+credits do not qualify based on a separate session-reset hint.
 Pending continuations survive dashboard restarts in `$CODEX_HOME/wizard-factory/`
 (default `~/.codex/wizard-factory/`). Historical failures are not resumed on first launch.
-Checks run once a minute, with one extra minute allowed for Codex's rounded reset time.
+Checks run once a minute, with one extra minute allowed for rounded reset times.
 An ambiguous delivery timeout is logged and is not retried automatically, to avoid
 duplicate messages; explicit delivery failures are retried on the next check.
 

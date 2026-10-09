@@ -84,6 +84,17 @@ of agent polling. A full quota starts its timer with a small prompt through the 
 the response appears in a draggable window that stays until you close it. Usage checks
 never redeem reset credits.
 
+While the dashboard is running, Codex sessions interrupted by a subscription usage limit
+automatically receive `continue` after the reset time reported in their failed turn,
+including five-hour limits. This runs locally and on the configured remote host and
+requires a Codex CLI with `codex queue` support. A newer turn or archived session cancels
+the continuation. Completed tasks, subagents, and Claude sessions are excluded.
+Pending continuations survive dashboard restarts in `$CODEX_HOME/wizard-factory/`
+(default `~/.codex/wizard-factory/`). Historical failures are not resumed on first launch.
+Checks run once a minute, with one extra minute allowed for Codex's rounded reset time.
+An ambiguous delivery timeout is logged and is not retried automatically, to avoid
+duplicate messages; explicit delivery failures are retried on the next check.
+
 Claude and Fable readings come from the same CLI call, so its five-minute disk cache
 and rate-limit backoff apply on the machine performing quota reads. Keep the installed
 CLI updated on the remote host when remote polling is enabled, or on this machine with

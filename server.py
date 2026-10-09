@@ -26,6 +26,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from auto_continue import resume_limited
+
 ROOT = Path(__file__).resolve().parent
 PROJECTS = Path.home() / '.claude' / 'projects'
 CODEX = Path.home() / '.codex' / 'sessions'
@@ -713,7 +715,9 @@ def remote_snapshot(host, payload):
 
 
 def scan_remote(host, refresh_usage=False):
-    source = Path(__file__).read_bytes()
+    module = (ROOT / 'auto_continue.py').read_text()
+    source = (f'import sys, types\nsys.modules["auto_continue"] = types.ModuleType("auto_continue")\n'
+              f'exec({module!r}, sys.modules["auto_continue"].__dict__)\n').encode() + Path(__file__).read_bytes()
     args = ['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=3', host,
             'env', 'PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"',
             'python3', '-', '--debug-scan']
@@ -899,6 +903,25 @@ def main():
                         print('remote usage error:', repr(e), flush=True)
                 time.sleep(REMOTE_USAGE_SEC)
         threading.Thread(target=usage_loop, daemon=True).start()
+        def continuation_loop():
+            while True:
+                try:
+                    resume_limited(active_home(), time.time())
+                except Exception as e:
+                    print('auto-continue error:', repr(e), flush=True)
+                if a.remote_host:
+                    try:
+                        proc = subprocess.run(
+                            ['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=3', a.remote_host,
+                             'env', 'PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"', 'python3', '-'],
+                            input=(ROOT / 'auto_continue.py').read_bytes(), capture_output=True, timeout=60)
+                        proc.check_returncode()
+                        if proc.stdout:
+                            print(proc.stdout.decode().strip(), flush=True)
+                    except Exception as e:
+                        print('remote auto-continue error:', repr(e), flush=True)
+                time.sleep(60)
+        threading.Thread(target=continuation_loop, daemon=True).start()
         def local_loop():
             while True:
                 t = time.time()

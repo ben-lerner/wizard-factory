@@ -13,7 +13,7 @@ SELF = Path(__file__).resolve()
 
 
 def snapshot():
-    paths = [ROOT / 'server.py', SELF, *(ROOT / 'static').rglob('*')]
+    paths = [ROOT / 'server.py', ROOT / 'auto_continue.py', SELF, *(ROOT / 'static').rglob('*')]
     out = {}
     for p in paths:
         try:

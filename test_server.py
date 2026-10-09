@@ -1,6 +1,8 @@
 import base64
 import json
 import tempfile
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -52,6 +54,17 @@ class RemoteAgentsTest(unittest.TestCase):
             server.scan_remote('mage-tower', True)
 
         self.assertEqual(run.call_args.kwargs['timeout'], server.QUOTA_TIMEOUT + 10)
+
+    def test_remote_scan_bundles_continuation_module_for_stdin_execution(self):
+        proc = MagicMock(stdout=b'{"agents": [], "quotas": []}')
+        with patch.object(server.subprocess, 'run', return_value=proc) as run:
+            server.scan_remote('mage-tower')
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run([sys.executable, '-', '--debug-scan'],
+                                    input=run.call_args.kwargs['input'], capture_output=True,
+                                    cwd=directory, env={**server.os.environ, 'HOME': directory,
+                                                       'CODEX_HOME': directory, 'PYTHONPATH': ''}, check=True)
+        self.assertEqual(json.loads(result.stdout)['agents'], [])
 
 
 class CpuUsageTest(unittest.TestCase):

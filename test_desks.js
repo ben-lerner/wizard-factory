@@ -11,12 +11,13 @@ function scene(random = Math.random) {
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync('static/sprites.js', 'utf8'), sandbox);
   sandbox.SP = sandbox.window.SP;
+  vm.runInContext(fs.readFileSync('static/go-games.js', 'utf8'), sandbox);
   for (const name of ['drawText', 'drawEmote']) {
     const draw = sandbox.SP[name];
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, showResourceTip, RESOURCE_BALLS, ballReading, pickAt, usageProbe, castSpell, castRay, updateBattle, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, updateBoardGame, drawTableGame, chessInCheck, playGo, goPosition, chooseGoMove, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, showResourceTip, RESOURCE_BALLS, ballReading, pickAt, usageProbe, castSpell, castRay, updateBattle, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, updateBoardGame, drawTableGame, chessInCheck, playGo, gameName, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
@@ -503,67 +504,31 @@ test('Go captures connected groups and multiple groups with no liberties', () =>
   assert.equal(playGo(split, { x: 1, y: 1, side: 0 }).length, 4);
 });
 
-test('Go rejects occupied points, suicide, and immediate ko recapture', () => {
-  const { playGo, goPosition } = scene();
-  const surround = [[0, 1, 0], [2, 1, 0], [1, 0, 0], [1, 2, 0]]
-    .map(([x, y, side]) => ({ x, y, side }));
+test('Go rejects occupied points and suicide', () => {
+  const { playGo } = scene();
+  const surround = [[1, 0], [0, 1], [2, 1], [1, 2]].map(([x, y]) => ({ x, y, side: 0 }));
   assert.equal(playGo(surround, { x: 1, y: 1, side: 1 }), null);
   assert.equal(playGo(surround, { x: 0, y: 1, side: 1 }), null);
-  const before = [[0, 1, 0], [2, 1, 0], [1, 0, 0], [1, 1, 1], [0, 2, 1], [2, 2, 1], [1, 3, 1]]
-    .map(([x, y, side]) => ({ x, y, side }));
-  const captured = playGo(before, { x: 1, y: 2, side: 0 });
-  assert.ok(captured && captured.length === before.length);
-  assert.equal(playGo(captured, { x: 1, y: 1, side: 1 }, goPosition(before)), null);
-  assert.equal(goPosition(playGo(captured, { x: 1, y: 1, side: 1 })), goPosition(before));
 });
 
-test('Go choices save threatened groups and prefer the larger capture', () => {
-  for (const random of [0, .5, .99]) {
-    const { chooseGoMove } = scene(() => random);
-    for (const [position, expected] of [
-      [[[0, 0, 0], [1, 0, 1]], [0, 1]],
-      [[[0, 0, 1], [1, 0, 0], [7, 2, 1], [8, 2, 1], [7, 1, 0], [8, 1, 0], [6, 2, 0], [7, 3, 0]], [8, 3]],
-      [[[1, 1, 0], [3, 1, 0]], [2, 1]],
-    ]) {
-      const stones = position.map(([x, y, side]) => ({ x, y, side }));
-      const { stone } = chooseGoMove(stones, 0, 0, null);
-      assert.deepEqual([stone.x, stone.y], expected);
-    }
-  }
-});
-
-test('Go avoids self-atari and passes instead of filling its own eyes', () => {
-  for (const random of [0, .5, .99]) {
-    const { chooseGoMove } = scene(() => random);
-    const surround = [[0, 1], [1, 0], [2, 1]].map(([x, y]) => ({ x, y, side: 1 }));
-    const { stone } = chooseGoMove(surround, 0, 0, null);
-    assert.notDeepEqual([stone.x, stone.y], [1, 1]);
-    const stones = Array.from({ length: 81 }, (_, i) => ({ x: i % 9, y: i / 9 | 0, side: 0 }))
-      .filter(s => !(s.x === 1 && s.y === 1 || s.x === 2 && s.y === 2));
-    assert.equal(chooseGoMove(stones, 0, 0, null), null);
-    assert.equal(chooseGoMove(stones, 1, 0, null), null);
-  }
-});
-
-test('Go games vary their openings and move sequences with the same players', () => {
+test('Go replays professional records move by move and starts another when one ends', () => {
   let random = 0;
   const s = scene(() => random), agents = [agent('go-black', 'waiting'), agent('go-white', 'waiting')], table = s.TABLES[1];
   s.reconcile({ agents }); table.types = ['go'];
-  const games = [];
-  for (random of [.05, .3, .55, .8]) {
-    s.startGame(table, agents.map(a => ({ kind: 'wizard', id: a.id })), -2);
-    for (const w of s.wizards.values()) { [w.x, w.y] = w.home; w.path = []; }
-    const moves = [];
-    for (let turn = 0; turn < 12; turn++) {
-      table.game.nextMove = turn;
-      s.updateBoardGame(table.game, turn);
-      moves.push(table.game.move ? table.game.move.to.join(',') : 'pass');
-    }
-    games.push(moves);
+  s.startGame(table, agents.map(a => ({ kind: 'wizard', id: a.id })), -2);
+  for (const w of s.wizards.values()) { [w.x, w.y] = w.home; w.path = []; }
+  const game = table.game, record = game.record;
+  assert.ok(s.gameName(game).startsWith(`GO: ${record.black} VS ${record.white}`.toUpperCase()));
+  for (const [turn, [x, y, side]] of record.moves.entries()) {
+    game.nextMove = turn;
+    s.updateBoardGame(game, turn);
+    assert.deepEqual([...game.move.to, game.stones.at(-1).side], [x, y, side]);
+    assert.equal(game.move.seat, game.players[side].seat);
   }
-  assert.ok(games.every(moves => moves[0].split(',').every(n => n >= 1 && n <= 7)), 'Openings avoid the edge');
-  assert.equal(new Set(games.map(moves => moves[0])).size, games.length);
-  assert.equal(new Set(games.map(moves => moves.join(';'))).size, games.length);
+  random = .99;
+  for (const turn of [100, 101]) { game.nextMove = turn; s.updateBoardGame(game, turn); }
+  assert.notEqual(game.record, record);
+  assert.equal(game.stones.length, 1);
 });
 
 test('Go turns remove captured stones and keep the placement animation', () => {
@@ -573,6 +538,7 @@ test('Go turns remove captured stones and keep the placement animation', () => {
   for (const w of s.wizards.values()) { [w.x, w.y] = w.home; w.path = []; }
   table.game.stones = [[0, 0, 0], [2, 0, 0], [0, 1, 0], [2, 1, 0], [1, 0, 1], [1, 1, 1]]
     .map(([x, y, side]) => ({ x, y, side }));
+  Object.assign(table.game, { record: { moves: [[1, 2, 0]] }, ply: 0 });
   s.updateBoardGame(table.game, 0);
   assert.deepEqual(Array.from(table.game.move.to), [1, 2]);
   assert.equal(table.game.stones.length, 5);

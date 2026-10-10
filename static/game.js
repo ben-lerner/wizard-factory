@@ -518,7 +518,8 @@
     table.x = x;
     table.seats = [[x - 21, 112], [x + 19, 112], [x, 84]];
   }
-  const gameName = g => g === 'magic' ? 'MAGIC THE GATHERING' : g === 'pingpong' ? 'PING PONG' : g.toUpperCase();
+  const gameName = ({ type, record: r }) => (type === 'magic' ? 'MAGIC THE GATHERING' : type === 'pingpong' ? 'PING PONG' : type.toUpperCase()) +
+    (type === 'go' && r ? `: ${r.black} VS ${r.white}, ${r.date.slice(0, 4)}`.toUpperCase() : '');
   const gameHas = (table, kind, id) => !!table.game && table.game.players.some(p => p.kind === kind && (!id || p.id === id));
   function waitingForGame(w) {
     return cafeReady(w) && !w.game && w.order && w.order.stage === 'served';
@@ -579,9 +580,13 @@
   }
   function initBoardGame(game, t) {
     game.turn = 0; game.nextMove = t + 2;
-    if (game.type === 'go') { game.stones = []; game.passes = 0; game.previousGoPosition = null; }
+    if (game.type === 'go') startGoRecord(game);
     else if (game.type === 'chess') game.pieces = newChessPieces();
     else game.cards = [];
+  }
+  function startGoRecord(game) {
+    const records = window.GO_GAMES || [];
+    Object.assign(game, { stones: [], ply: 0, record: records[Math.random() * records.length | 0] });
   }
   const newChessPieces = () => [
       ['rook', 0, 0, 0], ['king', 0, 1, 0], ['knight', 0, 3, 0], ['pawn', 0, 2, 1],
@@ -605,11 +610,6 @@
   }
   const GO = 9, goPoint = stone => stone.x + stone.y * GO;
   const goNeighbors = i => [i % GO ? i - 1 : -1, i % GO < GO - 1 ? i + 1 : -1, i >= GO ? i - GO : -1, i < GO * (GO - 1) ? i + GO : -1].filter(n => n >= 0);
-  const goPosition = stones => {
-    const points = Array(GO * GO).fill('.');
-    for (const stone of stones) points[goPoint(stone)] = stone.side;
-    return points.join('');
-  };
   function goGroup(board, start) {
     const members = new Set([start]), liberties = new Set(), stack = [start], side = board.get(start).side;
     while (stack.length) for (const neighbor of goNeighbors(stack.pop())) {
@@ -619,17 +619,7 @@
     }
     return { members, liberties, side };
   }
-  function goGroups(board) {
-    const groups = [], seen = new Set();
-    for (const point of board.keys()) {
-      if (seen.has(point)) continue;
-      const group = goGroup(board, point);
-      groups.push(group);
-      for (const member of group.members) seen.add(member);
-    }
-    return groups;
-  }
-  function playGo(stones, stone, previousPosition = null) {
+  function playGo(stones, stone) {
     const point = goPoint(stone), board = new Map(stones.map(s => [goPoint(s), s]));
     if (board.has(point)) return null;
     board.set(point, stone);
@@ -639,31 +629,7 @@
       const { members, liberties } = goGroup(board, neighbor);
       if (!liberties.size) for (const captured of members) board.delete(captured);
     }
-    if (!goGroup(board, point).liberties.size) return null;
-    const next = [...board.values()];
-    return goPosition(next) === previousPosition ? null : next;
-  }
-  function chooseGoMove(stones, side, t, previousPosition) {
-    const board = new Map(stones.map(s => [goPoint(s), s])), groups = goGroups(board);
-    const danger = (groups, friendly) => groups.reduce((sum, group) =>
-      sum + ((group.side === side) === friendly && group.liberties.size === 1 ? group.members.size : 0), 0);
-    const ownDanger = danger(groups, true), enemyDanger = danger(groups, false), moves = [];
-    for (let i = 0; i < GO * GO; i++) {
-      const stone = { x: i % GO, y: i / GO | 0, side, placedAt: t }, next = playGo(stones, stone, previousPosition);
-      if (!next) continue;
-      const after = goGroups(new Map(next.map(s => [goPoint(s), s]))), neighbors = goNeighbors(i);
-      const group = after.find(g => g.members.has(i));
-      const connections = groups.filter(g => g.side === side && neighbors.some(n => g.members.has(n))).length;
-      const eye = neighbors.every(n => board.get(n)?.side === side);
-      const score = (stones.length + 1 - next.length) * 12 + (ownDanger - danger(after, true)) * 8 +
-        (danger(after, false) - enemyDanger) * 3 + Math.max(0, connections - 1) * 1.5 +
-        Math.min(group.liberties.size, 4) * .25 + neighbors.length * .5 - (eye ? 6 : 0);
-      moves.push({ stone, next, score });
-    }
-    const best = Math.max(...moves.map(m => m.score));
-    if (best <= 0) return null;
-    const choices = moves.filter(m => m.score > 0 && m.score >= best - .5);
-    return choices[Math.random() * choices.length | 0];
+    return goGroup(board, point).liberties.size ? [...board.values()] : null;
   }
   const tableReady = game => game.players.every(p => {
     if (p.kind === 'cat') return cat.game && !cat.path.length;
@@ -674,18 +640,13 @@
     if (t < game.nextMove || !tableReady(game)) return;
     const player = game.turn++ % game.players.length, seat = game.players[player].seat, duration = .75;
     if (game.type === 'go') {
-      const choice = chooseGoMove(game.stones, seat, t, game.previousGoPosition);
-      if (choice) {
-        const { stone, next } = choice;
-        game.previousGoPosition = goPosition(game.stones);
-        game.stones = next; game.passes = 0;
-        game.move = { player, seat, to: [stone.x, stone.y], start: t, duration };
-      } else {
-        game.previousGoPosition = goPosition(game.stones);
-        game.passes++;
-        delete game.move;
-        if (game.passes === 2) { game.stones = []; game.previousGoPosition = null; game.passes = 0; }
-      }
+      const moves = game.record?.moves || [], [x, y, side] = moves[game.ply++] || [];
+      const next = x >= 0 && playGo(game.stones, { x, y, side, placedAt: t });
+      if (next) {
+        game.stones = next;
+        game.move = { player: side, seat: game.players[side].seat, to: [x, y], start: t, duration };
+      } else delete game.move;
+      if (game.ply > moves.length) startGoRecord(game);
     } else if (game.type === 'chess') {
       const at = (x, y) => game.pieces.find(p => p.x === x && p.y === y);
       const candidates = [];
@@ -2143,7 +2104,7 @@
   function cafeStatus(w) {
     if (!w || w.station !== 'cafe') return 'AWAITING YOUR COUNSEL AT THE CAFE';
     const table = tableById(w.game);
-    if (table && table.game) return 'PLAYING ' + gameName(table.game.type);
+    if (table && table.game) return 'PLAYING ' + gameName(table.game);
     const d = w.order && w.order.drink || w.sp.drink, name = drinkName(d);
     if (!w.order) return 'ASKING EARL GREY FOR ' + name;
     if (w.order.stage === 'brewing') return 'HAVING ' + name + ' BREWED WITH FIRE';
@@ -2156,7 +2117,7 @@
     switch (a.status) {
       case 'working': {
         const table = tableById(w && w.game);
-        if (table && table.game) return 'WAITING OVER ' + gameName(table.game.type);
+        if (table && table.game) return 'WAITING OVER ' + gameName(table.game);
         if (waitingOnQuestion(a)) return 'AWAITING YOUR ANSWER' + d;
         const submit = submitKind(a);
         if (submit) return SUBMIT_STATUS[submit] + d;

@@ -65,6 +65,9 @@ blast anyone, including Earl Grey, but are themselves immune. Earl Grey, the dra
 barista, brews cafe orders with fire and pours milk for milk drinks. He sleeps when
 the factory is empty, roasts beans while agents are active, and flies alert near the
 petition board when an agent needs attention.
+Go tables replay professional 9x9 games, including NHK televised matches, from
+[Andries Brouwer's public-domain database](https://homepages.cwi.nl/~aeb/go/games/);
+`python3 make_go_games.py` regenerates `static/go-games.js` from it.
 The frontend polls `/api/state` every 1.5s.
 
 The laboratory's four crystals show local and remote CPU use in red on the top row,

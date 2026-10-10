@@ -173,6 +173,7 @@ class QuotaTest(unittest.TestCase):
     def cli(self, args, **kwargs):
         config = Path(args[args.index('--config') + 1]) if '--config' in args else None
         names = json.loads(config.read_text()) if config else {}
+        names = names.get('codex', {}) if 'codex' in names else names
         accounts = [dict(name=name, provider='codex', weeklyUsedPercent=25,
                          weeklyResetsAt=123, weeklyResetDetail='2 Minutes', availableResets=2, error=None)
                     for name in names]
@@ -193,11 +194,21 @@ class QuotaTest(unittest.TestCase):
         self.assertEqual(quotas[0]['reset_detail'], '2 Minutes')
 
     def test_quota_labels_drop_tier_and_split_model(self):
-        self.assertEqual(server.quota_label('Espresso    (10x) Fable'),
+        self.assertEqual(server.quota_label('Espresso    (10x) Fable', 'claude'),
                          {'name': 'Espresso Fable', 'account': 'Espresso', 'tier': 10, 'model': 'Fable'})
-        self.assertEqual(server.quota_label('Mirasume    (20x)'),
+        self.assertEqual(server.quota_label('Espresso    (10x)', 'claude'),
+                         {'name': 'Espresso', 'account': 'Espresso', 'tier': 10, 'model': 'Claude'})
+        self.assertEqual(server.quota_label('Mirasume    (20x)', 'codex'),
                          {'name': 'Mirasume', 'account': 'Mirasume', 'tier': 20, 'model': None})
-        self.assertEqual(server.quota_label('Claude'), {'name': 'Claude', 'account': '', 'tier': None, 'model': 'Claude'})
+        self.assertEqual(server.quota_label('Claude', 'claude'),
+                         {'name': 'Claude', 'account': '', 'tier': None, 'model': 'Claude'})
+
+    def test_sectioned_config_reads_codex_homes(self):
+        config = self.root / 'codex-quota/accounts.json'
+        config.write_text(json.dumps({'codex': json.loads(config.read_text()), 'claude': {'Work (10x)': '../c'}}))
+        with patch.object(server.subprocess, 'run', side_effect=self.cli):
+            quotas = server.account_quotas(True)
+        self.assertEqual([(q['name'], q['provider']) for q in quotas], [('Listed', 'codex'), ('Claude', 'claude')])
 
     def test_older_cli_is_retried_without_detailed_flag(self):
         old = MagicMock(returncode=2, stdout='', stderr='error: unrecognized arguments: --detailed-reset-timing')

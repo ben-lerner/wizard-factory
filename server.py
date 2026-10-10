@@ -157,15 +157,17 @@ def run_quota(args):
     return result
 
 
-def quota_label(name):
+def quota_label(name, provider):
     account, tier, model = re.fullmatch(r'(.*?)\s*(?:\((\d+)x\))?\s*(Claude|Fable)?', name.strip()).groups()
-    return {'name': ' '.join(filter(None, (account, model))), 'account': account,
-            'tier': tier and int(tier), 'model': model}
+    return {'name': ' '.join(filter(None, (account, model))) or 'Claude', 'account': account,
+            'tier': tier and int(tier), 'model': (model or 'Claude') if provider == 'claude' else None}
 
 
 def account_quotas(listed):
     config = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config') / 'codex-quota/accounts.json'
     accounts = json.loads(config.read_text()) if listed and config.exists() else {}
+    if accounts and all(isinstance(v, dict) for v in accounts.values()):
+        accounts = accounts.get('codex') or {}
     homes = {name: (config.parent / Path(home).expanduser()).resolve() for name, home in accounts.items()}
     active = account_id(active_home())
     if not listed and not active:
@@ -203,7 +205,7 @@ def account_quotas(listed):
     if listed:
         readings.extend({**r, 'id': 'claude:active' if r['name'] == 'Claude' else 'claude:' + r.get('id', r['name']),
                          'origins': ['local']} for r in cli_accounts if r.get('provider') == 'claude')
-    return [{'id': r['id'], **quota_label(r['name']), 'provider': r['provider'],
+    return [{'id': r['id'], **quota_label(r['name'], r['provider']), 'provider': r['provider'],
              'period': 'weekly', 'origins': r['origins'],
              'left': max(0, min(100, 100 - r['weeklyUsedPercent'])) if r['weeklyUsedPercent'] is not None else None,
              'resets_at': r['weeklyResetsAt'], 'reset_detail': r.get('weeklyResetDetail'),

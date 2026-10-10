@@ -1219,7 +1219,7 @@
   function drawUsageProbes(t) {
     for (const v of usageProbes()) {
       const q = v.q, color = v.color;
-      PR.quotaVat(g, v.x, v.y, 'vat', v.fills || (q.left ?? 0), color, t);
+      PR.quotaVat(g, v.x, v.y, q.tier === 10 ? 'half' : 'vat', v.fills || (q.left ?? 0), color, t);
       const unavailable = q.error || q.left == null;
       if (unavailable || q.left === 0) {
         const cy = Math.round(v.y + 14 + Math.sin(t * 2 + v.i) * 2);
@@ -1250,26 +1250,26 @@
   const usageProbes = () => {
     const quotas = lastData.quotas || [], colors = quotas.map((q, i) =>
       `hsl(${(195 + i * 137.508) % 360} 82% 65%)`);
-    const claude = quotas.findIndex(q => q.provider === 'claude' && q.name === 'Claude');
-    const fable = quotas.findIndex(q => q.provider === 'claude' && q.name === 'Fable');
-    const combined = claude >= 0 && fable >= 0;
+    const model = q => q.provider === 'claude' && q.model;
+    const partner = (q, name) => quotas.findIndex(o => model(o) === name && o.account === q.account);
     const probes = [];
     for (let i = 0; i < quotas.length; i++) {
-      if (combined && i === fable) continue;
-      if (combined && i === claude) {
-        const cq = quotas[claude], fq = quotas[fable], origins = [...new Set([...(cq.origins || []), ...(fq.origins || [])])];
-        const fableFill = Math.min((fq.left ?? 0) / 2, cq.left ?? 0);
-        probes.push({ q: { ...cq, id: cq.id, name: 'Claude + Fable', origins,
-          left: cq.left == null || fq.left == null ? null : cq.left,
-          resets_at: cq.resets_at || fq.resets_at, error: cq.error || fq.error },
-          parts: [cq, fq],
-          ids: [cq.id, fq.id], fills: [
-            { value: fableFill, color: colors[fable] },
-            { value: (cq.left ?? 0) - fableFill, color: colors[claude] },
-          ], color: colors[fable] });
+      const cq = quotas[i], fable = model(cq) === 'Claude' ? partner(cq, 'Fable') : -1;
+      if (model(cq) === 'Fable' && partner(cq, 'Claude') >= 0) continue;
+      if (fable < 0) {
+        probes.push({ q: cq, ids: [cq.id], color: colors[i] });
         continue;
       }
-      probes.push({ q: quotas[i], ids: [quotas[i].id], color: colors[i] });
+      const fq = quotas[fable], origins = [...new Set([...(cq.origins || []), ...(fq.origins || [])])];
+      const fableFill = Math.min((fq.left ?? 0) / 2, cq.left ?? 0);
+      probes.push({ q: { ...cq, name: cq.account || 'Claude + Fable', origins,
+        left: cq.left == null || fq.left == null ? null : cq.left,
+        resets_at: cq.resets_at || fq.resets_at, error: cq.error || fq.error },
+        parts: [cq, fq],
+        ids: [cq.id, fq.id], fills: [
+          { value: fableFill, color: colors[fable] },
+          { value: (cq.left ?? 0) - fableFill, color: colors[i] },
+        ], color: colors[fable] });
     }
     return probes.map((v, i) => {
       const q = v.q, local = (q.origins || []).includes('local'), remote = (q.origins || []).includes('remote');
@@ -2073,8 +2073,8 @@
   }
   function showUsageTip(v, left, top) {
     const q = v.q, tip = $('#tip'), stage = $('#stage').getBoundingClientRect();
-    const status = v.parts ? v.parts.map(part => `<div class="tt-status">${esc(part.name)}: ${part.left != null ? Math.round(part.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>
-      <div class="tt-age">${esc(part.name)}: ${part.resets_at ? 'RESETS IN ' + esc(detailedResetIn(part)) : 'RESET TIME UNAVAILABLE'}</div>`).join('') :
+    const status = v.parts ? v.parts.map(part => `<div class="tt-status">${esc(part.model || part.name)}: ${part.left != null ? Math.round(part.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>
+      <div class="tt-age">${esc(part.model || part.name)}: ${part.resets_at ? 'RESETS IN ' + esc(detailedResetIn(part)) : 'RESET TIME UNAVAILABLE'}</div>`).join('') :
       `<div class="tt-status">${q.left != null ? Math.round(q.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>`;
     tip.innerHTML = `<div class="tt-name">${esc(q.name)} <span>${esc((q.provider || 'codex').toUpperCase())}</span></div>
       ${q.origins.length ? `<div class="tt-meta">${esc(q.origins.join(' + ').toUpperCase())}</div>` : ''}

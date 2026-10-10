@@ -643,7 +643,7 @@ window.SP = (() => {
     }
     rows.forEach((half, iy) => {
       const yy = top + iy, edge = iy === 0 || iy === rows.length - 1;
-      if (shape === 'vat') half = Math.min(half, 6);
+      if (shape === 'vat' || shape === 'half') half = Math.min(half, shape === 'half' ? 3 : 6);
       rc(g, cx - half, yy, half * 2 + 1, 1, edge ? '#30364a' : '#778096');
       if (!edge) {
         const fromBottom = bottom - yy;
@@ -651,8 +651,9 @@ window.SP = (() => {
         if (liquid) rc(g, cx - half + 1, yy, half * 2 - 1, 1, liquid[2]);
       }
     });
-    rc(g, cx - (big ? 4 : 3), y, big ? 9 : 7, 2, '#4c5164');
-    rc(g, cx - (big ? 3 : 2), y + 2, big ? 7 : 5, 1, '#9aa3b8');
+    const neck = shape === 'half' ? 2 : big ? 4 : 3;
+    rc(g, cx - neck, y, neck * 2 + 1, 2, '#4c5164');
+    rc(g, cx - neck + 1, y + 2, neck * 2 - 1, 1, '#9aa3b8');
     if (total > 2) px(g, cx - 2 + ((t * 2 + x) % 3 | 0), bottom - Math.max(1, Math.round((rows.length - 3) * total / 100)), '#f0ecff');
   };
 

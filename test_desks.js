@@ -264,9 +264,9 @@ test('usage tooltip shows detailed reset timing for each quota', () => {
     resets_at: Date.now() / 1000 + 86400, reset_detail: '1 Day 2 Hours 3 Minutes', resets_left: 0 } }, 0, 0);
   assert.match(s.element.innerHTML, /RESETS IN 1 Day 2 Hours 3 Minutes/);
   s.setData({ quotas: [
-    { id: 'claude:active', name: 'Claude', provider: 'claude', origins: [], left: 50,
+    { id: 'claude:active', name: 'Work Claude', account: 'Work', model: 'Claude', provider: 'claude', origins: [], left: 50,
       resets_at: Date.now() / 1000 + 86400, reset_detail: '1 Day 2 Hours 3 Minutes' },
-    { id: 'claude:Fable', name: 'Fable', provider: 'claude', origins: [], left: 40,
+    { id: 'claude:Fable', name: 'Work Fable', account: 'Work', model: 'Fable', provider: 'claude', origins: [], left: 40,
       resets_at: Date.now() / 1000 + 172800, reset_detail: '2 Days 4 Hours 5 Minutes' },
   ] });
   s.showUsageTip(s.usageProbe('usage:claude:active'), 0, 0);
@@ -298,26 +298,27 @@ test('additional quota accounts render distinct bottles and remain hoverable', (
     });
   }
 });
-test('Claude and Fable share one cylinder with Fable capped by Claude remaining', () => {
+test('each account pairs Claude and Fable in one cylinder, half-width at 10x', () => {
   const s = scene(), bottles = [];
   s.SP.PR.quotaVat = (g, x, y, shape, fill, color) => bottles.push({ x, y, shape, fill, color });
+  const row = (account, model, tier, left, origins) => ({ id: `claude:${account} ${model}`, name: `${account} ${model}`,
+    account, model, tier, provider: 'claude', origins, left, resets_left: null });
   s.setData({ quotas: [
-    { id: 'claude:active', name: 'Claude', provider: 'claude', origins: ['local'], left: 100, resets_left: null },
-    { id: 'claude:Fable', name: 'Fable', provider: 'claude', origins: ['remote'], left: 90, resets_left: null },
+    row('Espresso', 'Claude', 10, 100, ['local']), row('Espresso', 'Fable', 10, 90, ['remote']),
+    row('Mirasume', 'Claude', 20, 40, []), row('Mirasume', 'Fable', 20, 100, []),
   ] });
   s.drawUsageProbes(0);
-  assert.equal(bottles.length, 1);
-  assert.equal(bottles[0].shape, 'vat');
-  assert.deepEqual([...bottles[0].fill].map(part => part.value), [45, 55]);
+  assert.deepEqual(bottles.map(b => b.shape), ['half', 'vat']);
+  assert.deepEqual(bottles.map(b => [...b.fill].map(part => part.value)), [[45, 55], [40, 0]]);
   assert.notEqual(bottles[0].fill[0].color, bottles[0].fill[1].color);
-  const combined = s.usageProbe('usage:claude:active');
-  assert.equal(combined.q.name, 'Claude + Fable');
+  const combined = s.usageProbe('usage:claude:Espresso Claude');
+  assert.equal(combined.q.name, 'Espresso');
   assert.equal(combined.q.left, 100);
-  assert.equal(s.usageProbe('usage:claude:Fable').q.left, combined.q.left);
+  assert.equal(s.usageProbe('usage:claude:Espresso Fable').q.name, 'Espresso');
   s.showUsageTip(combined, 0, 0);
   assert.match(s.element.innerHTML, /Claude: 100% REMAINING/);
   assert.match(s.element.innerHTML, /Fable: 90% REMAINING/);
-  assert.doesNotMatch(s.element.innerHTML, /95% REMAINING/);
+  assert.doesNotMatch(s.element.innerHTML, /95% REMAINING|10x/);
 });
 test('reset tooltips show days, hours, and minutes without CLI detail', () => {
   const s = scene();

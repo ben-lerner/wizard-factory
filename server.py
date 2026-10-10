@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import subprocess
 import sys
 import tempfile
@@ -156,6 +157,12 @@ def run_quota(args):
     return result
 
 
+def quota_label(name):
+    account, tier, model = re.fullmatch(r'(.*?)\s*(?:\((\d+)x\))?\s*(Claude|Fable)?', name.strip()).groups()
+    return {'name': ' '.join(filter(None, (account, model))), 'account': account,
+            'tier': tier and int(tier), 'model': model}
+
+
 def account_quotas(listed):
     config = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config') / 'codex-quota/accounts.json'
     accounts = json.loads(config.read_text()) if listed and config.exists() else {}
@@ -196,7 +203,7 @@ def account_quotas(listed):
     if listed:
         readings.extend({**r, 'id': 'claude:active' if r['name'] == 'Claude' else 'claude:' + r.get('id', r['name']),
                          'origins': ['local']} for r in cli_accounts if r.get('provider') == 'claude')
-    return [{'id': r['id'], 'name': r['name'], 'provider': r['provider'],
+    return [{'id': r['id'], **quota_label(r['name']), 'provider': r['provider'],
              'period': 'weekly', 'origins': r['origins'],
              'left': max(0, min(100, 100 - r['weeklyUsedPercent'])) if r['weeklyUsedPercent'] is not None else None,
              'resets_at': r['weeklyResetsAt'], 'reset_detail': r.get('weeklyResetDetail'),

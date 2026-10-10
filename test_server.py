@@ -192,6 +192,13 @@ class QuotaTest(unittest.TestCase):
         self.assertEqual(quotas[1]['id'], 'claude:active')
         self.assertEqual(quotas[0]['reset_detail'], '2 Minutes')
 
+    def test_quota_labels_drop_tier_and_split_model(self):
+        self.assertEqual(server.quota_label('Espresso    (10x) Fable'),
+                         {'name': 'Espresso Fable', 'account': 'Espresso', 'tier': 10, 'model': 'Fable'})
+        self.assertEqual(server.quota_label('Mirasume    (20x)'),
+                         {'name': 'Mirasume', 'account': 'Mirasume', 'tier': 20, 'model': None})
+        self.assertEqual(server.quota_label('Claude'), {'name': 'Claude', 'account': '', 'tier': None, 'model': 'Claude'})
+
     def test_older_cli_is_retried_without_detailed_flag(self):
         old = MagicMock(returncode=2, stdout='', stderr='error: unrecognized arguments: --detailed-reset-timing')
         with patch.object(server.subprocess, 'run', side_effect=[old, self.cli(

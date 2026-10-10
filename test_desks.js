@@ -522,7 +522,7 @@ test('Go choices save threatened groups and prefer the larger capture', () => {
     const { chooseGoMove } = scene(() => random);
     for (const [position, expected] of [
       [[[0, 0, 0], [1, 0, 1]], [0, 1]],
-      [[[0, 0, 1], [1, 0, 0], [2, 2, 1], [3, 2, 1], [2, 1, 0], [3, 1, 0], [1, 2, 0], [2, 3, 0]], [3, 3]],
+      [[[0, 0, 1], [1, 0, 0], [7, 2, 1], [8, 2, 1], [7, 1, 0], [8, 1, 0], [6, 2, 0], [7, 3, 0]], [8, 3]],
       [[[1, 1, 0], [3, 1, 0]], [2, 1]],
     ]) {
       const stones = position.map(([x, y, side]) => ({ x, y, side }));
@@ -538,7 +538,7 @@ test('Go avoids self-atari and passes instead of filling its own eyes', () => {
     const surround = [[0, 1], [1, 0], [2, 1]].map(([x, y]) => ({ x, y, side: 1 }));
     const { stone } = chooseGoMove(surround, 0, 0, null);
     assert.notDeepEqual([stone.x, stone.y], [1, 1]);
-    const stones = Array.from({ length: 16 }, (_, i) => ({ x: i % 4, y: i / 4 | 0, side: 0 }))
+    const stones = Array.from({ length: 81 }, (_, i) => ({ x: i % 9, y: i / 9 | 0, side: 0 }))
       .filter(s => !(s.x === 1 && s.y === 1 || s.x === 2 && s.y === 2));
     assert.equal(chooseGoMove(stones, 0, 0, null), null);
     assert.equal(chooseGoMove(stones, 1, 0, null), null);
@@ -561,7 +561,7 @@ test('Go games vary their openings and move sequences with the same players', ()
     }
     games.push(moves);
   }
-  assert.ok(games.every(moves => ['1,1', '2,1', '1,2', '2,2'].includes(moves[0])));
+  assert.ok(games.every(moves => moves[0].split(',').every(n => n >= 1 && n <= 7)), 'Openings avoid the edge');
   assert.equal(new Set(games.map(moves => moves[0])).size, games.length);
   assert.equal(new Set(games.map(moves => moves.join(';'))).size, games.length);
 });

@@ -603,10 +603,10 @@
       return true;
     });
   }
-  const goPoint = stone => stone.x + stone.y * 4;
-  const goNeighbors = i => [i % 4 ? i - 1 : -1, i % 4 < 3 ? i + 1 : -1, i >= 4 ? i - 4 : -1, i < 12 ? i + 4 : -1].filter(n => n >= 0);
+  const GO = 9, goPoint = stone => stone.x + stone.y * GO;
+  const goNeighbors = i => [i % GO ? i - 1 : -1, i % GO < GO - 1 ? i + 1 : -1, i >= GO ? i - GO : -1, i < GO * (GO - 1) ? i + GO : -1].filter(n => n >= 0);
   const goPosition = stones => {
-    const points = Array(16).fill('.');
+    const points = Array(GO * GO).fill('.');
     for (const stone of stones) points[goPoint(stone)] = stone.side;
     return points.join('');
   };
@@ -648,8 +648,8 @@
     const danger = (groups, friendly) => groups.reduce((sum, group) =>
       sum + ((group.side === side) === friendly && group.liberties.size === 1 ? group.members.size : 0), 0);
     const ownDanger = danger(groups, true), enemyDanger = danger(groups, false), moves = [];
-    for (let i = 0; i < 16; i++) {
-      const stone = { x: i % 4, y: i / 4 | 0, side, placedAt: t }, next = playGo(stones, stone, previousPosition);
+    for (let i = 0; i < GO * GO; i++) {
+      const stone = { x: i % GO, y: i / GO | 0, side, placedAt: t }, next = playGo(stones, stone, previousPosition);
       if (!next) continue;
       const after = goGroups(new Map(next.map(s => [goPoint(s), s]))), neighbors = goNeighbors(i);
       const group = after.find(g => g.members.has(i));
@@ -1180,18 +1180,21 @@
         }
         if (game.move) drawTableReach(gg, table, [x + game.move.to[0] * 4 + 2, y + game.move.to[1] * 3 + 1], t);
       } else {
-        gg.fillStyle = '#d8b878'; gg.fillRect(x, y, 17, 13);
+        const bx = table.x - 14, by = table.y - 22, at = (gx, gy) => [bx + 2 + gx * 3, by + 2 + gy * 3];
+        gg.fillStyle = '#6b4932'; gg.fillRect(bx, by + 28, 29, 1);
+        gg.fillStyle = '#d8b878'; gg.fillRect(bx, by, 29, 28);
         gg.fillStyle = '#8a6242';
-        for (let i = 0; i < 4; i++) { gg.fillRect(x + 2 + i * 4, y + 1, 1, 10); gg.fillRect(x + 2, y + 1 + i * 3, 13, 1); }
+        for (let i = 0; i < GO; i++) { gg.fillRect(bx + 2 + i * 3, by + 2, 1, 25); gg.fillRect(bx + 2, by + 2 + i * 3, 25, 1); }
+        for (const [gx, gy] of [[2, 2], [6, 2], [4, 4], [2, 6], [6, 6]]) gg.fillRect(...at(gx, gy).map(v => v - 1), 3, 3);
         for (const stone of game.stones) {
-          let sx = x + 2 + stone.x * 4, sy = y + 1 + stone.y * 3;
+          let [sx, sy] = at(stone.x, stone.y);
           if (game.move && game.stones.at(-1) === stone && moveProgress(game, t) < 1) {
             const [ox, oy] = table.seats[game.move.seat], k = moveProgress(game, t); sx = mix(ox, sx, k); sy = mix(oy - 11, sy, k);
           }
           gg.fillStyle = stone.side % 2 ? '#f7f3e8' : '#1c1430'; gg.fillRect(Math.round(sx) - 1, Math.round(sy) - 1, 3, 3);
           gg.fillStyle = stone.side % 2 ? '#fffdf4' : '#4a4358'; gg.fillRect(Math.round(sx), Math.round(sy) - 1, 1, 1);
         }
-        if (game.move) drawTableReach(gg, table, [x + 2 + game.move.to[0] * 4, y + 1 + game.move.to[1] * 3], t);
+        if (game.move) drawTableReach(gg, table, at(...game.move.to), t);
       }
     }
     if (t < table.burnUntil) {

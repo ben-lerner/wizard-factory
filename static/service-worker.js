@@ -1,5 +1,5 @@
-const CACHE = 'wizard-factory-v4';
-const ASSETS = ['/', '/app.webmanifest', '/style.css', '/sprites.js', '/go-games.js', '/chess-games.js', '/game.js',
+const CACHE = 'wizard-factory-v5';
+const ASSETS = ['/', '/app.webmanifest', '/style.css', '/sprites.js', '/go-games.js', '/game.js',
   '/icon.svg', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', e => {

@@ -12,14 +12,13 @@ function scene(random = Math.random) {
   vm.runInContext(fs.readFileSync('static/sprites.js', 'utf8'), sandbox);
   sandbox.SP = sandbox.window.SP;
   vm.runInContext(fs.readFileSync('static/go-games.js', 'utf8'), sandbox);
-  vm.runInContext(fs.readFileSync('static/chess-games.js', 'utf8'), sandbox);
   for (const name of ['drawText', 'drawEmote']) {
     const draw = sandbox.SP[name];
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
   vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, showResourceTip, RESOURCE_BALLS, ballReading, pickAt, usageProbe, castSpell, castRay, updateBattle, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, updateTableGames, updateBoardGame, drawTableGame, playGo, gameName, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
-  return { ...sandbox.window.test, chessRecords: sandbox.window.CHESS_GAMES, calls, element, SP: sandbox.SP, ctx };
+  return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
 test('duels recruit only each fighter’s apprentices', () => {
@@ -466,7 +465,7 @@ test('badminton uses clear, drop, drive, and smash trajectories with shuttle dra
   assert.deepEqual(shots, ['clear', 'drop', 'drive', 'smash']);
 });
 
-for (const type of ['go', 'chess', 'magic']) {
+for (const type of ['go', 'magic']) {
   test(`${type} players take visible turns that change the tabletop state`, () => {
     const s = scene(), agents = [agent(`${type}-one`, 'waiting'), agent(`${type}-two`, 'waiting')], table = s.TABLES[1];
     s.reconcile({ agents }); table.types = [type];
@@ -483,14 +482,12 @@ for (const type of ['go', 'chess', 'magic']) {
   });
 }
 
-test('Go and chess remain two-player games when a cat is available', () => {
-  for (const type of ['go', 'chess']) {
-    const s = scene(), agents = [agent(`${type}-a`, 'waiting'), agent(`${type}-b`, 'waiting')], table = s.TABLES[1];
-    s.reconcile({ agents }); table.types = [type];
-    s.startGame(table, [...agents.map(a => ({ kind: 'wizard', id: a.id })), { kind: 'cat', id: 'cat' }], 0);
-    assert.equal(table.game.players.length, 2);
-    assert.equal(s.COURT.game, null);
-  }
+test('Go remains a two-player game when a cat is available', () => {
+  const s = scene(), agents = [agent('go-a', 'waiting'), agent('go-b', 'waiting')], table = s.TABLES[1];
+  s.reconcile({ agents }); table.types = ['go'];
+  s.startGame(table, [...agents.map(a => ({ kind: 'wizard', id: a.id })), { kind: 'cat', id: 'cat' }], 0);
+  assert.equal(table.game.players.length, 2);
+  assert.equal(s.COURT.game, null);
 });
 
 test('Go captures connected groups and multiple groups with no liberties', () => {
@@ -546,69 +543,6 @@ test('Go turns remove captured stones and keep the placement animation', () => {
   assert.equal(table.game.stones.at(-1).side, 0);
   s.calls.length = 0; s.drawTableGame(s.ctx, table, .3);
   assert.ok(s.calls.some(c => c[0] === 'lineTo'));
-});
-
-test('chess replays every professional game and starts a new record after the final move', () => {
-  let random = 0;
-  const s = scene(() => random), agents = [agent('white', 'waiting'), agent('black', 'waiting')], table = s.TABLES[1];
-  s.reconcile({ agents }); table.types = ['chess'];
-  s.startGame(table, agents.map(a => ({ kind: 'wizard', id: a.id })), -2);
-  for (const w of s.wizards.values()) { [w.x, w.y] = w.home; w.path = []; }
-  const game = table.game;
-  assert.equal(game.pieces.length, 32);
-  assert.ok(s.chessRecords.length >= 100);
-  assert.ok(s.gameName(game).startsWith(`CHESS: ${game.record.white} VS ${game.record.black}`.toUpperCase()));
-  for (const record of s.chessRecords) {
-    const initial = game.pieces.map(p => ({ ...p }));
-    for (const [turn, entry] of record.moves.entries()) {
-      Object.assign(game, { record, ply: turn, nextMove: turn });
-      const before = game.pieces.length;
-      s.updateBoardGame(game, turn);
-      assert.equal(game.move.player, turn % 2);
-      assert.equal(game.move.seat, game.players[turn % 2].seat);
-      assert.equal(game.pieces.length, before - (entry[2] >= 0 ? 1 : 0));
-      assert.equal(game.pieces.filter(p => p.kind === 'king').length, 2);
-      assert.equal(new Set(game.pieces.map(p => p.x + p.y * 8)).size, game.pieces.length);
-      if (entry[3]) assert.equal(game.move.piece.kind, entry[3]);
-      if (entry.length === 6) {
-        assert.equal(game.move.rook.kind, 'rook');
-        assert.equal(game.move.rook.x, entry[5] % 8);
-      }
-    }
-    random = .99; game.nextMove = 1000;
-    s.updateBoardGame(game, 1000);
-    assert.equal(game.ply, 0);
-    assert.equal(game.move, undefined);
-    assert.equal(JSON.stringify(game.pieces), JSON.stringify(initial));
-  }
-});
-
-test('chess stays active long enough to finish and ends when a player leaves', () => {
-  const s = scene(), agents = [agent('white', 'waiting'), agent('black', 'waiting')], table = s.TABLES[1];
-  s.reconcile({ agents }); table.types = ['chess'];
-  s.startGame(table, agents.map(a => ({ kind: 'wizard', id: a.id })), 0);
-  for (const w of s.wizards.values()) { [w.x, w.y] = w.home; w.path = []; }
-  const game = table.game;
-  s.updateTableGames(600);
-  assert.equal(table.game, game);
-  s.wizards.get('white').leaving = true;
-  s.updateTableGames(601);
-  assert.equal(table.game, null);
-  assert.equal(s.wizards.get('black').game, null);
-});
-
-test('chess replay applies en passant and underpromotion', () => {
-  const s = scene(), agents = [agent('white', 'waiting'), agent('black', 'waiting')], table = s.TABLES[1];
-  s.reconcile({ agents }); table.types = ['chess'];
-  s.startGame(table, agents.map(a => ({ kind: 'wizard', id: a.id })), -2);
-  for (const w of s.wizards.values()) { [w.x, w.y] = w.home; w.path = []; }
-  const game = table.game;
-  Object.assign(game, { pieces: [{ kind: 'pawn', side: 0, x: 4, y: 3 }, { kind: 'pawn', side: 1, x: 3, y: 3 }],
-    record: { moves: [[36, 43, 35], [43, 51, -1], [51, 59, -1, 'knight']] }, ply: 0 });
-  for (let turn = 0; turn < 3; turn++) { game.nextMove = turn; s.updateBoardGame(game, turn); }
-  assert.equal(game.pieces.length, 1);
-  assert.equal(game.pieces[0].kind, 'knight');
-  assert.deepEqual([game.pieces[0].x, game.pieces[0].y], [3, 0]);
 });
 
 test('Magic turns keep their original chairs after a player leaves', () => {

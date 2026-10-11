@@ -149,6 +149,19 @@ def account_id(home):
         return None
 
 
+def claude_home():
+    return Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude').expanduser().resolve()
+
+
+def claude_id(home):
+    config = Path.home() / '.claude.json' if home == (Path.home() / '.claude').resolve() else home / '.claude.json'
+    try:
+        account = json.loads(config.read_text())['oauthAccount']
+        return hashlib.sha256(json.dumps([account['accountUuid'], account['organizationUuid']]).encode()).hexdigest()
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def run_quota(args):
     result = subprocess.run(args, capture_output=True, text=True, timeout=QUOTA_TIMEOUT)
     if result.returncode == 2 and 'unrecognized arguments: --detailed-reset-timing' in result.stderr:
@@ -166,9 +179,14 @@ def quota_label(name, provider):
 def account_quotas(listed):
     config = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config') / 'codex-quota/accounts.json'
     accounts = json.loads(config.read_text()) if listed and config.exists() else {}
+    claude_accounts = {}
     if accounts and all(isinstance(v, dict) for v in accounts.values()):
+        claude_accounts = accounts.get('claude') or {}
         accounts = accounts.get('codex') or {}
     homes = {name: (config.parent / Path(home).expanduser()).resolve() for name, home in accounts.items()}
+    claude_homes = {name: (config.parent / Path(home).expanduser()).resolve()
+                    for name, home in claude_accounts.items()}
+    active_claude = claude_id(claude_home())
     active = account_id(active_home())
     if not listed and not active:
         return []
@@ -203,14 +221,23 @@ def account_quotas(listed):
                             (active and identities[r['name']] == active) else []}
                 for r in cli_accounts if r.get('provider') != 'claude']
     if listed:
-        readings.extend({**r, 'id': 'claude:active' if r['name'] == 'Claude' else 'claude:' + r.get('id', r['name']),
-                         'origins': ['local']} for r in cli_accounts if r.get('provider') == 'claude')
+        for r in cli_accounts:
+            if r.get('provider') != 'claude':
+                continue
+            label = quota_label(r['name'], 'claude')
+            home = claude_homes.get(re.sub(r'\s+Fable$', '', r['name'])) if claude_homes else claude_home()
+            identity = claude_id(home) if home else None
+            readings.append({**r, 'loginId': identity,
+                             'id': f'claude:{identity}:{label["model"]}' if identity else
+                                   'claude:active' if r['name'] == 'Claude' else 'claude:' + r.get('id', r['name']),
+                             'origins': ['local'] if home == claude_home() or
+                                        (active_claude and identity == active_claude) else []})
     return [{'id': r['id'], **quota_label(r['name'], r['provider']), 'provider': r['provider'],
              'period': 'weekly', 'origins': r['origins'],
              'left': max(0, min(100, 100 - r['weeklyUsedPercent'])) if r['weeklyUsedPercent'] is not None else None,
              'resets_at': r['weeklyResetsAt'], 'reset_detail': r.get('weeklyResetDetail'),
              'resets_left': r['availableResets'], 'error': r['error'],
-             **{key: r[key] for key in ('updatedAt', 'cached', 'stale', 'retryAt', 'timerPrompt') if key in r}}
+             **{key: r[key] for key in ('loginId', 'updatedAt', 'cached', 'stale', 'retryAt', 'timerPrompt') if key in r}}
             for r in readings]
 
 
@@ -744,6 +771,7 @@ def scan_remote(host, refresh_usage=False):
 
 def state_payload(demo):
     now = time.time()
+    logins = {} if demo else {'codex': account_id(active_home()), 'claude': claude_id(claude_home())}
     with LOCK:
         if demo:
             ags = demo.payload(now)
@@ -759,6 +787,11 @@ def state_payload(demo):
                    {'id': 'demo-spare', 'name': 'Caffeinated', 'provider': 'codex', 'origins': [],
                     'period': 'weekly', 'left': 100, 'resets_at': now + 7 * 86400, 'resets_left': 0}]
                   if demo else merge_quotas(REMOTE_QUOTAS, LOCAL_QUOTAS))
+        if not demo:
+            quotas = [{**q, 'origins': [origin for origin in q['origins'] if origin != 'local'] +
+                       (['local'] if logins.get(q.get('provider')) and
+                        logins[q['provider']] == q.get('loginId', q['id']) else [])}
+                      for q in quotas]
         resources = ({'local': {'host': 'local', 'cpu': 82, 'cores': 12,
                                 'memoryUsed': 20 * 2**30, 'memoryTotal': 32 * 2**30},
                       'remote': {'host': 'mage-tower', 'cpu': 43, 'cores': 64,

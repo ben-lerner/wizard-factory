@@ -166,7 +166,8 @@ class QuotaTest(unittest.TestCase):
             claims = base64.urlsafe_b64encode(json.dumps({'sub': identity}).encode()).decode().rstrip('=')
             (home / 'auth.json').write_text(json.dumps({'tokens': {'account_id': identity, 'id_token': f'x.{claims}.x'}}))
         (config / 'accounts.json').write_text(json.dumps({'Listed': '../a'}))
-        env = patch.dict(server.os.environ, {'XDG_CONFIG_HOME': str(self.root), 'CODEX_HOME': str(self.a)})
+        env = patch.dict(server.os.environ, {'XDG_CONFIG_HOME': str(self.root), 'CODEX_HOME': str(self.a),
+                                            'CLAUDE_CONFIG_DIR': str(self.root / 'claude')})
         env.start()
         self.addCleanup(env.stop)
 
@@ -249,6 +250,41 @@ class QuotaTest(unittest.TestCase):
         self.assertEqual([q['name'] for q in before], ['Listed', 'Claude'])
         self.assertEqual([q['name'] for q in after], ['Listed', 'Additional', 'Claude'])
         self.assertNotEqual(after[0]['id'], after[1]['id'])
+        self.assertEqual([q['origins'] for q in after[:2]], [['local'], []])
+
+    def test_local_label_tracks_login_without_local_quota_readings(self):
+        quotas = [{'id': server.account_id(home), 'provider': 'codex', 'origins': origins}
+                  for home, origins in [(self.a, []), (self.b, ['remote'])]]
+        with patch.object(server, 'REMOTE_QUOTAS', quotas), patch.object(server, 'LOCAL_QUOTAS', []):
+            self.assertEqual([q['origins'] for q in server.state_payload(None)['quotas']],
+                             [['local'], ['remote']])
+            with patch.dict(server.os.environ, {'CODEX_HOME': str(self.b)}):
+                self.assertEqual([q['origins'] for q in server.state_payload(None)['quotas']],
+                                 [[], ['remote', 'local']])
+            (self.a / 'auth.json').unlink()
+            self.assertEqual([q['origins'] for q in server.state_payload(None)['quotas']],
+                             [[], ['remote']])
+        self.assertEqual([q['origins'] for q in quotas], [[], ['remote']])
+
+    def test_configured_claude_labels_match_only_main_login(self):
+        for home, identity in [(self.a, 'a'), (self.b, 'b')]:
+            (home / '.claude.json').write_text(json.dumps({'oauthAccount': {
+                'accountUuid': identity, 'organizationUuid': 'org'}}))
+        (self.root / 'codex-quota/accounts.json').write_text(json.dumps({
+            'claude': {'Work (10x)': '../a', 'Personal (20x)': '../b'}}))
+        rows = [dict(name=name, provider='claude', weeklyUsedPercent=25,
+                     weeklyResetsAt=123, availableResets=2, error=None)
+                for name in ('Work (10x)', 'Work (10x) Fable', 'Personal (20x)', 'Personal (20x) Fable')]
+        proc = MagicMock(returncode=0, stdout=json.dumps({'accounts': rows}), stderr='')
+        with patch.dict(server.os.environ, {'CLAUDE_CONFIG_DIR': str(self.b)}), \
+                patch.object(server.subprocess, 'run', return_value=proc):
+            quotas = server.account_quotas(True)
+            self.assertEqual([q['origins'] for q in quotas], [[], [], ['local'], ['local']])
+            remote = server.remote_snapshot('mage-tower', {'quotas': quotas})[1]
+            with patch.object(server, 'REMOTE_QUOTAS', remote), patch.object(server, 'LOCAL_QUOTAS', []), \
+                    patch.dict(server.os.environ, {'CLAUDE_CONFIG_DIR': str(self.a)}):
+                self.assertEqual([q['origins'] for q in server.state_payload(None)['quotas']],
+                                 [['local'], ['local'], ['remote'], ['remote']])
 
     def test_cli_exit_one_still_uses_partial_readings_and_timer_prompt(self):
         account = dict(name='Listed', provider='codex', weeklyUsedPercent=0,

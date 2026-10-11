@@ -519,7 +519,7 @@
     table.seats = [[x - 21, 112], [x + 19, 112], [x, 84]];
   }
   const gameName = ({ type, record: r }) => (type === 'magic' ? 'MAGIC THE GATHERING' : type === 'pingpong' ? 'PING PONG' : type.toUpperCase()) +
-    (type === 'go' && r ? `: ${r.black} VS ${r.white}, ${r.date.slice(0, 4)}`.toUpperCase() : '');
+    (r ? `: ${type === 'chess' ? r.white : r.black} VS ${type === 'chess' ? r.black : r.white}, ${r.date.slice(0, 4)}`.toUpperCase() : '');
   const gameHas = (table, kind, id) => !!table.game && table.game.players.some(p => p.kind === kind && (!id || p.id === id));
   function waitingForGame(w) {
     return cafeReady(w) && !w.game && w.order && w.order.stage === 'served';
@@ -573,7 +573,7 @@
     const types = table.types || GAME_TYPES;
     const type = types[tableR() * types.length | 0];
     if (type === 'go' || type === 'chess') players = players.slice(0, 2);
-    table.game = { type, players, started: t, until: t + 28 + tableR() * 28 };
+    table.game = { type, players, started: t, until: type === 'chess' ? Infinity : t + 28 + tableR() * 28 };
     table.game.players = players.filter((p, i) => seatPlayer(table, p, i, t));
     if (table !== COURT) initBoardGame(table.game, t);
     if (table.game.players.length < 2) endGame(table, t, false);
@@ -581,32 +581,21 @@
   function initBoardGame(game, t) {
     game.turn = 0; game.nextMove = t + 2;
     if (game.type === 'go') startGoRecord(game);
-    else if (game.type === 'chess') game.pieces = newChessPieces();
+    else if (game.type === 'chess') startChessRecord(game);
     else game.cards = [];
   }
   function startGoRecord(game) {
     const records = window.GO_GAMES || [];
     Object.assign(game, { stones: [], ply: 0, record: records[Math.random() * records.length | 0] });
   }
-  const newChessPieces = () => [
-      ['rook', 0, 0, 0], ['king', 0, 1, 0], ['knight', 0, 3, 0], ['pawn', 0, 2, 1],
-      ['rook', 1, 3, 3], ['king', 1, 2, 3], ['knight', 1, 0, 3], ['pawn', 1, 1, 2],
-    ].map(([kind, side, x, y]) => ({ kind, side, x, y }));
-  function chessInCheck(pieces, side) {
-    const king = pieces.find(p => p.side === side && p.kind === 'king');
-    if (!king) return true;
-    return pieces.some(p => {
-      if (p.side === side) return false;
-      const dx = king.x - p.x, dy = king.y - p.y, ax = Math.abs(dx), ay = Math.abs(dy);
-      if (p.kind === 'pawn') return ay === 1 && ax === 1 && dy === (p.side ? -1 : 1);
-      if (p.kind === 'knight') return ax * ay === 2;
-      if (p.kind === 'king') return Math.max(ax, ay) === 1;
-      if (p.kind !== 'rook' || dx && dy) return false;
-      const sx = Math.sign(dx), sy = Math.sign(dy);
-      for (let x = p.x + sx, y = p.y + sy; x !== king.x || y !== king.y; x += sx, y += sy)
-        if (pieces.some(q => q.x === x && q.y === y)) return false;
-      return true;
-    });
+  const chessPoint = square => [square % 8, 7 - (square / 8 | 0)];
+  function startChessRecord(game) {
+    const records = window.CHESS_GAMES || [], back = ['rook', 'knight', 'bishop', 'queen', 'king', 'bishop', 'knight', 'rook'];
+    const pieces = [0, 1].flatMap(side => back.flatMap((kind, x) => [
+      { kind, side, x, y: side ? 0 : 7 }, { kind: 'pawn', side, x, y: side ? 1 : 6 },
+    ]));
+    Object.assign(game, { pieces, ply: 0, record: records[Math.random() * records.length | 0] });
+    delete game.move;
   }
   const GO = 9, goPoint = stone => stone.x + stone.y * GO;
   const goNeighbors = i => [i % GO ? i - 1 : -1, i % GO < GO - 1 ? i + 1 : -1, i >= GO ? i - GO : -1, i < GO * (GO - 1) ? i + GO : -1].filter(n => n >= 0);
@@ -648,39 +637,22 @@
       } else delete game.move;
       if (game.ply > moves.length) startGoRecord(game);
     } else if (game.type === 'chess') {
-      const at = (x, y) => game.pieces.find(p => p.x === x && p.y === y);
-      const candidates = [];
-      const offer = (piece, x, y, target = at(x, y)) => {
-        if (target && (target.side === piece.side || target.kind === 'king')) return;
-        const next = game.pieces.filter(p => p !== target).map(p => p === piece ? { ...p, x, y } : p);
-        if (!chessInCheck(next, piece.side)) candidates.push([piece, x, y, target]);
-      };
-      for (const piece of game.pieces.filter(p => p.side === player % 2)) {
-        if (piece.kind === 'pawn') {
-          const dy = piece.side ? -1 : 1, y = piece.y + dy;
-          if (y >= 0 && y < 4 && !at(piece.x, y)) offer(piece, piece.x, y, null);
-          for (const dx of [-1, 1]) {
-            const target = at(piece.x + dx, y);
-            if (target && target.side !== piece.side) offer(piece, piece.x + dx, y, target);
-          }
-          continue;
+      const entry = game.record?.moves[game.ply++];
+      if (entry) {
+        const [from, to, capture, promotion, rookFrom, rookTo] = entry;
+        const at = square => { const [x, y] = chessPoint(square); return game.pieces.find(p => p.x === x && p.y === y); };
+        const piece = at(from), captured = capture >= 0 ? at(capture) : null;
+        game.pieces = game.pieces.filter(p => p !== captured);
+        game.move = { player: piece.side, seat: game.players[piece.side].seat, piece,
+          from: chessPoint(from), to: chessPoint(to), start: t, duration };
+        [piece.x, piece.y] = chessPoint(to);
+        if (promotion) piece.kind = promotion;
+        if (rookFrom !== undefined) {
+          const rook = at(rookFrom);
+          game.move.rook = rook; game.move.rookFrom = chessPoint(rookFrom);
+          [rook.x, rook.y] = chessPoint(rookTo);
         }
-        const directions = piece.kind === 'knight' ? [[1, 2], [2, 1], [-1, 2], [-2, 1], [1, -2], [2, -1], [-1, -2], [-2, -1]] :
-          piece.kind === 'king' ? [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]] : [[1, 0], [-1, 0], [0, 1], [0, -1]];
-        for (const [dx, dy] of directions) for (let n = 1; n <= (piece.kind === 'rook' ? 3 : 1); n++) {
-          const x = piece.x + dx * n, y = piece.y + dy * n;
-          if (x < 0 || x >= 4 || y < 0 || y >= 4) break;
-          const target = at(x, y);
-          offer(piece, x, y, target);
-          if (target) break;
-        }
-      }
-      if (candidates.length) {
-        const [piece, x, y, captured] = candidates[(game.turn * 5 + 1) % candidates.length];
-        game.move = { player, seat, piece, from: [piece.x, piece.y], to: [x, y], start: t, duration };
-        if (captured) game.pieces = game.pieces.filter(p => p !== captured);
-        piece.x = x; piece.y = y;
-      } else { game.pieces = newChessPieces(); game.turn = 0; delete game.move; }
+      } else startChessRecord(game);
     } else {
       if (game.cards.length === 6) game.cards.shift();
       const slots = [[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1]], used = new Set(game.cards.map(c => c.slot));
@@ -1108,11 +1080,14 @@
     gg.beginPath(); gg.moveTo(sx, sy - 10); gg.lineTo(hx, hy); gg.stroke();
     gg.fillStyle = '#d8b18b'; gg.fillRect(Math.round(hx) - 1, Math.round(hy) - 1, 3, 3); gg.restore();
   }
+  const CHESS_SPRITES = {
+    pawn: ['010', '010', '111'], knight: ['110', '011', '111'], bishop: ['010', '101', '111'],
+    rook: ['101', '111', '111'], queen: ['101', '010', '111'], king: ['010', '111', '010', '111'],
+  };
   function drawChessPiece(gg, piece, x, y) {
-    gg.fillStyle = piece.side ? '#f7f3e8' : '#1c1430';
-    gg.fillRect(Math.round(x) + 1, Math.round(y), 2, 2); gg.fillRect(Math.round(x), Math.round(y) + 2, 4, 1);
-    if (piece.kind === 'king') gg.fillRect(Math.round(x) + 1, Math.round(y) - 1, 1, 1);
-    else if (piece.kind === 'knight') gg.fillRect(Math.round(x) + (piece.side ? 2 : 0), Math.round(y) - 1, 2, 1);
+    gg.fillStyle = piece.side ? '#1c1430' : '#fffdf4';
+    for (const [row, pixels] of CHESS_SPRITES[piece.kind].entries())
+      for (let col = 0; col < pixels.length; col++) if (pixels[col] === '1') gg.fillRect(Math.round(x) + col, Math.round(y) + row, 1, 1);
   }
   function drawTableGame(gg, table, t) {
     const x = table.x - 10, y = table.y - 6, game = table.game;
@@ -1131,15 +1106,20 @@
         }
         if (game.move) drawTableReach(gg, table, [x + 2 + game.move.to[0] * 5, y + 3 + game.move.to[1] * 6], t);
       } else if (game.type === 'chess') {
-        for (let cy = 0; cy < 4; cy++) for (let cx = 0; cx < 4; cx++) { gg.fillStyle = (cx + cy) % 2 ? '#59606e' : '#e2d8b9'; gg.fillRect(x + cx * 4, y + cy * 3, 4, 3); }
-        for (const piece of game.pieces) {
-          let px = x + piece.x * 4, py = y + piece.y * 3;
-          if (game.move && game.move.piece === piece && moveProgress(game, t) < 1) {
-            const k = moveProgress(game, t); px = x + mix(game.move.from[0], piece.x, k) * 4; py = y + mix(game.move.from[1], piece.y, k) * 3;
-          }
-          drawChessPiece(gg, piece, px, py);
+        const bx = table.x - 16, by = table.y - 24;
+        gg.fillStyle = '#6b4932'; gg.fillRect(bx - 1, by - 1, 34, 34);
+        for (let cy = 0; cy < 8; cy++) for (let cx = 0; cx < 8; cx++) {
+          gg.fillStyle = (cx + cy) % 2 ? '#788397' : '#e2d8b9'; gg.fillRect(bx + cx * 4, by + cy * 4, 4, 4);
         }
-        if (game.move) drawTableReach(gg, table, [x + game.move.to[0] * 4 + 2, y + game.move.to[1] * 3 + 1], t);
+        for (const piece of game.pieces) {
+          let px = piece.x, py = piece.y;
+          const from = game.move?.piece === piece ? game.move.from : game.move?.rook === piece ? game.move.rookFrom : null;
+          if (from && moveProgress(game, t) < 1) {
+            const k = moveProgress(game, t); px = mix(from[0], px, k); py = mix(from[1], py, k);
+          }
+          drawChessPiece(gg, piece, bx + px * 4, by + py * 4);
+        }
+        if (game.move) drawTableReach(gg, table, [bx + game.move.to[0] * 4 + 2, by + game.move.to[1] * 4 + 2], t);
       } else {
         const bx = table.x - 14, by = table.y - 22, at = (gx, gy) => [bx + 2 + gx * 3, by + 2 + gy * 3];
         gg.fillStyle = '#6b4932'; gg.fillRect(bx, by + 28, 29, 1);

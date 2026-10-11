@@ -68,6 +68,11 @@ petition board when an agent needs attention.
 Go tables replay professional 9x9 games, including NHK televised matches, from
 [Andries Brouwer's public-domain database](https://homepages.cwi.nl/~aeb/go/games/);
 `python3 make_go_games.py` regenerates `static/go-games.js` from it.
+Chess tables replay 126 professional games from the 2024 Candidates, Women's
+Candidates, and World Championship, sourced from [The Week in Chess](https://theweekinchess.com/).
+The full 8×8 board includes castling, en passant, and promotions; hover over a seated wizard
+for the players and year. `uv run --with python-chess make_chess_games.py`
+regenerates `static/chess-games.js` from the unannotated PGN main lines.
 The frontend polls `/api/state` every 1.5s.
 
 The laboratory's four crystals show local and remote CPU use in red on the top row,

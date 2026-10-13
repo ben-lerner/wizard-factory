@@ -616,7 +616,7 @@
     return w && !w.path.length && !w.blast;
   });
   function updateBoardGame(game, t) {
-    if (t < game.nextMove || !tableReady(game)) return;
+    if (game.finishedAt !== undefined || t < game.nextMove || !tableReady(game)) return;
     const player = game.turn++ % game.players.length, seat = game.players[player].seat, duration = .75;
     if (game.type === 'go') {
       const moves = game.record?.moves || [], [x, y, side] = moves[game.ply++] || [];
@@ -625,7 +625,7 @@
         game.stones = next;
         game.move = { player: side, seat: game.players[side].seat, to: [x, y], start: t, duration };
       } else delete game.move;
-      if (game.ply > moves.length) startGoRecord(game);
+      if (game.ply >= moves.length) game.finishedAt = t;
     } else {
       if (game.cards.length === 6) game.cards.shift();
       const slots = [[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1]], used = new Set(game.cards.map(c => c.slot));
@@ -647,7 +647,10 @@
           if (p.kind === 'cat') return cat.game === table.id;
           return false;
         });
-        if (table.game.players.length < 2 || t > table.game.until) endGame(table, t, false);
+        if (table.game.type === 'go' && table.game.finishedAt !== undefined) {
+          if (t >= table.game.finishedAt + 30) endGame(table, t, false);
+        } else if (table.game.type === 'go' && t > table.game.until) table.game.finishedAt = t;
+        else if (table.game.players.length < 2 || t > table.game.until) endGame(table, t, false);
         else if (table === COURT) updateRally(table, t);
         else updateBoardGame(table.game, t);
       }

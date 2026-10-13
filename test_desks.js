@@ -509,7 +509,7 @@ test('Go rejects occupied points and suicide', () => {
   assert.equal(playGo(surround, { x: 0, y: 1, side: 1 }), null);
 });
 
-test('Go replays professional records move by move and starts another when one ends', () => {
+test('Go keeps the finished professional record on the board', () => {
   let random = 0;
   const s = scene(() => random), agents = [agent('go-black', 'waiting'), agent('go-white', 'waiting')], table = s.TABLES[1];
   s.reconcile({ agents }); table.types = ['go'];
@@ -523,10 +523,12 @@ test('Go replays professional records move by move and starts another when one e
     assert.deepEqual([...game.move.to, game.stones.at(-1).side], [x, y, side]);
     assert.equal(game.move.seat, game.players[side].seat);
   }
+  const stones = JSON.stringify(game.stones), finishedAt = record.moves.length - 1;
   random = .99;
   for (const turn of [100, 101]) { game.nextMove = turn; s.updateBoardGame(game, turn); }
-  assert.notEqual(game.record, record);
-  assert.equal(game.stones.length, 1);
+  assert.equal(game.record, record);
+  assert.equal(game.finishedAt, finishedAt);
+  assert.equal(JSON.stringify(game.stones), stones);
 });
 
 test('Go turns remove captured stones and keep the placement animation', () => {

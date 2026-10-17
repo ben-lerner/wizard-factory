@@ -700,7 +700,7 @@ test('laboratory grows instead of overlapping fixtures or existing desks', () =>
   assert.ok(s.layout().labExtra > 0);
   for (const [d, x, y] of original) assert.deepEqual([d.x, d.y], [x, y]);
   const fixtures = [[56, 150, 30, 26], [8, 58, 26, 70], [88, 42, 34, 20],
-    [216, 98, 16, 24], [124, 30, 136, 58]];
+    ...s.RESOURCE_BALLS.map(b => [b.x, b.y, 16, b.metric === 'disk' ? 30 : 24]), [124, 30, 136, 58]];
   s.desks.forEach((d, i) => {
     assert.ok(d.x - 32 >= 8 - s.layout().labExtra && d.x + 32 <= 264);
     assert.ok(d.y - 30 >= 34 && d.y + 24 <= 240 + s.layout().labDown);
@@ -748,7 +748,7 @@ test('quota symbols distinguish exhausted and unavailable readings in their bott
 test('laboratory fills its current floor before growing two rows then a column', () => {
   const s = scene(), agents = [], growth = [];
   const fixtures = [[56, 150, 30, 26], [8, 58, 26, 70], [88, 42, 34, 20],
-    [216, 98, 16, 24], [124, 30, 136, 58]];
+    ...s.RESOURCE_BALLS.map(b => [b.x, b.y, 16, b.metric === 'disk' ? 30 : 24]), [124, 30, 136, 58]];
   while (growth.length < 6) {
     const before = s.layout(), occupied = [...fixtures, ...s.desks.map(d => [d.x - 32, d.y - 30, 64, 54])];
     agents.push(agent(String(agents.length)));
@@ -856,28 +856,40 @@ test('idle summoning circle keeps bright runes and a moving glint', () => {
 test('all resource balls have separate hit targets and capacity tooltips', () => {
   const s = scene();
   s.setData({ resources: {
-    local: { host: 'local-test', cpu: 50, cores: 12, memoryUsed: 8 * 2**30, memoryTotal: 32 * 2**30 },
-    remote: { host: 'mage-tower', cpu: 80, cores: 64, memoryUsed: 64 * 2**30, memoryTotal: 128 * 2**30 },
+    local: { host: 'local-test', cpu: 50, cores: 12, memoryUsed: 8 * 2**30, memoryTotal: 32 * 2**30, diskUsed: 100 * 2**30, diskTotal: 500 * 2**30 },
+    remote: { host: 'mage-tower', cpu: 80, cores: 64, memoryUsed: 64 * 2**30, memoryTotal: 128 * 2**30, diskUsed: 900 * 2**30, diskTotal: 1000 * 2**30 },
   } });
   const { S } = s.layout();
+  assert.equal(s.RESOURCE_BALLS.length, 6);
   for (const ball of s.RESOURCE_BALLS) {
     assert.equal(s.pickAt({ clientX: (ball.x + 7) * S, clientY: (ball.y + 5) * S }), ball.id);
     s.showResourceTip(ball, 0, 0);
     assert.match(s.element.innerHTML, ball.origin === 'local' ? /local-test/ : /mage-tower/);
-    assert.match(s.element.innerHTML, ball.metric === 'cpu' ? /LOGICAL CORES/ : /GiB RAM/);
+    assert.match(s.element.innerHTML, ball.metric === 'cpu' ? /LOGICAL CORES/ : ball.metric === 'memory' ? /GiB RAM/ : /GiB DISK/);
     assert.ok(s.blocked(ball.x + 7, ball.y + 15, 5), 'walking actors avoid each pedestal');
   }
   assert.equal(s.ballReading(s.RESOURCE_BALLS[2]), 25);
+  assert.equal(s.ballReading(s.RESOURCE_BALLS[4]), 20);
+  assert.equal(s.ballReading(s.RESOURCE_BALLS[5]), 90);
   s.setData({ resources: { local: {} } });
   s.showResourceTip(s.RESOURCE_BALLS[3], 0, 0);
   assert.match(s.element.innerHTML, /USAGE UNAVAILABLE/);
   assert.match(s.element.innerHTML, /MEMORY CAPACITY UNAVAILABLE/);
+  s.showResourceTip(s.RESOURCE_BALLS[5], 0, 0);
+  assert.match(s.element.innerHTML, /USAGE UNAVAILABLE/);
+  assert.match(s.element.innerHTML, /DISK CAPACITY UNAVAILABLE/);
 });
 
 test('memory crystal remains blue at high usage', () => {
   const s = scene(), fills = [];
   s.ctx.fillRect = () => fills.push(s.ctx.fillStyle);
-  s.SP.PR.crystal(s.ctx, 216, 132, 1, 90, '#2859b8', '#3972d5');
+  const ball = s.RESOURCE_BALLS.find(b => b.metric === 'memory');
+  s.SP.PR.crystal(s.ctx, ball.x, ball.y, 1, 0, ball.color, ball.hotColor, ball.accents);
+  assert.ok(fills.includes('#8fd0ff'));
+  assert.ok(!fills.includes(ball.color));
+  fills.length = 0;
+  s.SP.PR.crystal(s.ctx, ball.x, ball.y, 1, 80, ball.color, ball.hotColor, ball.accents);
+  assert.ok(fills.includes('#8fd0ff'));
   assert.ok(fills.includes('#3972d5'));
   assert.ok(!fills.includes('#ff4a4a'));
 });

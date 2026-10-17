@@ -84,6 +84,13 @@ class CpuUsageTest(unittest.TestCase):
             resources = server.read_resources()
         self.assertEqual((resources['cpu'], resources['memoryUsed'], resources['memoryTotal']), (40, 600 * 1024, 1000 * 1024))
 
+    def test_disk_usage_tracks_the_home_filesystem(self):
+        disk = MagicMock(used=300, total=1000)
+        with patch.object(server.shutil, 'disk_usage', return_value=disk) as usage:
+            resources = server.read_resources()
+        usage.assert_called_once_with(server.Path.home())
+        self.assertEqual((resources['diskUsed'], resources['diskTotal']), (300, 1000))
+
     def test_remote_scan_returns_machine_resources(self):
         resources = {'cpu': 30, 'cores': 8, 'memoryUsed': 1024, 'memoryTotal': 2048}
         proc = MagicMock(stdout=json.dumps({'resources': {'local': resources}}))

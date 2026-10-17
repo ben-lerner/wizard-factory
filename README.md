@@ -70,11 +70,13 @@ Go tables replay professional 9x9 games, including NHK televised matches, from
 `python3 make_go_games.py` regenerates `static/go-games.js` from it.
 The frontend polls `/api/state` every 1.5s.
 
-The laboratory's four crystals show local and remote CPU use in red on the top row,
-and memory use in dark blue below. `LOC` and `REM` identify the machines. Hover for the
-percentage, logical core count, or used/total RAM. Memory use excludes reclaimable
-cache. Above 75% the crystals flare and throw sparks. Remote readings become
-unavailable after 15 seconds without a successful poll.
+The laboratory's crystals show local and remote CPU, memory, and disk usage,
+from top to bottom, filled in red, dark blue, and green against light blue empty
+glass. `LOC` and `REM` identify the machines. Hover for the percentage, logical
+core count, or used/total capacity. Memory use excludes reclaimable cache; disk
+usage covers the filesystem containing the machine's home directory. Above 75%
+the crystals flare and throw sparks. Remote readings become unavailable after
+15 seconds without a successful poll.
 
 The laboratory's usage bottles show the same configured Codex accounts as the
 `token-quota` CLI. Blue `LOC` and red `REM` labels mark the accounts

@@ -16,6 +16,7 @@ import json
 import os
 import random
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -303,8 +304,9 @@ def read_resources():
         mem = {k: int(v.split()[0]) * 1024 for k, v in
                (line.split(':', 1) for line in Path('/proc/meminfo').read_text().splitlines())}
         total, used = mem['MemTotal'], mem['MemTotal'] - mem['MemAvailable']
+    disk = shutil.disk_usage(Path.home())
     return {'cpu': cpu, 'cores': os.cpu_count(), 'memoryUsed': max(0, min(total, used)),
-            'memoryTotal': total, 'host': os.uname().nodename}
+            'memoryTotal': total, 'diskUsed': disk.used, 'diskTotal': disk.total, 'host': os.uname().nodename}
 
 
 class FileState:
@@ -793,9 +795,11 @@ def state_payload(demo):
                         logins[q['provider']] == q.get('loginId', q['id']) else [])}
                       for q in quotas]
         resources = ({'local': {'host': 'local', 'cpu': 82, 'cores': 12,
-                                'memoryUsed': 20 * 2**30, 'memoryTotal': 32 * 2**30},
+                                'memoryUsed': 20 * 2**30, 'memoryTotal': 32 * 2**30,
+                                'diskUsed': 300 * 2**30, 'diskTotal': 500 * 2**30},
                       'remote': {'host': 'mage-tower', 'cpu': 43, 'cores': 64,
-                                 'memoryUsed': 80 * 2**30, 'memoryTotal': 128 * 2**30}}
+                                 'memoryUsed': 80 * 2**30, 'memoryTotal': 128 * 2**30,
+                                 'diskUsed': 900 * 2**30, 'diskTotal': 1000 * 2**30}}
                      if demo else {'local': LOCAL_RESOURCES,
                                    'remote': REMOTE_RESOURCES if now - REMOTE_SEEN < REMOTE_STALE_SEC else {}})
     return {'now': now, 'demo': bool(demo), 'cpu': 82 if demo else CPU_USAGE, 'resources': resources, 'quotas': quotas,

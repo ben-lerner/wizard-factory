@@ -27,10 +27,12 @@
   for (const k in ST) ST[k].occ = ST[k].spots.map(() => null);
 
   // ---------- collision ----------
-  const RESOURCE_BALLS = ['cpu', 'memory'].flatMap((metric, row) => ['local', 'remote'].map((origin, col) =>
-    ({ id: `${origin}:${metric}`, origin, metric, x: 216 + col * 22, y: 98 + row * 28,
-      color: metric === 'cpu' ? '#d84a5f' : '#2859b8', hotColor: metric === 'cpu' ? '#ff4a4a' : '#3972d5',
-      accents: metric === 'cpu' ? {} : { glass: '#416bca', glint: '#9db9ff', flare: '#b2c9ff', spark: '#5587f2' } })));
+  const RESOURCE_BALLS = ['cpu', 'memory', 'disk'].flatMap((metric, row) => ['local', 'remote'].map((origin, col) =>
+    ({ id: `${origin}:${metric}`, origin, metric, x: 194 + col * 22, y: 98 + row * 28,
+      color: { cpu: '#d84a5f', memory: '#2859b8', disk: '#278451' }[metric],
+      hotColor: { cpu: '#ff4a4a', memory: '#3972d5', disk: '#329b60' }[metric],
+      accents: { cpu: {}, memory: { flare: '#b2c9ff', spark: '#5587f2' },
+        disk: { flare: '#b5ffce', spark: '#60db89' } }[metric] })));
   const GRID = 8, WIZ_R = 5, CAT_R = 4, DRAGON_R = 8, TELEPORT_CHANCE = .05;
   const BLOCKERS = [
     { x: 264, y: 34, w: 8, h: 78 }, { x: 264, y: 168, w: 8, h: 92 },
@@ -154,8 +156,8 @@
   let offline = false, isDemo = false, serverSkew = 0, lastData = { agents: [] };
   const ballReading = ball => {
     const machine = lastData.resources?.[ball.origin] || {};
-    return ball.metric === 'cpu' ? machine.cpu : machine.memoryTotal > 0 && machine.memoryUsed != null ?
-      100 * machine.memoryUsed / machine.memoryTotal : null;
+    const total = machine[ball.metric + 'Total'], used = machine[ball.metric + 'Used'];
+    return ball.metric === 'cpu' ? machine.cpu : total > 0 && used != null ? 100 * used / total : null;
   };
   const eggR = rng(0xe457e2), mimicR = rng(0xc4e57);
   const MIMIC = { active: false, x: 38, y: 76, path: [], r: mimicR, phase: 'hidden', desk: null, nextAt: 45 };
@@ -179,7 +181,7 @@
     { x: 56, y: 150, w: 30, h: 26 }, // cauldron
     { x: 8, y: 58, w: 26, h: 70 }, // shelves
     { x: 88, y: 42, w: 34, h: 20 }, // bench
-    ...RESOURCE_BALLS.map(({ x, y, metric }) => ({ x, y, w: 16, h: metric === 'cpu' ? 24 : 30 })),
+    ...RESOURCE_BALLS.map(({ x, y, metric }) => ({ x, y, w: 16, h: metric === 'disk' ? 30 : 24 })),
   ];
   const quotaSpace = () => {
     const x = 236 - (Math.max(6, usageProbes().length) - 1) * 22;
@@ -1907,12 +1909,9 @@
     for (const d of desks) drawTaskLabel(d);
     drawUsageProbes(t);
     drawUsageLabels();
-    for (const ball of RESOURCE_BALLS.filter(b => b.metric === 'memory')) {
+    for (const ball of RESOURCE_BALLS.filter(b => b.metric === 'disk')) {
       const label = ball.origin === 'local' ? 'LOC' : 'REM', x = ball.x + 1, y = ball.y + 25;
-      drawText(g, x, y, label, '#d84a5f');
-      g.save(); g.beginPath(); g.rect(x, y + 2, textW(label), 3); g.clip();
-      drawText(g, x, y, label, ball.color);
-      g.restore();
+      drawText(g, x, y, label, '#c8c4dc');
     }
     if (!wizards.size) {
       g.fillStyle = 'rgba(12,9,20,.55)'; g.fillRect(90, 110, 300, 44);
@@ -1948,7 +1947,7 @@
     const r = cv.getBoundingClientRect(), mx = (e.clientX - r.left - cv.clientLeft) / S - labExtra, my = (e.clientY - r.top - cv.clientTop) / S;
     const vat = usageProbes().reverse().find(v => mx >= v.x - 3 && mx < v.x + 19 && my >= v.y - 12 && my <= v.y + 44);
     if (vat) return `usage:${vat.q.id}`;
-    const ball = RESOURCE_BALLS.find(b => mx >= b.x - 1 && mx <= b.x + 14 && my >= b.y - 2 && my <= b.y + (b.metric === 'cpu' ? 24 : 30));
+    const ball = RESOURCE_BALLS.find(b => mx >= b.x - 1 && mx <= b.x + 14 && my >= b.y - 2 && my <= b.y + (b.metric === 'disk' ? 30 : 24));
     if (ball) return ball.id;
     for (const w of [...wizards.values()].sort((a, b) => b.y - a.y))
       if (Math.abs(mx - w.x) <= 9 && my >= w.y - 26 && my <= w.y + 3) return w.a.id;
@@ -1984,12 +1983,14 @@
   function showResourceTip(ball, left, top) {
     const machine = lastData.resources?.[ball.origin] || {}, value = ballReading(ball), tip = $('#tip');
     const gib = bytes => Math.round(bytes / 2**30) + ' GiB';
-    tip.innerHTML = `<div class="tt-name">${ball.origin.toUpperCase()} ${ball.metric === 'cpu' ? 'CPU' : 'MEMORY'}</div>
+    const total = machine[ball.metric + 'Total'], used = machine[ball.metric + 'Used'];
+    const name = ball.metric === 'memory' ? 'MEMORY' : ball.metric.toUpperCase();
+    tip.innerHTML = `<div class="tt-name">${ball.origin.toUpperCase()} ${name}</div>
       <div class="tt-meta">${esc(machine.host || ball.origin)}</div>
       <div class="tt-status">${value == null ? 'USAGE UNAVAILABLE' : Math.round(value) + '% USED'}</div>
       <div class="tt-age">${ball.metric === 'cpu' ? (machine.cores == null ? 'CORE COUNT UNAVAILABLE' : machine.cores + ' LOGICAL CORES') :
-        (machine.memoryTotal == null ? 'MEMORY CAPACITY UNAVAILABLE' :
-          (machine.memoryUsed == null ? '' : gib(machine.memoryUsed) + ' / ') + gib(machine.memoryTotal) + ' RAM')}</div>`;
+        (total == null ? name + ' CAPACITY UNAVAILABLE' :
+          (used == null ? '' : gib(used) + ' / ') + gib(total) + (ball.metric === 'memory' ? ' RAM' : ' DISK'))}</div>`;
     const stage = $('#stage').getBoundingClientRect();
     tip.hidden = false;
     tip.style.left = Math.max(4, Math.min(left, stage.width - tip.offsetWidth - 4)) + 'px';

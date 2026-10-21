@@ -1837,19 +1837,10 @@
       g.beginPath(); g.rect(-labExtra, 34, VW + labExtra, VH + labDown - 34);
       g.rect(b.x - 1, b.y - 1, b.w + 2, b.h + 2); g.clip('evenodd');
     }
-    const sigils = [[72, 164, 32, '#8ce8ce'], [430, 220, 34, '#d0adff'],
-      ...RESOURCE_BALLS.map(ball => [ball.x + 7, ball.y + 21, 12, '#a9c7ff'])];
-    for (const [x, y, radius, color] of sigils) {
-      g.save(); g.translate(x, y); g.scale(1, .48);
-      g.strokeStyle = color; g.lineWidth = .65; g.globalAlpha = .28;
-      for (const r of [radius, radius - 5]) { g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); g.stroke(); }
-      g.rotate(t * .12);
-      for (let i = 0; i < 12; i++) {
-        g.rotate(Math.PI / 6);
-        g.beginPath(); g.moveTo(radius - 3, -2); g.lineTo(radius, 2); g.lineTo(radius + 3, -2); g.stroke();
-      }
-      g.restore();
-    }
+    PR.floorSigil(g, 72, 164, 32, t, '#8ce8ce', '#ddfff1', 0);
+    RESOURCE_BALLS.forEach((ball, i) => PR.floorSigil(g, ball.x + 7, ball.y + 21, 12, t,
+      { cpu: '#dda1b1', memory: '#a9c7ff', disk: '#8ce8b0' }[ball.metric], '#e4f4ff', i));
+    PR.circle(g, 404, 206, t, occupied('circle'));
     g.restore();
   }
   function draw(t) {
@@ -1859,7 +1850,6 @@
     for (let i = 0; i < 5; i++) PR.window(g, WIN_X[i], 8, t, i * 7 + 3);
     drawLightningWindow(g, t);
     PR.torch(g, 24, 14, t); PR.torch(g, 240, 14, t + .5); PR.torch(g, 282, 14, t + .2); PR.torch(g, 444, 14, t + .8);
-    PR.circle(g, 404, 206, t, occupied('circle'));
     drawLightningCast(g, t);
     drawBonds(t);
     drawCourt(g, t);

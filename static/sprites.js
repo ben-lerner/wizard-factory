@@ -662,14 +662,64 @@ window.SP = (() => {
     if (total > 2) px(g, cx - 2 + ((t * 2 + x) % 3 | 0), bottom - Math.max(1, Math.round((rows.length - 3) * total / 100)), '#f0ecff');
   };
 
+  const SIGIL_RUNES = ['010111010', '101010101', '010101010', '111010111', '100111001', '001111100'];
+  const SIGIL_RINGS = new Map();
+  const sigilRing = radius => {
+    if (!SIGIL_RINGS.has(radius)) {
+      const pixels = new Map();
+      for (let i = 0; i < radius * 12; i++) {
+        const a = i / (radius * 12) * Math.PI * 2;
+        const x = Math.round(Math.cos(a) * radius), y = Math.round(Math.sin(a) * radius * .48);
+        pixels.set(`${x},${y}`, [x, y]);
+      }
+      SIGIL_RINGS.set(radius, [...pixels.values()]);
+    }
+    return SIGIL_RINGS.get(radius);
+  };
+
+  PR.floorSigil = (g, x, y, radius, t, color, glow, phase) => {
+    const small = radius < 20, inner = radius - (small ? 4 : 9), count = small ? 4 : 10;
+    const pulse = Math.sin(t * 1.2 + phase) * .05;
+    const point = (a, r) => [x + Math.round(Math.cos(a) * r), y + Math.round(Math.sin(a) * r * .48)];
+    g.save();
+    for (const r of [radius, inner]) {
+      const pixels = sigilRing(r);
+      g.globalAlpha = .3; g.fillStyle = '#171322';
+      for (const [dx, dy] of pixels) g.fillRect(x + dx, y + dy + 1, 1, 1);
+      g.globalAlpha = .38 + pulse; g.fillStyle = color;
+      for (const [dx, dy] of pixels) g.fillRect(x + dx, y + dy, 1, 1);
+    }
+    if (!small) {
+      g.globalAlpha = .22 + pulse;
+      for (let i = 0; i < 6; i++) {
+        const [ax, ay] = point(i * Math.PI / 3, inner - 3), [bx, by] = point((i + 2) * Math.PI / 3, inner - 3);
+        const steps = Math.max(Math.abs(bx - ax), Math.abs(by - ay));
+        for (let j = 0; j < steps; j++) px(g, Math.round(ax + (bx - ax) * j / steps), Math.round(ay + (by - ay) * j / steps), color);
+      }
+    }
+    for (let i = 0; i < count; i++) {
+      const a = (i + .5) / count * Math.PI * 2, [rx, ry] = point(a, (radius + inner) / 2);
+      const lit = i === (Math.floor(t * .7 + phase) % count), rune = SIGIL_RUNES[(i + phase) % SIGIL_RUNES.length];
+      g.globalAlpha = lit ? .85 : .5 + pulse;
+      for (let j = 0; j < 9; j++) if (rune[j] === '1') px(g, rx + j % 3 - 1, ry + (j / 3 | 0) - 1, lit ? glow : color);
+    }
+    g.globalAlpha = .65;
+    for (let i = 0; i < 4; i++) {
+      const [dx, dy] = point(i * Math.PI / 2, radius);
+      px(g, dx - 1, dy, color); px(g, dx + 1, dy, color);
+      px(g, dx, dy - 1, color); px(g, dx, dy + 1, color); px(g, dx, dy, glow);
+    }
+    for (let i = 4; i >= 0; i--) {
+      const [dx, dy] = point(t * .35 + phase - i * .09, radius);
+      g.globalAlpha = .85 - i * .15; px(g, dx, dy, glow);
+    }
+    g.restore();
+  };
+
   PR.circle = (g, x, y, t, active) => {
     const cx = x + 26, cy = y + 14, col = active ? '#b49aff' : '#8068bd';
-    for (let a = 0; a < 32; a++) {
-      const th = a / 32 * Math.PI * 2;
-      px(g, cx + Math.round(Math.cos(th) * 24), cy + Math.round(Math.sin(th) * 11), col);
-      if (a % 4 === 0) px(g, cx + Math.round(Math.cos(th) * 18), cy + Math.round(Math.sin(th) * 8), col);
-    }
-    [[0, -7], [13, 0], [0, 7], [-13, 0]].forEach(([dx, dy], i) => px(g, cx + dx, cy + dy, i === ((t * 2 | 0) % 4) ? '#e8dcff' : '#9a7cf0'));
+    PR.floorSigil(g, cx, cy, 34, t, active ? '#e8dcff' : '#b49aff', '#e8dcff', 3);
+    [[0, -7], [13, 0], [0, 7], [-13, 0]].forEach(([dx, dy], i) => px(g, cx + dx, cy + dy, i === ((t * 2 | 0) % 4) ? '#e8dcff' : col));
     const th = t * (active ? 2.8 : .8), glow = active ? '#f0e8ff' : '#b9a5e8';
     px(g, cx + Math.round(Math.cos(th) * 24), cy + Math.round(Math.sin(th) * 11), glow);
     if (active) px(g, cx + Math.round(Math.cos(th + Math.PI) * 24), cy + Math.round(Math.sin(th + Math.PI) * 11), glow);

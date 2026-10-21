@@ -1792,9 +1792,10 @@
     ash: [['#665c49', '#ad9c79', '#d9cba8'], ['#303b38', '#626f60', '#99a58a']],
   };
   function deskColors(w) {
+    const id = w.a.parent || w.a.id, demon = (wizards.get(w.a.parent) || w).sp.demon;
     const woods = Object.values(DESK_WOODS);
-    const [legs, wood, edge] = woods[hash(w.a.id + ':wood') % woods.length][w.sp.demon ? 1 : 0];
-    return { ...DESK_LABEL_COLORS[w.sp.demon ? 'demon' : 'wizard'], legs, wood, edge, frame: wood, pins: edge };
+    const [legs, wood, edge] = woods[hash(id + ':wood') % woods.length][demon ? 1 : 0];
+    return { ...DESK_LABEL_COLORS[demon ? 'demon' : 'wizard'], legs, wood, edge, frame: wood, pins: edge };
   }
   function drawWorkDesk(d, front, t) {
     const { x, y, w } = d, width = w.sp.sub ? 30 : 48;

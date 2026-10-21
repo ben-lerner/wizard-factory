@@ -136,6 +136,10 @@ window.SP = (() => {
       R(cx - 4, 3 + b, 8, 2, H); R(cx - 4, 5 + b, 1, 6, H); R(cx + 3, 5 + b, 1, 6, HD); R(cx - 5, 11 + b, 10, 1, H);
     } else if (o.hatType === 'cap') {
       R(cx - 2, 3 + b, 4, 1, H); R(cx - 3, 4 + b, 6, 1, H); R(cx - 3, 5 + b, 6, 1, o.trim);
+    } else if (o.hatType === 'bycoket') {
+      R(cx - 4, 3 + b, 6, 2, H); R(cx - 2, 2 + b, 5, 1, H); R(cx + 2, 3 + b, 3, 1, H); P(cx + 5, 4 + b, H);
+      R(cx - 5, 5 + b, 11, 1, HD); R(cx - 4, 4 + b, 3, 1, o.trim); R(cx - 3, 5 + b, 7, 1, o.trim); P(cx + 4, 4 + b, o.trim);
+      P(cx - 3, 3 + b, o.feather); R(cx - 4, 1 + b, 2, 2, o.feather); R(cx - 6, b, 3, 1, o.feather); P(cx - 5, 1 + b, o.feather);
     } else if (o.hatType === 'straw') { // black mage
       R(cx - 7, 5 + b, 14, 1, H); R(cx - 6, 6 + b, 12, 1, HD); R(cx - 3, 4 + b, 6, 1, o.trim);
       R(cx - 3, 2 + b, 6, 2, H); R(cx - 2, 1 + b, 4, 1, H); R(cx, 0 + b, 3, 1, H); P(cx + 3, 1 + b, HD); P(cx + 2, 2 + b, HD);
@@ -204,6 +208,7 @@ window.SP = (() => {
     const job = !sub && free.length && r() < .4 ? pick(r, free) : null;
     if (demon) Object.assign(o, { demon, skin: '#b84a48', beardC: '#241622', robe: '#542238', robeD: '#321424', trim: '#f08a2a' });
     if (job) Object.assign(o, { job, decal: null, beardType: job === 'black' ? 'none' : o.beardType }, JOBS[job][demon ? 1 : 0]);
+    if (!job && hash(id + ':bycoket') % 8 === 0) Object.assign(o, { hatType: 'bycoket', feather: demon ? '#f08a2a' : '#fff0ce' });
     o.skinD = shade(o.skin, .82);
     let name = sub ? (demon ? 'DEMON ' : 'APPRENTICE ') + pick(r, APPRENTICE) : pick(r, N1) + pick(r, N2) + pick(r, N3);
     for (let i = 0; !sub && name.length > 11 && i < 4; i++) name = pick(r, N1) + pick(r, N2) + pick(r, N3);

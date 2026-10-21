@@ -1779,13 +1779,26 @@
       if (s.kind === 'rune') { g.fillRect(Math.round(x) - 2, Math.round(y) - 2, 2, 2); g.fillRect(Math.round(x) + 3, Math.round(y) + 3, 2, 2); }
     }
   }
-  const DESK_COLORS = {
-    wizard: { legs: '#493025', wood: '#986b45', edge: '#c49560', frame: '#94734e', paper: '#d8c294', pins: '#bca16f', text: '#514034' },
-    demon: { legs: '#382334', wood: '#793c55', edge: '#bd7184', frame: '#793c55', paper: '#e3bfc7', pins: '#bd7184', text: '#492737' },
+  const DESK_LABEL_COLORS = {
+    wizard: { paper: '#d8c294', text: '#514034' },
+    demon: { paper: '#e3bfc7', text: '#492737' },
   };
+  const DESK_WOODS = {
+    oak: [['#493025', '#986b45', '#c49560'], ['#382334', '#793c55', '#bd7184']],
+    cherry: [['#522b27', '#a34e40', '#d98369'], ['#361a28', '#702b41', '#b95365']],
+    maple: [['#957346', '#dab77d', '#f5dba5'], ['#574037', '#a17b69', '#d6ac91']],
+    birch: [['#9c8870', '#e0cfac', '#fff0ce'], ['#51414e', '#a18c9b', '#d3bdcc']],
+    walnut: [['#30231e', '#604333', '#937052'], ['#211b29', '#453047', '#80536e']],
+    ash: [['#665c49', '#ad9c79', '#d9cba8'], ['#303b38', '#626f60', '#99a58a']],
+  };
+  function deskColors(w) {
+    const woods = Object.values(DESK_WOODS);
+    const [legs, wood, edge] = woods[hash(w.a.id + ':wood') % woods.length][w.sp.demon ? 1 : 0];
+    return { ...DESK_LABEL_COLORS[w.sp.demon ? 'demon' : 'wizard'], legs, wood, edge, frame: wood, pins: edge };
+  }
   function drawWorkDesk(d, front, t) {
     const { x, y, w } = d, width = w.sp.sub ? 30 : 48;
-    const colors = DESK_COLORS[w.sp.demon ? 'demon' : 'wizard'];
+    const colors = deskColors(w);
     g.save(); g.globalAlpha = d.alpha;
     if (!front) {
       PR.chair(g, x - 7, y - 13, false);
@@ -1793,8 +1806,6 @@
       g.fillStyle = colors.legs; g.fillRect(x - width / 2 + 3, y - 1, 3, 10); g.fillRect(x + width / 2 - 6, y - 1, 3, 10);
       g.fillStyle = colors.wood; g.fillRect(x - width / 2, y - 7, width, 8);
       g.fillStyle = colors.edge; g.fillRect(x - width / 2, y - 7, width, 2);
-      g.fillStyle = '#eee1b5'; g.fillRect(x - 6, y - 6, 10, 5);
-      g.fillStyle = '#795d68'; g.fillRect(x - 4, y - 5, 6, 1);
       const drink = d.active && atDesk(w) && w.order && w.order.stage === 'served' ? w.order.drink.key : null;
       const seed = hash(w.a.id + ':desk');
       if (!d.robbed) PR.deskDecor(g, x, y, width, seed, drink, t);
@@ -1803,7 +1814,7 @@
     g.restore();
   }
   function drawTaskLabel(d) {
-    const colors = DESK_COLORS[d.w.sp.demon ? 'demon' : 'wizard'];
+    const colors = deskColors(d.w);
     const shown = taskLabelLines(d.w);
     if (!shown.length) return;
     const width = Math.max(...shown.map(line => textW(line))) + 8, left = Math.round(d.x - width / 2), top = d.y + 3;

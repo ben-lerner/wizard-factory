@@ -1827,7 +1827,19 @@
     g.restore();
   }
   function drawFloorSigils(t) {
-    for (const [x, y, radius, color] of [[72, 164, 32, '#8ce8ce'], [223, 118, 24, '#a9c7ff'], [430, 220, 34, '#d0adff']]) {
+    g.save();
+    const objects = [...BLOCKERS, ...DESK_FIXTURES, quotaSpace(),
+      ...desks.map(d => deskSpace(d.x, d.y, d.w)),
+      ...TABLES.map(tb => ({ x: tb.x - 18, y: tb.y - 12, w: 36, h: 24 })),
+      ...[...wizards.values(), cat, ...(demonCat.active ? [demonCat] : []), dragon]
+        .map(actor => ({ x: actor.x - 12, y: actor.y - 26, w: 24, h: 29 }))];
+    for (const b of objects) {
+      g.beginPath(); g.rect(-labExtra, 34, VW + labExtra, VH + labDown - 34);
+      g.rect(b.x - 1, b.y - 1, b.w + 2, b.h + 2); g.clip('evenodd');
+    }
+    const sigils = [[72, 164, 32, '#8ce8ce'], [430, 220, 34, '#d0adff'],
+      ...RESOURCE_BALLS.map(ball => [ball.x + 7, ball.y + 21, 12, '#a9c7ff'])];
+    for (const [x, y, radius, color] of sigils) {
       g.save(); g.translate(x, y); g.scale(1, .48);
       g.strokeStyle = color; g.lineWidth = .65; g.globalAlpha = .28;
       for (const r of [radius, radius - 5]) { g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); g.stroke(); }
@@ -1838,6 +1850,7 @@
       }
       g.restore();
     }
+    g.restore();
   }
   function draw(t) {
     g.clearRect(-labExtra, 0, VW + labExtra, VH + labDown);

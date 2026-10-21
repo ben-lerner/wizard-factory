@@ -189,6 +189,7 @@
   };
   const deskBounds = (x, y) => ({ x: x - 32, y: y - 30, w: 64, h: 54 });
   function taskLabelLines(w) {
+    if (w.sp.sub) return [];
     const title = String(w.a.title || w.a.quest || w.a.project || w.sp.name).toUpperCase();
     let lines = title.match(/.{1,12}(?:\s|$)|.{1,12}/g)?.map(line => line.trim()).filter(Boolean) || ['UNTITLED'];
     if (lines.length > 5) {
@@ -1804,6 +1805,7 @@
   function drawTaskLabel(d) {
     const colors = DESK_COLORS[d.w.sp.demon ? 'demon' : 'wizard'];
     const shown = taskLabelLines(d.w);
+    if (!shown.length) return;
     const width = Math.max(...shown.map(line => textW(line))) + 8, left = Math.round(d.x - width / 2), top = d.y + 3;
     g.save(); g.globalAlpha = d.alpha;
     g.fillStyle = colors.frame; g.fillRect(left, top, width, shown.length * 8 + 3);

@@ -1826,9 +1826,23 @@
     shown.forEach((line, i) => drawText(g, Math.round(d.x - textW(line) / 2), top + 3 + i * 8, line, colors.text));
     g.restore();
   }
+  function drawFloorSigils(t) {
+    for (const [x, y, radius, color] of [[72, 164, 32, '#8ce8ce'], [223, 118, 24, '#a9c7ff'], [430, 220, 34, '#d0adff']]) {
+      g.save(); g.translate(x, y); g.scale(1, .48);
+      g.strokeStyle = color; g.lineWidth = .65; g.globalAlpha = .28;
+      for (const r of [radius, radius - 5]) { g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); g.stroke(); }
+      g.rotate(t * .12);
+      for (let i = 0; i < 12; i++) {
+        g.rotate(Math.PI / 6);
+        g.beginPath(); g.moveTo(radius - 3, -2); g.lineTo(radius, 2); g.lineTo(radius + 3, -2); g.stroke();
+      }
+      g.restore();
+    }
+  }
   function draw(t) {
     g.clearRect(-labExtra, 0, VW + labExtra, VH + labDown);
     g.drawImage(bg, -labExtra, 0);
+    drawFloorSigils(t);
     for (let i = 0; i < 5; i++) PR.window(g, WIN_X[i], 8, t, i * 7 + 3);
     drawLightningWindow(g, t);
     PR.torch(g, 24, 14, t); PR.torch(g, 240, 14, t + .5); PR.torch(g, 282, 14, t + .2); PR.torch(g, 444, 14, t + .8);

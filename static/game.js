@@ -1843,6 +1843,23 @@
     PR.circle(g, 404, 206, t, occupied('circle'));
     g.restore();
   }
+  // Clodex's drifting, twinkling motes use the scene clock and expand with the lab.
+  function drawStars(t) {
+    g.save();
+    for (let i = 0; i < 36; i++) {
+      const x = 14 - labExtra + ((i * 97.3 + Math.sin(t * .25 + i) * 9) % (450 + labExtra));
+      const y = 42 + ((i * 31.7 - t * (2 + i % 3)) % (210 + labDown) + 210 + labDown) % (210 + labDown);
+      g.globalAlpha = .15 + (Math.sin(t * 1.3 + i * 2) + 1) * .22;
+      g.fillStyle = ['#e8c77b', '#a9c7ff', '#8ce8ce'][i % 3];
+      g.fillRect(Math.round(x), Math.round(y), 1, 1);
+      if (i % 9 === 0) {
+        g.globalAlpha *= .4;
+        g.fillRect(Math.round(x) - 2, Math.round(y), 5, 1);
+        g.fillRect(Math.round(x), Math.round(y) - 2, 1, 5);
+      }
+    }
+    g.restore();
+  }
   function draw(t) {
     g.clearRect(-labExtra, 0, VW + labExtra, VH + labDown);
     g.drawImage(bg, -labExtra, 0);
@@ -1944,6 +1961,7 @@
       const label = ball.origin === 'local' ? 'LOC' : 'REM', x = ball.x + 1, y = ball.y + 25;
       drawText(g, x, y, label, '#c8c4dc');
     }
+    drawStars(t);
     if (!wizards.size) {
       g.fillStyle = 'rgba(12,9,20,.55)'; g.fillRect(90, 110, 300, 44);
       drawText(g, 240 - textW('THE TOWER SLEEPS', 2) / 2, 120, 'THE TOWER SLEEPS', '#cdc6e0', 2);

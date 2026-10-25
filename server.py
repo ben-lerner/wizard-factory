@@ -37,7 +37,7 @@ SETTINGS = Path.home() / '.claude' / 'settings.json'
 HOOK_MARK = '#wizard-factory'
 HOOK_EVENTS = ['Notification', 'Stop', 'UserPromptSubmit', 'SessionStart', 'SessionEnd']
 SCAN_SEC, FRESH_SEC, TAIL_BYTES = 1.0, 3 * 3600, 512 * 1024
-REMOTE_SCAN_SEC, REMOTE_STALE_SEC, REMOTE_USAGE_SEC = 3.0, 15, 60
+REMOTE_SCAN_SEC, REMOTE_USAGE_SEC = 3.0, 60
 QUOTA_TIMEOUT = 600
 RESPONDING_SEC, IDLE_SEC, GONE_SEC = 6, 15 * 60, 45 * 60
 ABANDON_SEC, SUB_GONE_SEC = 2 * 3600, 150
@@ -49,7 +49,7 @@ MIME = {'.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.pn
 FILES = {}      # path -> FileState
 OVERRIDES = {}  # session_id -> latest hook event {event, ts, msg}
 DEAD = {}       # session_id -> epoch of SessionEnd hook
-REMOTE_AGENTS, REMOTE_QUOTAS, REMOTE_SEEN = [], [], 0
+REMOTE_AGENTS, REMOTE_QUOTAS = [], []
 LOCAL_QUOTAS = []
 TIMER_PROMPTS = []
 CPU_USAGE, CPU_TIMES = None, None
@@ -780,8 +780,7 @@ def state_payload(demo):
         else:
             ags = [{**fs.payload(), 'origin': 'local'} for fs in FILES.values()
                    if fs.status and fs.status != 'gone']
-            if now - REMOTE_SEEN < REMOTE_STALE_SEC:
-                ags += REMOTE_AGENTS
+            ags += REMOTE_AGENTS
         quotas = ([{'id': 'demo-local', 'name': 'Espresso', 'provider': 'codex', 'origins': ['local'],
                     'period': 'weekly', 'left': 81, 'resets_at': now + 5.1 * 86400, 'resets_left': 2},
                    {'id': 'demo-remote', 'name': 'Mirasume', 'provider': 'codex', 'origins': ['remote'],
@@ -801,7 +800,7 @@ def state_payload(demo):
                                  'memoryUsed': 80 * 2**30, 'memoryTotal': 128 * 2**30,
                                  'diskUsed': 900 * 2**30, 'diskTotal': 1000 * 2**30}}
                      if demo else {'local': LOCAL_RESOURCES,
-                                   'remote': REMOTE_RESOURCES if now - REMOTE_SEEN < REMOTE_STALE_SEC else {}})
+                                   'remote': REMOTE_RESOURCES})
     return {'now': now, 'demo': bool(demo), 'cpu': 82 if demo else CPU_USAGE, 'resources': resources, 'quotas': quotas,
             'timerPrompts': list(TIMER_PROMPTS),
             'agents': sorted(ags, key=lambda a: a['started'] or 0)}
@@ -980,13 +979,13 @@ def main():
         threading.Thread(target=local_loop, daemon=True).start()
         if a.remote_host:
             def remote_loop():
-                global REMOTE_AGENTS, REMOTE_SEEN, REMOTE_RESOURCES
+                global REMOTE_AGENTS, REMOTE_RESOURCES
                 while True:
                     t = time.time()
                     try:
                         agents, _, resources = scan_remote(a.remote_host)
                         with LOCK:
-                            REMOTE_AGENTS, REMOTE_SEEN = agents, time.time()
+                            REMOTE_AGENTS = agents
                             REMOTE_RESOURCES = {**resources, 'host': a.remote_host}
                     except Exception:
                         pass

@@ -75,8 +75,8 @@ from top to bottom, filled in red, dark blue, and green against light blue empty
 glass. `LOC` and `REM` identify the machines. Hover for the percentage, logical
 core count, or used/total capacity. Memory use excludes reclaimable cache; disk
 usage covers the filesystem containing the machine's home directory. Above 75%
-the crystals flare and throw sparks. Remote readings become unavailable after
-15 seconds without a successful poll.
+the crystals flare and throw sparks. If the remote machine is temporarily unreachable,
+its agents and crystal readings stay at their last known state until a successful poll.
 
 The laboratory's usage bottles show the same configured Codex accounts as the
 `token-quota` CLI. Blue `LOC` and red `REM` labels mark the accounts

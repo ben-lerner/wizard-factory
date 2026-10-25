@@ -97,12 +97,22 @@ class CpuUsageTest(unittest.TestCase):
         with patch.object(server.subprocess, 'run', return_value=proc):
             self.assertEqual(server.scan_remote('mage-tower')[2], resources)
 
-    def test_remote_resources_expire_with_remote_polling(self):
-        with patch.object(server, 'REMOTE_RESOURCES', {'cpu': 40}), patch.object(server, 'REMOTE_SEEN', 100), \
-                patch.object(server.time, 'time', return_value=101):
-            self.assertEqual(server.state_payload(None)['resources']['remote'], {'cpu': 40})
-        with patch.object(server, 'REMOTE_RESOURCES', {'cpu': 40}), patch.object(server, 'REMOTE_SEEN', 0):
-            self.assertEqual(server.state_payload(None)['resources']['remote'], {})
+    def test_remote_snapshot_survives_polling_gaps(self):
+        agents = [{'id': 'mage-tower:agent', 'started': 100, 'origin': 'remote'}]
+        with patch.object(server, 'FILES', {}), patch.object(server, 'REMOTE_AGENTS', agents), \
+                patch.object(server, 'REMOTE_RESOURCES', {'cpu': 40}):
+            for now in (101, 120, 3700):
+                with self.subTest(now=now), patch.object(server.time, 'time', return_value=now):
+                    state = server.state_payload(None)
+                    self.assertEqual(state['agents'], agents)
+                    self.assertEqual(state['resources']['remote'], {'cpu': 40})
+
+    def test_remote_snapshot_reflects_successful_empty_scan(self):
+        with patch.object(server, 'FILES', {}), patch.object(server, 'REMOTE_AGENTS', []), \
+                patch.object(server, 'REMOTE_RESOURCES', {'cpu': 10}):
+            state = server.state_payload(None)
+        self.assertEqual(state['agents'], [])
+        self.assertEqual(state['resources']['remote'], {'cpu': 10})
 
     def test_reads_macos_cpu_counters_without_spawning_top(self):
         readings = iter([(100, 50, 850, 0), (110, 60, 930, 0)])
@@ -322,8 +332,7 @@ class QuotaTest(unittest.TestCase):
 
     def test_quota_cache_survives_agent_polling_outage(self):
         cached = [{'id': 'a', 'name': 'Listed', 'origins': ['remote'], 'left': 50}]
-        with patch.object(server, 'REMOTE_QUOTAS', cached), patch.object(server, 'LOCAL_QUOTAS', []), \
-                patch.object(server, 'REMOTE_SEEN', 0):
+        with patch.object(server, 'REMOTE_QUOTAS', cached), patch.object(server, 'LOCAL_QUOTAS', []):
             self.assertEqual(server.state_payload(None)['quotas'], cached)
 
     def test_local_and_remote_account_merge_keeps_name_and_both_origins(self):

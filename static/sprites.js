@@ -611,8 +611,14 @@ window.SP = (() => {
     rc(g, x + 3, y + 12, 8, 7, '#5e6478'); rc(g, x + 9, y + 12, 2, 7, '#4c5164');
     rc(g, x + 1, y + 19, 12, 3, '#4c5164'); rc(g, x + 2, y + 10, 10, 2, '#6c7390');
     const value = Math.max(0, Math.min(100, Number(usage) || 0)), rows = [6, 8, 10, 10, 10, 10, 8, 6];
-    rows.forEach((width, i) => rc(g, x + 7 - width / 2, y + 1 + i, width, 1,
-      i >= rows.length - Math.ceil(rows.length * value / 100) ? (value > 75 ? hotColor : color) : glass));
+    let remaining = rows.reduce((sum, width) => sum + width, 0) * value / 100;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const width = rows[i], left = x + 7 - width / 2, top = y + 1 + i;
+      const height = Math.min(1, remaining / width);
+      rc(g, left, top, width, 1, glass);
+      if (height > 0) rc(g, left, top + 1 - height, width, height, value > 75 ? hotColor : color);
+      remaining = Math.max(0, remaining - width);
+    }
     const pulse = (t * 2 | 0) % 2;
     rc(g, x + 5, y + 3, 1 + pulse, 1, value > 75 ? flare : glint);
     if (value > 75 && (t * 5 | 0) % 2) {

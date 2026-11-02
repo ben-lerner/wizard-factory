@@ -835,6 +835,23 @@ test('crystal fills red and flares above 75 percent cpu', () => {
   assert.ok(fills.some(x => x.color === '#ffe89a'));
 });
 
+test('crystal colored area matches usage across the full range', () => {
+  const s = scene(), fills = [];
+  s.ctx.fillRect = (...args) => fills.push({ args, color: s.ctx.fillStyle });
+  for (const usage of [-10, 0, 1, 5, 10, 25, 33.3, 50, 75, 80, 99, 100, 110]) {
+    fills.length = 0;
+    s.SP.PR.crystal(s.ctx, 0, 0, 0, usage);
+    const liquid = fills.filter(f => ['#d84a5f', '#ff4a4a'].includes(f.color));
+    const area = liquid.reduce((sum, { args: [, , w, h] }) => sum + w * h, 0);
+    assert.ok(Math.abs(area / 68 * 100 - Math.max(0, Math.min(100, usage))) < 1e-10,
+      `colored area matches ${usage}% usage`);
+    for (const { args: [x, y, w, h] } of liquid) {
+      assert.ok(y >= 1 && y + h <= 9 && h > 0 && h <= 1);
+      assert.equal(x + w / 2, 7);
+    }
+  }
+});
+
 test('pixel font renders percent signs instead of question marks', () => {
   const s = scene(), render = text => {
     s.calls.length = 0; s.SP.drawText(s.ctx, 0, 0, text, '#fff');

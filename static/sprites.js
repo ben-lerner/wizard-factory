@@ -632,6 +632,7 @@ window.SP = (() => {
       [2, 2, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4];
     const cx = x + (big ? 8 : 4), top = y + 3, bottom = top + rows.length - 1;
     const fills = Array.isArray(fill) ? fill : [{ value: fill, color }], interior = rows.length - 2;
+    const fillRows = value => value > 0 ? Math.max(1, Math.round(interior * value / 100)) : 0;
     let used = 0;
     const ranges = fills.map(part => {
       const start = used, value = Math.max(0, Number(part.value) || 0);
@@ -658,7 +659,7 @@ window.SP = (() => {
       rc(g, cx - half, yy, half * 2 + 1, 1, edge ? '#30364a' : '#778096');
       if (!edge) {
         const fromBottom = bottom - yy;
-        const liquid = ranges.find(([start, end]) => fromBottom > Math.round(interior * start / 100) && fromBottom <= Math.round(interior * end / 100));
+        const liquid = ranges.find(([start, end]) => fromBottom > fillRows(start) && fromBottom <= fillRows(end));
         if (liquid) rc(g, cx - half + 1, yy, half * 2 - 1, 1, liquid[2]);
       }
     });

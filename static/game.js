@@ -674,16 +674,30 @@
     if (ws.some(w => !w || w.blast || w.path.length)) return;
     ws.forEach(w => { [w.x, w.y] = w.home; });
     if (game.rally && t < game.rally.start + game.rally.duration) return;
-    const hitter = game.rally ? game.rally.receiver : 0, receiver = 1 - hitter;
+    if (game.rally?.winner !== undefined) {
+      const r = game.rally;
+      if (!r.scored) {
+        game.score ||= [0, 0];
+        game.score[r.winner]++;
+        r.scored = true;
+      }
+      if (t < r.start + r.duration + 1.4) return;
+    }
+    const hitter = game.rally ? (game.rally.winner ?? game.rally.receiver) : 0, receiver = 1 - hitter;
     const w = ws[hitter], other = ws[receiver], seat = table.seats[receiver];
     const shots = SPORT_SHOTS[game.type], shot = shots[(game.shotIndex || 0) % shots.length];
     game.shotIndex = (game.shotIndex || 0) + 1;
     const next = shots[game.shotIndex % shots.length];
+    const exchanges = (game.rally?.winner === undefined ? game.rally?.exchanges || 0 : 0) + 1;
+    const power = shot.name === 'slam' || shot.name === 'smash';
+    const winner = exchanges >= 6 && (power || tableR() < .22 || exchanges >= 10) ? hitter : undefined;
     const x = seat[0] + (tableR() * 8 - 4), y = Math.max(seat[1] + (tableR() * 20 - 10), shot.name === 'smash' ? w.y - 8 : -Infinity);
     other.home = [x, y]; other.path = route(other.x, other.y, x, y, WIZ_R);
     game.rally = { start: t, duration: shot.duration, receiver, shot: shot.name,
       from: [w.x + (hitter ? -10 : 10), w.y - (shot.name === 'smash' ? 28 : 14)],
-      to: [x + (receiver ? -10 : 10), y - (game.type === 'badminton' && next.name === 'smash' ? 28 : 14)],
+      to: winner === undefined ? [x + (receiver ? -10 : 10), y - (game.type === 'badminton' && next.name === 'smash' ? 28 : 14)] :
+        [x + (receiver ? 14 : -14), y + (game.type === 'badminton' ? 5 : -6)],
+      winner, exchanges,
       hits: (game.rally ? game.rally.hits : 0) + 1 };
     game.players[hitter].hitAt = t;
   }
@@ -718,7 +732,7 @@
     for (const [i, p] of game.players.entries()) {
       const w = wizards.get(p.id);
       if (!w || w.blast) continue;
-      const side = i ? -1 : 1, returning = game.rally && game.rally.receiver === i;
+      const side = i ? -1 : 1, returning = game.rally && game.rally.winner === undefined && game.rally.receiver === i;
       let swing = Math.max(0, 1 - (t - (p.hitAt ?? -1)) / .22);
       let shot = game.rally && game.rally.receiver === 1 - i ? game.rally.shot : 'normal';
       if (badminton && returning && SPORT_SHOTS.badminton[game.shotIndex % SPORT_SHOTS.badminton.length].name === 'smash') {
@@ -737,6 +751,33 @@
     }
     if (!game.rally) return;
     const [x, y] = rallyPosition(game, t), r = game.rally;
+    if (r.winner !== undefined) {
+      const power = r.shot === 'slam' || r.shot === 'smash', color = power ? '#ffd45c' : '#7df9ff';
+      const landed = t - r.start - r.duration;
+      g.save(); g.strokeStyle = color; g.fillStyle = color; g.lineWidth = power ? 3 : 2;
+      if (landed < 0) {
+        g.beginPath();
+        for (let i = 0; i <= 6; i++) {
+          const [tx, ty] = rallyPosition(game, Math.max(r.start, t - .15 + i * .025));
+          if (i) g.lineTo(tx, ty); else g.moveTo(tx, ty);
+        }
+        g.stroke();
+        g.shadowColor = color; g.shadowBlur = power ? 12 : 8;
+        g.fillRect(x - 3, y - 3, 6, 6);
+      } else {
+        const fade = Math.max(0, 1 - landed / 1.4), radius = 5 + Math.min(landed, .5) * 28;
+        g.globalAlpha = fade;
+        for (let i = 0; i < 8; i++) {
+          const angle = i * Math.PI / 4;
+          g.beginPath(); g.moveTo(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius);
+          g.lineTo(x + Math.cos(angle) * (radius + 5), y + Math.sin(angle) * (radius + 5)); g.stroke();
+        }
+        const label = power ? 'SLAM!' : 'POINT!', score = (game.score || [0, 0]).join(' - ');
+        drawText(g, x - textW(label) / 2, y - 18 - landed * 6, label, color);
+        drawText(g, COURT.x - textW(score) / 2, COURT.y - 48, score, color);
+      }
+      g.restore();
+    }
     g.save(); g.translate(Math.round(x), Math.round(y));
     if (badminton) {
       const [nx, ny] = rallyPosition(game, Math.min(t + .02, r.start + r.duration));

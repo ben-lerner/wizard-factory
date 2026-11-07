@@ -17,7 +17,7 @@ function scene(random = Math.random) {
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, showResourceTip, RESOURCE_BALLS, ballReading, pickAt, usageProbe, castSpell, castRay, updateBattle, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawCourt, updateTableGames, updateBoardGame, drawTableGame, playGo, gameName, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, showResourceTip, RESOURCE_BALLS, ballReading, pickAt, usageProbe, castSpell, castRay, updateBattle, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawRally, drawCourt, updateTableGames, updateBoardGame, drawTableGame, playGo, gameName, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
@@ -413,6 +413,41 @@ for (const type of ['badminton', 'pingpong']) {
     s.calls.length = 0;
     s.draw(12);
     assert.ok(s.calls.some(c => c[0] === 'fillRect' && c.slice(1).every(Number.isFinite)));
+  });
+}
+for (const type of ['badminton', 'pingpong']) {
+  test(`${type} awards points once, celebrates winners, and serves again after a pause`, () => {
+    const s = racketGame(type), game = s.COURT.game, winners = new Set(), shots = new Set();
+    let points = 0;
+    for (let i = 0; i < 160; i++) {
+      const r = game.rally, end = r.start + r.duration;
+      for (const w of s.wizards.values()) { [w.x, w.y] = w.home; w.path = []; }
+      if (r.winner !== undefined) {
+        assert.ok(r.exchanges >= 6 && r.exchanges <= 10);
+        winners.add(r.winner); shots.add(r.shot);
+        s.calls.length = 0;
+        s.drawRally(end - .05);
+        assert.ok(s.calls.some(c => c[0] === 'lineTo'), 'winning projectile leaves a trail');
+        s.updateRally(s.COURT, end);
+        points++;
+        assert.equal(game.score[0] + game.score[1], points);
+        s.updateRally(s.COURT, end + .5);
+        assert.equal(game.rally, r, 'pause before the next serve');
+        assert.equal(game.score[0] + game.score[1], points, 'a point cannot score twice');
+        s.calls.length = 0;
+        s.drawRally(end + .2);
+        const label = r.shot === 'slam' || r.shot === 'smash' ? 'SLAM!' : 'POINT!';
+        assert.ok(s.calls.some(c => c[0] === 'drawText' && c[3] === label));
+        assert.ok(s.calls.some(c => c[0] === 'drawText' && c[3] === game.score.join(' - ')));
+        s.updateRally(s.COURT, end + 1.4);
+        assert.equal(game.rally.receiver, 1 - r.winner, 'winner serves the next point');
+        assert.equal(game.rally.exchanges, 1);
+      } else s.updateRally(s.COURT, end);
+    }
+    assert.ok(points >= 10);
+    assert.equal(winners.size, 2, 'both players can score');
+    assert.ok(shots.has(type === 'pingpong' ? 'slam' : 'smash'));
+    assert.ok([...shots].some(shot => shot !== 'slam' && shot !== 'smash'));
   });
 }
 test('racket games end and release the opponent when a wizard resumes work', () => {

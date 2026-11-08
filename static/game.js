@@ -150,7 +150,7 @@
   // ---------- entities ----------
   const wizards = new Map();
   const desks = [], RITUALS = [], HAUNTED_TODOS = [];
-  let sceneTime = 0;
+  let sceneTime = 0, initialized = false;
   const atDesk = w => w.desk && !w.path.length && !w.leaving && !w.blast;
   let sel = null, hover = null, cafeChat = null, nextCafeChat = 10;
   let offline = false, isDemo = false, serverSkew = 0, lastData = { agents: [] };
@@ -270,6 +270,7 @@
       while (!(pos = deskPosition([d.x, d.y], occupied, steps, d.w))) steps++;
       [d.x, d.y] = pos; d.w.home = pos;
       if (d.w.path.length) reroute.push(d.w);
+      else if (initialized) [d.w.x, d.w.y] = pos;
       occupied.push(deskSpace(...pos, d.w));
     }
     if (steps > labSteps) sizeLab(steps);
@@ -290,7 +291,7 @@
     else if (i >= 0) { st.occ[i] = w.a.id; w.spotI = i; pos = st.spots[i]; }
     else pos = clampZone(st.spots[0][0] + ((w.r() * 56 - 28) | 0), st.spots[0][1] + ((w.r() * 22 - 6) | 0));
     w.station = key; w.home = pos;
-    pathTo(w, pos[0], pos[1]);
+    if (initialized) pathTo(w, pos[0], pos[1]);
     w.emote = emoteFor(w);
   }
   function placeFor(w) {
@@ -328,7 +329,7 @@
               station: null, spotI: -1, home: null, order: null, game: null, castAt: 0, blast: null, leaving: false,
               stuckAt: 0, lastX: 436, lastY: 250, alpha: 0, ph: (hash(a.id) % 100) / 16, r: rng(hash(a.id) ^ 0xbeef), emote: null };
         wizards.set(a.id, w);
-        sparkleAt(436, 252);
+        if (initialized) sparkleAt(436, 252);
         w.a = a; retarget(w);
         continue;
       }
@@ -348,6 +349,15 @@
     }
     for (const [id, w] of wizards) if (!seen.has(id) && !w.leaving) { leaveGameForWizard(w, 0); w.leaving = true; release(w); w.station = null; pathTo(w, 436, 250); w.path.push([436, 266]); }
     settleDesks();
+    if (!initialized) {
+      for (const w of wizards.values()) {
+        const pos = w.desk || !blocked(...w.home, WIZ_R) ? w.home : gridOpenNear(...w.home, WIZ_R);
+        [w.x, w.y] = pos;
+        w.lastX = w.x; w.lastY = w.y; w.alpha = 1;
+        if (w.desk) w.desk.alpha = 1;
+      }
+      initialized = true;
+    }
   }
 
   // ---------- cat & barista ----------

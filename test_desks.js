@@ -21,6 +21,40 @@ function scene(random = Math.random) {
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
+test('startup agents are visible at their stations without entrance effects', () => {
+  const s = scene(), agents = ['working', 'thinking', 'responding', 'waiting', 'attention', 'idle', 'done'].map(status => agent(status, status));
+  agents.push(agent('child', 'working', 'working'));
+  s.reconcile({ agents });
+  for (const w of s.wizards.values()) {
+    assert.equal(w.alpha, 1);
+    assert.equal(w.walk, false);
+    assert.equal(w.path.length, 0);
+    assert.equal(s.blocked(w.x, w.y, 5), false);
+    if (w.desk) {
+      assert.deepEqual([w.x, w.y], [w.desk.x, w.desk.y]);
+      assert.equal(w.desk.alpha, 1);
+    } else assert.deepEqual([w.x, w.y], Array.from(w.home));
+  }
+  assert.equal(s.PARTS.length, 0);
+  assert.equal(s.SPELLS.length, 0);
+});
+test('later arrivals and station changes still animate after startup', () => {
+  for (const agents of [[], [agent('existing')]]) {
+    const s = scene();
+    s.reconcile({ agents });
+    s.reconcile({ agents: [...agents, agent('arrival')] });
+    const w = s.wizards.get('arrival');
+    assert.equal(w.alpha, 0);
+    assert.ok(w.path.length || s.SPELLS.some(spell => spell.kind === 'teleport'));
+    assert.ok(s.PARTS.length);
+    if (agents.length) {
+      s.reconcile({ agents: [agent('existing', 'waiting'), agent('arrival')] });
+      const existing = s.wizards.get('existing');
+      assert.equal(existing.station, 'cafe');
+      assert.ok(existing.path.length || s.SPELLS.some(spell => spell.kind === 'teleport'));
+    }
+  }
+});
 test('duels recruit only each fighter’s apprentices', () => {
   const s = scene(), agents = [agent('wizard'), agent('demon'), agent('bystander'), agent('w-child', 'working', 'wizard'),
     agent('d-child', 'working', 'demon'), agent('other-child', 'working', 'bystander')];

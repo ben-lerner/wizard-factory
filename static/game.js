@@ -1159,7 +1159,7 @@
   function drawUsageProbes(t) {
     for (const v of usageProbes()) {
       const q = v.q, color = v.color;
-      PR.quotaVat(g, v.x, v.y, q.tier === 10 ? 'half' : 'vat', v.fills || (q.left ?? 0), color, t);
+      PR.quotaVat(g, v.x, v.y, q.tier == null || q.tier >= 20 ? 'vat' : q.tier >= 5 ? 'half' : 'small', v.fills || (q.left ?? 0), color, t);
       const unavailable = q.error || q.left == null;
       if (unavailable || q.left === 0) {
         const cy = Math.round(v.y + 14 + Math.sin(t * 2 + v.i) * 2);

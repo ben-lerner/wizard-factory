@@ -628,9 +628,9 @@ window.SP = (() => {
   };
 
   PR.quotaVat = (g, x, y, shape, fill, color, t) => {
-    const big = shape !== 'thin', rows = big ? [3, 3, 4, 6, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 6, 5] :
-      [2, 2, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4];
-    const cx = x + (big ? 8 : 4), top = y + 3, bottom = top + rows.length - 1;
+    const rows = shape === 'small' ? [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2] :
+      [3, 3, 4, 6, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 6, 5];
+    const cx = x + 8, bottom = y + 24, top = bottom - rows.length + 1, neckY = top - 3;
     const fills = Array.isArray(fill) ? fill : [{ value: fill, color }], interior = rows.length - 2;
     const fillRows = value => value > 0 ? Math.max(1, Math.round(interior * value / 100)) : 0;
     let used = 0;
@@ -655,7 +655,7 @@ window.SP = (() => {
     }
     rows.forEach((half, iy) => {
       const yy = top + iy, edge = iy === 0 || iy === rows.length - 1;
-      if (shape === 'vat' || shape === 'half') half = Math.min(half, shape === 'half' ? 3 : 6);
+      half = Math.min(half, { vat: 6, half: 3 }[shape] ?? half);
       rc(g, cx - half, yy, half * 2 + 1, 1, edge ? '#30364a' : '#778096');
       if (!edge) {
         const fromBottom = bottom - yy;
@@ -663,9 +663,9 @@ window.SP = (() => {
         if (liquid) rc(g, cx - half + 1, yy, half * 2 - 1, 1, liquid[2]);
       }
     });
-    const neck = shape === 'half' ? 2 : big ? 4 : 3;
-    rc(g, cx - neck, y, neck * 2 + 1, 2, '#4c5164');
-    rc(g, cx - neck + 1, y + 2, neck * 2 - 1, 1, '#9aa3b8');
+    const neck = { half: 2, small: 1 }[shape] ?? 4;
+    rc(g, cx - neck, neckY, neck * 2 + 1, 2, '#4c5164');
+    rc(g, cx - neck + 1, neckY + 2, neck * 2 - 1, 1, '#9aa3b8');
     if (total > 2) px(g, cx - 2 + ((t * 2 + x) % 3 | 0), bottom - Math.max(1, Math.round((rows.length - 3) * total / 100)), '#f0ecff');
   };
 

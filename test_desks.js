@@ -299,7 +299,7 @@ test('additional quota accounts render distinct bottles and remain hoverable', (
     });
   }
 });
-test('each account pairs Claude and Fable in one cylinder, half-width at 10x', () => {
+test('each account pairs Claude and Fable in one cylinder sized by plan tier', () => {
   const s = scene(), bottles = [];
   s.SP.PR.quotaVat = (g, x, y, shape, fill, color) => bottles.push({ x, y, shape, fill, color });
   const row = (account, model, tier, left, origins) => ({ id: `claude:${account} ${model}`, name: `${account} ${model}`,
@@ -307,10 +307,11 @@ test('each account pairs Claude and Fable in one cylinder, half-width at 10x', (
   s.setData({ quotas: [
     row('Espresso', 'Claude', 10, 100, ['local']), row('Espresso', 'Fable', 10, 90, ['remote']),
     row('Mirasume', 'Claude', 20, 40, []), row('Mirasume', 'Fable', 20, 100, []),
+    row('Standard', 'Claude', 1, 50, []), row('Standard', 'Fable', 1, 100, []),
   ] });
   s.drawUsageProbes(0);
-  assert.deepEqual(bottles.map(b => b.shape), ['half', 'vat']);
-  assert.deepEqual(bottles.map(b => [...b.fill].map(part => part.value)), [[45, 55], [40, 0]]);
+  assert.deepEqual(bottles.map(b => b.shape), ['half', 'vat', 'small']);
+  assert.deepEqual(bottles.map(b => [...b.fill].map(part => part.value)), [[45, 55], [40, 0], [50, 0]]);
   assert.notEqual(bottles[0].fill[0].color, bottles[0].fill[1].color);
   const combined = s.usageProbe('usage:claude:Espresso Claude');
   assert.equal(combined.q.name, 'Espresso');

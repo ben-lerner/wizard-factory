@@ -233,7 +233,8 @@ def account_quotas(listed):
                                    'claude:active' if r['name'] == 'Claude' else 'claude:' + r.get('id', r['name']),
                              'origins': ['local'] if home == claude_home() or
                                         (active_claude and identity == active_claude) else []})
-    return [{'id': r['id'], **quota_label(r['name'], r['provider']), 'provider': r['provider'],
+    return [{'id': r['id'], **quota_label(r['name'], r['provider']),
+             **({'tier': r['planTier']} if r.get('planTier') else {}), 'provider': r['provider'],
              'period': 'weekly', 'origins': r['origins'],
              'left': max(0, min(100, 100 - r['weeklyUsedPercent'])) if r['weeklyUsedPercent'] is not None else None,
              'resets_at': r['weeklyResetsAt'], 'reset_detail': r.get('weeklyResetDetail'),

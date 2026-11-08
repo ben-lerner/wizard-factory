@@ -782,9 +782,6 @@
           g.beginPath(); g.moveTo(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius);
           g.lineTo(x + Math.cos(angle) * (radius + 5), y + Math.sin(angle) * (radius + 5)); g.stroke();
         }
-        const score = (game.score || [0, 0]).join(' - ');
-        if (power) drawText(g, x - textW('SLAM!') / 2, y - 18 - landed * 6, 'SLAM!', color);
-        drawText(g, COURT.x - textW(score) / 2, COURT.y - 48, score, color);
       }
       g.restore();
     }

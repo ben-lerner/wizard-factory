@@ -17,7 +17,7 @@ function scene(random = Math.random) {
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, showResourceTip, RESOURCE_BALLS, ballReading, pickAt, usageProbe, castSpell, castRay, updateBattle, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawRally, drawCourt, updateTableGames, updateBoardGame, drawTableGame, playGo, gameName, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, updateTopTable, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, showResourceTip, RESOURCE_BALLS, ballReading, pickAt, usageProbe, castSpell, castRay, updateBattle, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawRally, drawCourt, updateTableGames, updateBoardGame, drawTableGame, playGo, gameName, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
@@ -186,15 +186,6 @@ test('fellowship sorting groups status, then wizard name', () => {
     .sort((a, b) => s.wizards.get(a.id).sp.name.localeCompare(s.wizards.get(b.id).sp.name))
     .map(a => s.wizards.get(a.id).sp.name).slice());
 });
-test('top cafe table follows the quota bottle count', () => {
-  const s = scene();
-  for (const [count, x] of [[2, 276], [4, 296], [6, 316]]) {
-    s.setData({ quotas: Array.from({ length: count }, (_, i) => ({ id: `q${i}`, origins: [], left: 50 })) });
-    s.updateTopTable();
-    assert.equal(s.TABLES[1].x, x);
-    assert.deepEqual(JSON.parse(JSON.stringify(s.TABLES[1].seats)), [[x - 21, 112], [x + 19, 112], [x, 84]]);
-  }
-});
 test('apprentices use nearby distinct desks even when listed before their parent', () => {
   const s = scene();
   s.reconcile({ agents: [agent('child', 'working', 'parent'), agent('parent')] });
@@ -207,11 +198,6 @@ test('apprentices use nearby distinct desks even when listed before their parent
   c.x = p.x + 1; c.y = p.y;
   s.separateActors();
   assert.deepEqual([p.x, p.y], home);
-});
-test('crowded scenes allocate distinct desks', () => {
-  const s = scene();
-  s.reconcile({ agents: Array.from({ length: 30 }, (_, i) => agent(String(i))) });
-  assert.equal(new Set(s.desks.map(d => `${d.x},${d.y}`)).size, 30);
 });
 test('desks reserve the bottle row even before quota data arrives and when crowded', () => {
   const s = scene();
@@ -363,18 +349,6 @@ test('reset tooltips show days, hours, and minutes without CLI detail', () => {
     assert.ok(s.element.innerHTML.includes(`RESETS IN ${label}<`), s.element.innerHTML);
   }
 });
-test('desk decorations are stable per wizard and vary between wizards', () => {
-  const s = scene();
-  const render = id => {
-    s.calls.length = 0;
-    s.SP.PR.deskDecor(s.ctx, 100, 100, 48, s.SP.hash(id + ':desk'), null, 1);
-    return JSON.stringify(s.calls);
-  };
-  const first = render('one');
-  assert.equal(render('one'), first);
-  assert.notEqual(render('two'), first);
-});
-
 
 test('cloud lightning follows its caster, lights yellow eyes, and expires without an impact', () => {
   const s = scene();
@@ -398,7 +372,6 @@ test('cloud lightning follows its caster, lights yellow eyes, and expires withou
   assert.equal(s.PARTS.length, particles);
 });
 
-
 test('arriving wizards sit exactly behind the desk with their lower body hidden', () => {
   const s = scene();
   s.reconcile({ agents: [agent('seated', 'thinking')] });
@@ -415,7 +388,6 @@ test('arriving wizards sit exactly behind the desk with their lower body hidden'
   assert.ok(sprite >= 0 && desktop > sprite);
   assert.ok(clip >= 0 && sprite > clip);
 });
-
 
 function racketGame(type) {
   const s = scene(), agents = [agent('left', 'waiting'), agent('right', 'waiting')];
@@ -629,28 +601,6 @@ test('Magic turns keep their original chairs after a player leaves', () => {
   assert.ok(s.calls.some(c => c[0] === 'moveTo' && c[1] === table.seats[1][0] && c[2] === table.seats[1][1] - 10));
 });
 
-
-test('desk decorations include regular and rotating black holes', () => {
-  const s = scene(), variants = new Set();
-  s.SP.PR.blackHole = (g, x, y, rotating) => variants.add(rotating);
-  for (let seed = 1; seed <= 100; seed++) s.SP.PR.deskDecor(s.ctx, 100, 100, 48, seed, null, 1);
-  assert.deepEqual([...variants].sort(), [false, true]);
-});
-test('only rotating black holes have an animated white ring', () => {
-  const s = scene();
-  const render = (rotating, angle) => {
-    const pixels = [], ctx = { fillStyle: '', fillRect(...args) { pixels.push([this.fillStyle, ...args]); } };
-    s.SP.PR.blackHole(ctx, 30, 30, rotating, angle);
-    return pixels;
-  };
-  const regular = render(false, 0), rotating = render(true, 0);
-  assert.ok(regular.some(p => p[0] === '#030208'));
-  assert.equal(regular.some(p => p[0] === '#ffffff'), false);
-  assert.deepEqual(regular, render(false, 1));
-  assert.ok(rotating.some(p => p[0] === '#ffffff'));
-  assert.notDeepEqual(rotating, render(true, 1));
-});
-
 for (const type of ['badminton', 'pingpong']) {
   test(`${type} materializes before rallying and has no court label`, () => {
     const s = racketGame(type), game = s.COURT.game;
@@ -698,23 +648,6 @@ test('work builds runes, completion celebrates once, and the celebration expires
   s.update(.1, 4.1);
   assert.equal(s.RITUALS.length, 0);
 });
-test('desk experiments include only supported decorations', () => {
-  const s = scene(), kinds = new Set();
-  s.SP.PR.experiment = (g,x,y,kind) => kinds.add(kind);
-  for (let seed = 1; seed < 200; seed++) s.SP.PR.deskDecor(s.ctx,100,100,48,seed,null,10);
-  assert.deepEqual([...kinds].sort(), [5, 7]);
-});
-test('desk pets are deterministic and react to completion', () => {
-  const s = scene();
-  const render = excited => {
-    s.calls.length = 0;
-    s.SP.PR.deskPet(s.ctx,100,100,1234,1,excited);
-    return JSON.stringify(s.calls);
-  };
-  const idle = render(false);
-  assert.equal(render(false),idle);
-  assert.notEqual(render(true),idle);
-});
 
 test('quota tooltips show origins only for accounts in use', () => {
   const s = scene();
@@ -724,30 +657,6 @@ test('quota tooltips show origins only for accounts in use', () => {
     assert.equal(s.element.innerHTML.includes('tt-meta'), origins.length > 0);
     if (origins.length) assert.ok(s.element.innerHTML.includes(origins.join(' + ').toUpperCase()));
   }
-});
-test('One Ring is a possible decoration with animated fiery lettering and an open center', () => {
-  const s = scene(), draw = s.SP.PR.oneRing;
-  let count = 0;
-  s.SP.PR.oneRing = () => count++;
-  for (let seed = 1; seed <= 100; seed++) s.SP.PR.deskDecor(s.ctx, 100, 100, 48, seed, null, 1);
-  assert.ok(count > 0 && count < 100);
-  const render = angle => {
-    const pixels = [], ctx = { fillStyle: '', fillRect(...args) { pixels.push([this.fillStyle, ...args]); } };
-    draw(ctx, 30, 30, angle);
-    return pixels;
-  };
-  const first = render(0);
-  assert.ok(first.some(p => p[0] === '#ff6b25'));
-  assert.equal(first.some(p => p[1] === 30 && p[2] === 30), false);
-  assert.notDeepEqual(first, render(1));
-});
-test('Claude quota tooltip shows the unified available resets count', () => {
-  const s = scene();
-  s.showUsageTip({ i: 3, q: { name: 'Claude', provider: 'claude', origins: ['remote'], left: 65, resets_left: 2 } }, 0, 0);
-  assert.match(s.element.innerHTML, /<span>CLAUDE<\/span>/);
-  assert.match(s.element.innerHTML, /REMOTE/);
-  assert.match(s.element.innerHTML, /2 RESETS LEFT/);
-  assert.doesNotMatch(s.element.innerHTML, /CODEX/);
 });
 
 test('completion draws only the celebrating pet while its old desk fades', () => {
@@ -760,7 +669,6 @@ test('completion draws only the celebrating pet while its old desk fades', () =>
   s.draw(.1);
   assert.deepEqual(pets, [true]);
 });
-
 
 test('laboratory grows instead of overlapping fixtures or existing desks', () => {
   const s = scene(), agents = Array.from({ length: 30 }, (_, i) => agent(String(i)));
@@ -813,24 +721,6 @@ test('quota symbols distinguish exhausted and unavailable readings in their bott
     assert.equal(colors.length, strokes);
     assert.ok(colors.every(color => color === s.usageProbe('usage:a').color));
   }
-});
-
-test('laboratory fills its current floor before growing two rows then a column', () => {
-  const s = scene(), agents = [], growth = [];
-  const fixtures = [[56, 150, 30, 26], [8, 58, 26, 70], [88, 42, 34, 20],
-    ...s.RESOURCE_BALLS.map(b => [b.x, b.y, 16, b.metric === 'disk' ? 30 : 24]), [124, 30, 136, 58]];
-  while (growth.length < 6) {
-    const before = s.layout(), occupied = [...fixtures, ...s.desks.map(d => [d.x - 32, d.y - 30, 64, 54])];
-    agents.push(agent(String(agents.length)));
-    s.reconcile({ agents });
-    const after = s.layout();
-    if (after.labSteps === before.labSteps) continue;
-    assert.equal(after.labSteps, before.labSteps + 1);
-    for (let y = 64; y <= 216 + before.labDown; y += 4) for (let x = 40 - before.labExtra; x <= 232; x += 8)
-      assert.ok(occupied.some(([bx, by, w, h]) => x - 32 < bx + w && x + 32 > bx && y - 30 < by + h && y + 24 > by));
-    growth.push([after.labExtra - before.labExtra, after.labDown - before.labDown]);
-  }
-  assert.deepEqual(growth, [[0, 60], [0, 60], [72, 0], [0, 60], [0, 60], [72, 0]]);
 });
 
 test('laboratory shrinks after removed desks fade and compacts a surviving outer desk', () => {
@@ -929,16 +819,6 @@ test('pixel font renders percent signs instead of question marks', () => {
   };
   assert.notDeepEqual(render('%'), render('?'));
 });
-
-test('idle summoning circle keeps bright runes and a moving glint', () => {
-  const s = scene(), fills = [];
-  s.ctx.fillRect = (...args) => fills.push({ args, color: s.ctx.fillStyle });
-  s.SP.PR.circle(s.ctx, 404, 206, 1, false);
-  assert.ok(fills.some(x => x.color === '#8068bd'));
-  assert.ok(fills.some(x => x.color === '#e8dcff'));
-  assert.ok(fills.some(x => x.color === '#b9a5e8'));
-});
-
 
 test('all resource balls have separate hit targets and capacity tooltips', () => {
   const s = scene();

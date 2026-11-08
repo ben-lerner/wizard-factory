@@ -443,8 +443,9 @@ for (const type of ['badminton', 'pingpong']) {
         assert.equal(game.score[0] + game.score[1], points, 'a point cannot score twice');
         s.calls.length = 0;
         s.drawRally(end + .2);
-        const label = r.shot === 'slam' || r.shot === 'smash' ? 'SLAM!' : 'POINT!';
-        assert.ok(s.calls.some(c => c[0] === 'drawText' && c[3] === label));
+        assert.equal(s.calls.some(c => c[0] === 'drawText' && c[3] === 'SLAM!'), r.shot === 'slam' || r.shot === 'smash');
+        assert.ok(!s.calls.some(c => c[0] === 'drawText' && c[3] === 'POINT!'));
+        assert.ok(s.calls.some(c => c[0] === 'lineTo'), 'scoring burst remains animated');
         assert.ok(s.calls.some(c => c[0] === 'drawText' && c[3] === game.score.join(' - ')));
         s.updateRally(s.COURT, end + 1.4);
         assert.equal(game.rally.receiver, 1 - r.winner, 'winner serves the next point');

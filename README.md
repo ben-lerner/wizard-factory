@@ -84,7 +84,7 @@ in use locally and remotely; purple `L/R` marks an account used on both machines
 Hover over a numbered bottle for its account name, remaining quota, detailed reset
 timing, and reset credits. Each Claude account's Claude and Fable quotas share one
 bottle whose tooltip shows separate reset times. 10x plans use half-width bottles. Bottle labels above 24 hours round to the nearest day. Missing usage or reset data
-shows a floating ∅ inside the bottle. Usage refreshes once a minute independently
+shows a floating ∅ inside the bottle; an ended Claude login shows ⟳ until you run `claude auth login` again. Usage refreshes once a minute independently
 of agent polling. A full quota starts its timer with a small prompt through the CLI;
 the response appears in a draggable window that stays until you close it. Usage checks
 never redeem reset credits. The initial weekly-reset ping is separate from task

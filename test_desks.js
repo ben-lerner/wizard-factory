@@ -769,8 +769,8 @@ test('new quota bottles relocate conflicting desks after the laboratory has expa
 test('quota symbols distinguish exhausted and unavailable readings in their bottle color', () => {
   const s = scene(), colors = [];
   s.ctx.stroke = () => colors.push(s.ctx.strokeStyle);
-  for (const [left, error, arcs, strokes] of [[0, null, 1, 2], [null, null, 0, 2], [0, 'offline', 0, 2], [50, null, 0, 0]]) {
-    s.setData({ quotas: [{ id: 'a', origins: [], left, error }] });
+  for (const [left, error, arcs, strokes, loginExpired] of [[0, null, 1, 2], [null, null, 0, 2], [0, 'offline', 0, 2], [50, null, 0, 0], [null, 'expired', 1, 2, true]]) {
+    s.setData({ quotas: [{ id: 'a', origins: [], left, error, loginExpired }] });
     s.calls.length = 0;
     colors.length = 0;
     s.drawUsageProbes(0);

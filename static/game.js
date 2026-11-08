@@ -1164,7 +1164,10 @@
       if (unavailable || q.left === 0) {
         const cy = Math.round(v.y + 14 + Math.sin(t * 2 + v.i) * 2);
         g.strokeStyle = color; g.lineWidth = 1;
-        if (unavailable) {
+        if (q.loginExpired) {
+          g.beginPath(); g.arc(v.x + 8, cy, 4, 0, Math.PI * 1.5); g.stroke();
+          g.beginPath(); g.moveTo(v.x + 6, cy - 6); g.lineTo(v.x + 8, cy - 4); g.lineTo(v.x + 6, cy - 2); g.stroke();
+        } else if (unavailable) {
           g.beginPath(); g.moveTo(v.x + 10, cy - 5); g.lineTo(v.x + 5, cy - 1); g.lineTo(v.x + 8, cy - 1); g.stroke();
           g.beginPath(); g.moveTo(v.x + 9, cy + 1); g.lineTo(v.x + 12, cy + 1); g.lineTo(v.x + 7, cy + 5); g.stroke();
         } else {
@@ -1204,7 +1207,8 @@
       const fableFill = Math.min((fq.left ?? 0) / 2, cq.left ?? 0);
       probes.push({ q: { ...cq, name: cq.account || 'Claude + Fable', origins,
         left: cq.left == null || fq.left == null ? null : cq.left,
-        resets_at: cq.resets_at || fq.resets_at, error: cq.error || fq.error },
+        resets_at: cq.resets_at || fq.resets_at, error: cq.error || fq.error,
+        loginExpired: cq.loginExpired || fq.loginExpired },
         parts: [cq, fq],
         ids: [cq.id, fq.id], fills: [
           { value: fableFill, color: colors[fable] },

@@ -172,9 +172,9 @@ def run_quota(args):
 
 
 def quota_label(name, provider):
-    account, tier, model = re.fullmatch(r'(.*?)\s*(?:\((\d+)x\))?\s*(Claude|Fable)?', name.strip()).groups()
+    account, model = re.fullmatch(r'(.*?)\s*(Claude|Fable)?', name.strip()).groups()
     return {'name': ' '.join(filter(None, (account, model))) or 'Claude', 'account': account,
-            'tier': tier and int(tier), 'model': (model or 'Claude') if provider == 'claude' else None}
+            'model': (model or 'Claude') if provider == 'claude' else None}
 
 
 def account_quotas(listed):
@@ -234,7 +234,7 @@ def account_quotas(listed):
                              'origins': ['local'] if home == claude_home() or
                                         (active_claude and identity == active_claude) else []})
     return [{'id': r['id'], **quota_label(r['name'], r['provider']),
-             **({'tier': r['planTier']} if r.get('planTier') else {}), 'provider': r['provider'],
+             'tier': r.get('planTier'), 'provider': r['provider'],
              'period': 'weekly', 'origins': r['origins'],
              'left': max(0, min(100, 100 - r['weeklyUsedPercent'])) if r['weeklyUsedPercent'] is not None else None,
              'resets_at': r['weeklyResetsAt'], 'reset_detail': r.get('weeklyResetDetail'),

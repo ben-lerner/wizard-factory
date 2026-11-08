@@ -211,15 +211,15 @@ class QuotaTest(unittest.TestCase):
         self.assertEqual(quotas[1]['id'], 'claude:active')
         self.assertEqual(quotas[0]['reset_detail'], '2 Minutes')
 
-    def test_quota_labels_drop_tier_and_split_model(self):
-        self.assertEqual(server.quota_label('Espresso    (10x) Fable', 'claude'),
-                         {'name': 'Espresso Fable', 'account': 'Espresso', 'tier': 10, 'model': 'Fable'})
-        self.assertEqual(server.quota_label('Espresso    (10x)', 'claude'),
-                         {'name': 'Espresso', 'account': 'Espresso', 'tier': 10, 'model': 'Claude'})
-        self.assertEqual(server.quota_label('Mirasume    (20x)', 'codex'),
-                         {'name': 'Mirasume', 'account': 'Mirasume', 'tier': 20, 'model': None})
+    def test_quota_labels_split_model(self):
+        self.assertEqual(server.quota_label('Espresso Fable', 'claude'),
+                         {'name': 'Espresso Fable', 'account': 'Espresso', 'model': 'Fable'})
+        self.assertEqual(server.quota_label('Espresso', 'claude'),
+                         {'name': 'Espresso', 'account': 'Espresso', 'model': 'Claude'})
+        self.assertEqual(server.quota_label('Mirasume', 'codex'),
+                         {'name': 'Mirasume', 'account': 'Mirasume', 'model': None})
         self.assertEqual(server.quota_label('Claude', 'claude'),
-                         {'name': 'Claude', 'account': '', 'tier': None, 'model': 'Claude'})
+                         {'name': 'Claude', 'account': '', 'model': 'Claude'})
 
     def test_sectioned_config_reads_codex_homes(self):
         config = self.root / 'codex-quota/accounts.json'

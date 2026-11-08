@@ -83,7 +83,7 @@ The laboratory's usage bottles show the same configured Codex accounts as the
 in use locally and remotely; purple `L/R` marks an account used on both machines.
 Hover over a numbered bottle for its account name, remaining quota, detailed reset
 timing, and reset credits. Each Claude account's Claude and Fable quotas share one
-bottle whose tooltip shows separate reset times. Bottle size follows each plan's usage over Pro: Ultra (Max 20x) and 20x Codex plans use full bottles, Claude Max, Team premium seats, and 10x Codex plans use half-width bottles, and Team standard seats use small bottles. Claude sizes come from the login's `planTier`; Codex sizes come from the `(Nx)` suffix in its configured name. Bottle labels above 24 hours round to the nearest day. Missing usage or reset data
+bottle whose tooltip shows separate reset times. Bottle size follows each plan's usage over Pro: Ultra (Max 20x) and 20x Codex plans use full bottles, Claude Max, Team premium seats, and 10x Codex plans use half-width bottles, and Team standard seats use small bottles. Sizes come from each account's `planTier` in `token-quota` output. Bottle labels above 24 hours round to the nearest day. Missing usage or reset data
 shows a floating ∅ inside the bottle; an ended Claude login shows ⟳ until you run `claude auth login` again. Usage refreshes once a minute independently
 of agent polling. A full quota starts its timer with a small prompt through the CLI;
 the response appears in a draggable window that stays until you close it. Usage checks

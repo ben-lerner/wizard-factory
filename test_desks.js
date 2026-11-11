@@ -301,7 +301,7 @@ test('unused reset credits show one expiration per line including missing detail
   for (const paired of [false, true]) {
     s.setData({ quotas: paired ? [q, { ...q, id: 'fable', model: 'Fable' }] : [q] });
     s.showUsageTip(s.usageProbe('usage:claude'), 0, 0);
-    const lines = s.element.innerHTML.match(/<div class="tt-age">RESET \d: [^<]+<\/div>/g);
+    const lines = s.element.innerHTML.match(/<div class="tt-age tt-credit">RESET \d: [^<]+<\/div>/g);
     assert.equal(lines.length, 3);
     assert.match(lines[0], /RESET 1: EXPIRES /);
     assert.match(lines[1], /RESET 2: DOES NOT EXPIRE/);

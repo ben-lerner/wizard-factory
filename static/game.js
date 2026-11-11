@@ -2076,7 +2076,7 @@
         'EXPIRES ' + new Date(expires * 1000).toLocaleString([], {
           year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
         });
-      return `<div class="tt-age">RESET ${i + 1}: ${esc(label)}</div>`;
+      return `<div class="tt-age tt-credit">RESET ${i + 1}: ${esc(label)}</div>`;
     }).join('');
     const status = v.parts ? v.parts.map(part => `<div class="tt-status">${esc(part.model || part.name)}: ${part.left != null ? Math.round(part.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>
       <div class="tt-age">${esc(part.model || part.name)}: ${part.resets_at ? 'RESETS IN ' + esc(detailedResetIn(part)) : 'RESET TIME UNAVAILABLE'}</div>`).join('') :

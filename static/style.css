@@ -45,6 +45,7 @@ main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 304px; min-
   background: #0f0b1a; border: 2px solid #000; box-shadow: 0 0 0 2px var(--edge); padding: 8px 9px;
   font-size: 11px; line-height: 1.45;
 }
+#tip:has(.tt-credit) { width: max-content; max-width: calc(100% - 24px); }
 #journal {
   position: absolute; left: 18px; top: 18px; z-index: 6; width: min(370px, calc(100% - 36px)); max-height: calc(100% - 36px);
   overflow-y: auto; background: #191326; border: 2px solid #000; box-shadow: 0 0 0 2px #8a6f3d, 0 10px 28px #000;

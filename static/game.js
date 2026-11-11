@@ -2069,13 +2069,17 @@
   }
   function showUsageTip(v, left, top) {
     const q = v.q, tip = $('#tip'), stage = $('#stage').getBoundingClientRect();
+    const resetTime = part => part.resets_at ? `<div class="tt-age">${v.parts ? esc(part.model || part.name) + ': ' : ''}RESETS AT ${esc(new Date(part.resets_at * 1000).toLocaleString([], {
+      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+    }))}</div>` : '';
     const status = v.parts ? v.parts.map(part => `<div class="tt-status">${esc(part.model || part.name)}: ${part.left != null ? Math.round(part.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>
-      <div class="tt-age">${esc(part.model || part.name)}: ${part.resets_at ? 'RESETS IN ' + esc(detailedResetIn(part)) : 'RESET TIME UNAVAILABLE'}</div>`).join('') :
+      <div class="tt-age">${esc(part.model || part.name)}: ${part.resets_at ? 'RESETS IN ' + esc(detailedResetIn(part)) : 'RESET TIME UNAVAILABLE'}</div>${resetTime(part)}`).join('') :
       `<div class="tt-status">${q.left != null ? Math.round(q.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>`;
     tip.innerHTML = `<div class="tt-name">${esc(q.name)} <span>${esc((q.provider || 'codex').toUpperCase())}</span></div>
       ${q.origins.length ? `<div class="tt-meta">${esc(q.origins.join(' + ').toUpperCase())}</div>` : ''}
       ${status}
       ${v.parts ? '' : `<div class="tt-age">${q.resets_at ? 'RESETS IN ' + esc(detailedResetIn(q)) : 'RESET TIME UNAVAILABLE'}${q.resets_left === 0 ? '' : ' · ' + (q.resets_left ?? '?') + ' RESET' + (q.resets_left === 1 ? '' : 'S') + ' LEFT'}</div>`}
+      ${v.parts ? '' : resetTime(q)}
       ${q.error ? `<div class="tt-age">${esc(q.error)}</div>` : ''}`;
     tip.hidden = false;
     tip.style.left = Math.max(4, Math.min(left, stage.width - tip.offsetWidth - 4)) + 'px';

@@ -239,6 +239,7 @@ def account_quotas(listed):
              'left': max(0, min(100, 100 - r['weeklyUsedPercent'])) if r['weeklyUsedPercent'] is not None else None,
              'resets_at': r['weeklyResetsAt'], 'reset_detail': r.get('weeklyResetDetail'),
              'resets_left': r['availableResets'], 'error': r['error'],
+             'reset_expirations': r.get('resetExpirations'),
              **{key: r[key] for key in ('loginId', 'updatedAt', 'cached', 'stale', 'retryAt', 'timerPrompt', 'loginExpired') if key in r}}
             for r in readings]
 

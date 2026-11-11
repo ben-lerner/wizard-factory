@@ -193,7 +193,8 @@ class QuotaTest(unittest.TestCase):
         names = json.loads(config.read_text()) if config else {}
         names = names.get('codex', {}) if 'codex' in names else names
         accounts = [dict(name=name, provider='codex', weeklyUsedPercent=25,
-                         weeklyResetsAt=123, weeklyResetDetail='2 Minutes', availableResets=2, error=None)
+                         weeklyResetsAt=123, weeklyResetDetail='2 Minutes', availableResets=2,
+                         resetExpirations=[456, None], error=None)
                     for name in names]
         if '--codex-only' not in args:
             accounts.append(dict(name='Claude', provider='claude', weeklyUsedPercent=35,
@@ -210,6 +211,8 @@ class QuotaTest(unittest.TestCase):
         self.assertEqual([q['resets_left'] for q in quotas], [2, None])
         self.assertEqual(quotas[1]['id'], 'claude:active')
         self.assertEqual(quotas[0]['reset_detail'], '2 Minutes')
+        self.assertEqual(quotas[0]['reset_expirations'], [456, None])
+        self.assertIsNone(quotas[1]['reset_expirations'])
 
     def test_quota_labels_split_model(self):
         self.assertEqual(server.quota_label('Espresso Fable', 'claude'),

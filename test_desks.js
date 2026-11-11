@@ -294,6 +294,23 @@ test('usage tooltip shows detailed reset timing for each quota', () => {
   assert.match(s.element.innerHTML, /Claude: RESETS IN 1 Day 2 Hours 3 Minutes/);
   assert.match(s.element.innerHTML, /Fable: RESETS IN 2 Days 4 Hours 5 Minutes/);
 });
+test('unused reset credits show one expiration per line including missing details', () => {
+  const s = scene();
+  const q = { id: 'claude', name: 'Work', account: 'Work', model: 'Claude', provider: 'claude',
+    origins: [], left: 50, resets_left: 3, reset_expirations: [1800000000, null] };
+  for (const paired of [false, true]) {
+    s.setData({ quotas: paired ? [q, { ...q, id: 'fable', model: 'Fable' }] : [q] });
+    s.showUsageTip(s.usageProbe('usage:claude'), 0, 0);
+    const lines = s.element.innerHTML.match(/<div class="tt-age">RESET \d: [^<]+<\/div>/g);
+    assert.equal(lines.length, 3);
+    assert.match(lines[0], /RESET 1: EXPIRES /);
+    assert.match(lines[1], /RESET 2: DOES NOT EXPIRE/);
+    assert.match(lines[2], /RESET 3: EXPIRATION UNAVAILABLE/);
+    assert.doesNotMatch(s.element.innerHTML, /RESETS AT/);
+  }
+  s.showUsageTip({ q: { ...q, resets_left: 0 } }, 0, 0);
+  assert.doesNotMatch(s.element.innerHTML, /RESET \d:/);
+});
 test('additional quota accounts render distinct bottles and remain hoverable', () => {
   const s = scene(), bottles = [];
   s.SP.PR.quotaVat = (g, x, y, shape, fill) => bottles.push({ x, y, fill });

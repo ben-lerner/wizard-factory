@@ -1,5 +1,6 @@
 import base64
 import json
+import os
 import tempfile
 import subprocess
 import sys
@@ -8,6 +9,57 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import server
+
+
+class TranscriptScanTest(unittest.TestCase):
+    def test_discovers_hidden_transcripts_and_resumed_history_and_removes_stale_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, now = Path(directory), 1800000000
+            projects, sessions = root / 'projects', root / 'sessions'
+            paths = [projects / '.hidden/.main.jsonl', projects / 'project/session/subagents/agent-child.jsonl',
+                     sessions / '2026/01/01/rollout-old.jsonl']
+            for path in paths:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('{}\n')
+                os.utime(path, (now, now))
+            old = paths[-1]
+            os.utime(old, (now - server.FRESH_SEC - 1, now - server.FRESH_SEC - 1))
+            with patch.object(server, 'PROJECTS', projects), patch.object(server, 'CODEX', sessions), \
+                    patch.object(server, 'FILES', {}):
+                server.scan_once(now)
+                self.assertEqual(set(server.FILES), set(paths[:-1]))
+                with old.open('a') as f:
+                    f.write('{}\n')
+                os.utime(old, (now, now))
+                server.scan_once(now)
+                self.assertEqual(set(server.FILES), set(paths))
+                paths[0].unlink()
+                os.utime(paths[1], (now - server.FRESH_SEC - 1, now - server.FRESH_SEC - 1))
+                server.scan_once(now)
+                self.assertEqual(set(server.FILES), {old})
+
+    def test_scan_still_reads_appends_and_same_size_rewrites(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, now = Path(directory), 1800000000
+            transcript = root / 'project/session.jsonl'
+            transcript.parent.mkdir()
+            def title(text):
+                return json.dumps({'type': 'custom-title', 'customTitle': text}) + '\n'
+            transcript.write_text(title('first'))
+            with patch.object(server, 'PROJECTS', root), patch.object(server, 'CODEX', root / 'sessions'), \
+                    patch.object(server, 'FILES', {}):
+                os.utime(transcript, (now, now))
+                server.scan_once(now)
+                self.assertEqual(server.FILES[transcript].custom_title, 'first')
+                with transcript.open('a') as f:
+                    f.write(title('later'))
+                os.utime(transcript, (now + 1, now + 1))
+                server.scan_once(now + 1)
+                self.assertEqual(server.FILES[transcript].custom_title, 'later')
+                transcript.write_text(title('other') + title('final'))
+                os.utime(transcript, (now + 2, now + 2))
+                server.scan_once(now + 2)
+                self.assertEqual(server.FILES[transcript].custom_title, 'final')
 
 
 class RemoteAgentsTest(unittest.TestCase):

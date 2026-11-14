@@ -2420,17 +2420,22 @@
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js?v=2');
 
   // ---------- main loop ----------
-  // rAF drives rendering; a fallback interval keeps the simulation flowing (in 0.1s
-  // catch-up steps) while the tab is backgrounded and rAF is starved.
-  let last = performance.now(), simT = 0, lastTick = 0;
+  // Pixel animation needs 30fps; hidden windows only advance the simulation.
+  const FRAME_MS = 1000 / 30;
+  let last = performance.now(), simT = 0, lastFrame = 0;
   function tick(ms) {
     let gap = Math.min(3, (ms - last) / 1000);
-    last = lastTick = ms;
+    last = ms;
     while (gap > 0) { const d = Math.min(.1, gap); simT += d; update(d, simT); gap -= d; }
+  }
+  function frame(ms) {
+    requestAnimationFrame(frame);
+    if (document.hidden || ms - lastFrame < FRAME_MS) return;
+    lastFrame = ms - (ms - lastFrame) % FRAME_MS;
+    tick(ms);
     draw(simT);
   }
-  function frame(ms) { requestAnimationFrame(frame); tick(ms); }
-  setInterval(() => { const n = performance.now(); if (n - lastTick > 450) tick(n); }, 300);
+  setInterval(() => { const n = performance.now(); if (n - last > 450) tick(n); }, 300);
   resize();
   catThink(0);
   poll();

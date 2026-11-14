@@ -24,6 +24,7 @@ import threading
 import time
 from collections import deque
 from datetime import datetime
+from fnmatch import fnmatchcase
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -586,20 +587,37 @@ def codex_titles():
     return titles
 
 
+def transcript_entries(root, parts):
+    try:
+        with os.scandir(root) as entries:
+            for entry in entries:
+                if not fnmatchcase(entry.name, parts[0]):
+                    continue
+                if len(parts) == 1:
+                    yield entry
+                else:
+                    try:
+                        if entry.is_dir():
+                            yield from transcript_entries(entry.path, parts[1:])
+                    except OSError:
+                        continue
+    except OSError:
+        pass
+
+
 def scan_once(now):
     titles = codex_titles()
     seen = set()
-    files = list(PROJECTS.glob('*/*.jsonl')) + list(PROJECTS.glob('*/*/subagents/*.jsonl'))
-    if CODEX.is_dir():
-        files += CODEX.glob('*/*/*/rollout-*.jsonl')
-    for f in files:
+    patterns = [(PROJECTS, ('*', '*.jsonl')), (PROJECTS, ('*', '*', 'subagents', '*.jsonl')),
+                (CODEX, ('*', '*', '*', 'rollout-*.jsonl'))]
+    for entry in (entry for root, parts in patterns for entry in transcript_entries(root, parts)):
         try:
-            st = f.stat()
+            st = entry.stat()
         except OSError:
             continue
         if now - st.st_mtime > FRESH_SEC:
-            FILES.pop(f, None)
             continue
+        f = Path(entry.path)
         seen.add(f)
         fs = FILES.get(f)
         if not fs:

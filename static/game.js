@@ -529,9 +529,8 @@
   };
   const tableById = id => TABLES.find(t => t.id === id);
   function updateTopTable() {
-    const count = usageProbes().length;
-    const x = Math.max(276, Math.min(316, 286 + (count - 3) * 10));
-    const table = TABLES[1];
+    const count = usageProbes().length, table = TABLES[1];
+    const x = Math.max(table.game?.type === 'go' ? 307 : 276, Math.min(316, 286 + (count - 3) * 10));
     table.x = x;
     table.seats = [[x - 21, 112], [x + 19, 112], [x, 84]];
   }
@@ -571,9 +570,11 @@
     if (burn) table.burnUntil = t + 2;
     players.forEach(p => releaseGamePlayer(p, t));
   }
+  // Go players stand clear of the wide 19x19 board.
+  const seatAt = (table, i) => table.game?.type === 'go' && i < 2 ? [table.x + (i ? 28 : -28), table.seats[i][1]] : table.seats[i];
   function seatPlayer(table, p, i, t) {
     p.seat = i;
-    const [x, y] = table.seats[i];
+    const [x, y] = seatAt(table, i);
     if (p.kind === 'wizard') {
       const w = wizards.get(p.id);
       if (!w) return false;
@@ -591,6 +592,7 @@
     const type = types[tableR() * types.length | 0];
     if (type === 'go') players = players.slice(0, 2);
     table.game = { type, players, started: t, until: t + 28 + tableR() * 28 };
+    updateTopTable();
     table.game.players = players.filter((p, i) => seatPlayer(table, p, i, t));
     if (table !== COURT) initBoardGame(table.game, t);
     if (table.game.players.length < 2) endGame(table, t, false);
@@ -1106,7 +1108,7 @@
   function drawTableReach(gg, table, target, t) {
     const move = table.game.move, k = moveProgress(table.game, t);
     if (!move || k >= .72) return;
-    const [sx, sy] = table.seats[move.seat], q = Math.min(1, k / .45), hx = mix(sx, target[0], q), hy = mix(sy - 12, target[1], q);
+    const [sx, sy] = seatAt(table, move.seat), q = Math.min(1, k / .45), hx = mix(sx, target[0], q), hy = mix(sy - 12, target[1], q);
     gg.save(); gg.strokeStyle = move.seat % 2 ? '#6a4fd0' : '#4878a8'; gg.lineWidth = 3;
     gg.beginPath(); gg.moveTo(sx, sy - 10); gg.lineTo(hx, hy); gg.stroke();
     gg.fillStyle = '#d8b18b'; gg.fillRect(Math.round(hx) - 1, Math.round(hy) - 1, 3, 3); gg.restore();
@@ -1138,7 +1140,7 @@
         for (const stone of game.stones) {
           let [sx, sy] = at(stone.x, stone.y);
           if (game.move && game.stones.at(-1) === stone && moveProgress(game, t) < 1) {
-            const [ox, oy] = table.seats[game.move.seat], k = moveProgress(game, t); sx = mix(ox, sx, k); sy = mix(oy - 11, sy, k);
+            const [ox, oy] = seatAt(table, game.move.seat), k = moveProgress(game, t); sx = mix(ox, sx, k); sy = mix(oy - 11, sy, k);
           }
           gg.fillStyle = stone.side % 2 ? '#f7f3e8' : '#1c1430'; gg.fillRect(Math.round(sx), Math.round(sy), 2, 2);
           gg.fillStyle = stone.side % 2 ? '#fffdf4' : '#4a4358'; gg.fillRect(Math.round(sx), Math.round(sy), 1, 1);

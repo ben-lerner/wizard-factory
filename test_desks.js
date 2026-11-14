@@ -692,8 +692,9 @@ test('laboratory grows instead of overlapping fixtures or existing desks', () =>
   const original = s.desks.map(d => [d, d.x, d.y]);
   s.reconcile({ agents });
   assert.ok(s.layout().labExtra > 0);
+  assert.ok(s.blocked(21 - s.layout().labExtra, 75, 5) && !s.blocked(21, 75, 5));
   for (const [d, x, y] of original) assert.deepEqual([d.x, d.y], [x, y]);
-  const fixtures = [[56, 150, 30, 26], [8, 58, 26, 70], [88, 42, 34, 20],
+  const fixtures = [[56, 150, 30, 26], [8 - s.layout().labExtra, 58, 26, 70], [88, 42, 34, 20],
     ...s.RESOURCE_BALLS.map(b => [b.x, b.y, 16, b.metric === 'disk' ? 30 : 24]), [124, 30, 136, 58]];
   s.desks.forEach((d, i) => {
     assert.ok(d.x - 32 >= 8 - s.layout().labExtra && d.x + 32 <= 264);

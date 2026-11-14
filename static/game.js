@@ -34,10 +34,11 @@
       accents: { cpu: {}, memory: { flare: '#b2c9ff', spark: '#5587f2' },
         disk: { flare: '#b5ffce', spark: '#60db89' } }[metric] })));
   const GRID = 8, WIZ_R = 5, CAT_R = 4, DRAGON_R = 8, TELEPORT_CHANCE = .05;
+  const SHELF_BLOCKERS = [{ x: 8, y: 58, w: 26, h: 34 }, { x: 8, y: 94, w: 26, h: 34 }];
   const BLOCKERS = [
     { x: 264, y: 34, w: 8, h: 78 }, { x: 264, y: 168, w: 8, h: 92 },
     { x: 58, y: 154, w: 24, h: 18 },
-    { x: 8, y: 58, w: 26, h: 34 }, { x: 8, y: 94, w: 26, h: 34 },
+    ...SHELF_BLOCKERS,
     { x: 86, y: 46, w: 38, h: 16 },
     ...RESOURCE_BALLS.map(({ x, y }) => ({ x, y: y + 6, w: 16, h: 18 })),
     { x: 299, y: 96, w: 28, h: 14 }, { x: 359, y: 116, w: 28, h: 14 },
@@ -179,7 +180,6 @@
   }
   const DESK_FIXTURES = [
     { x: 56, y: 150, w: 30, h: 26 }, // cauldron
-    { x: 8, y: 58, w: 26, h: 70 }, // shelves
     { x: 88, y: 42, w: 34, h: 20 }, // bench
     ...RESOURCE_BALLS.map(({ x, y, metric }) => ({ x, y, w: 16, h: metric === 'disk' ? 30 : 24 })),
   ];
@@ -201,9 +201,10 @@
   const deskSpace = (x, y, w) => ({ x: x - 32, y: y - 30, w: 64, h: Math.max(54, 36 + taskLabelLines(w).length * 8) });
   const overlaps = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   const labSize = steps => [Math.floor(steps / 3) * 72, (steps - Math.floor(steps / 3)) * 60];
+  const shelfSpace = width => ({ x: 8 - width, y: 58, w: 26, h: 70 });
   const fitsLab = (d, width, height) => {
     const b = deskSpace(d.x, d.y, d.w);
-    return b.x >= 8 - width && b.x + b.w <= 264 && b.y >= 34 && b.y + b.h <= 240 + height;
+    return b.x >= 8 - width && b.x + b.w <= 264 && b.y >= 34 && b.y + b.h <= 240 + height && !overlaps(b, shelfSpace(width));
   };
   function deskPosition(anchor, occupied, steps, w) {
     const [width, height] = labSize(steps);
@@ -211,14 +212,17 @@
     // Search the whole usable floor, including gaps between fixtures.
     for (let y = 64; y <= 216 + height; y += 4) for (let x = 40 - width; x <= 232; x += 8) {
       const space = deskSpace(x, y, w), score = Math.hypot(x - anchor[0], y - anchor[1]);
-      if (space.y + space.h > 240 + height || score >= distance || occupied.some(b => overlaps(space, b))) continue;
+      if (space.y + space.h > 240 + height || score >= distance || overlaps(space, shelfSpace(width)) || occupied.some(b => overlaps(space, b))) continue;
       best = [x, y]; distance = score;
     }
     return best;
   }
   function sizeLab(steps) {
     labSteps = steps;
+    const dx = labSize(steps)[0] - labExtra;
     [labExtra, labDown] = labSize(steps);
+    for (const p of [...ST.shelf.spots, ...SPELL_TARGETS.shelf]) p[0] -= dx;
+    for (const b of SHELF_BLOCKERS) b.x -= dx;
     drawBackground(); resize();
   }
   function shrinkLab() {
@@ -1233,7 +1237,7 @@
   // animated props, y-sorted with sprites: [sortY, drawFn]
   const props = t => [
     [174, gg => PR.cauldron(gg, 56, 150, t, BREW)],
-    [91, gg => PR.shelf(gg, 10, 60, 11)], [127, gg => PR.shelf(gg, 10, 96, 23)],
+    [91, gg => PR.shelf(gg, 10 - labExtra, 60, 11)], [127, gg => PR.shelf(gg, 10 - labExtra, 96, 23)],
     [62, gg => PR.bench(gg, 88, 42, t)],
     ...RESOURCE_BALLS.map(ball => [ball.y + 22, gg =>
       PR.crystal(gg, ball.x, ball.y, t, ballReading(ball), ball.color, ball.hotColor, ball.accents)]),
@@ -1880,7 +1884,7 @@
   }
   function drawFloorSigils(t) {
     g.save();
-    const objects = [...BLOCKERS, ...DESK_FIXTURES, quotaSpace(),
+    const objects = [...BLOCKERS, ...DESK_FIXTURES, shelfSpace(labExtra), quotaSpace(),
       ...desks.map(d => deskSpace(d.x, d.y, d.w)),
       ...TABLES.map(tb => ({ x: tb.x - 18, y: tb.y - 12, w: 36, h: 24 })),
       ...[...wizards.values(), cat, ...(demonCat.active ? [demonCat] : []), dragon]

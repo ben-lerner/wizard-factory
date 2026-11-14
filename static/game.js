@@ -104,10 +104,22 @@
     return path;
   }
 
-  const toolText = a => ((a && a.tool) || '') + ' ' + ((a && a.detail) || '');
+  // The server classifies each shell command by its most significant step: [status verb, emote].
+  const ACTS = {
+    read: ['READING', 'book'], search: ['SCOURING', 'search'], git: ['CONSULTING THE ANNALS', 'scroll'], tree: ['TENDING THE TREE', 'scroll'],
+    ci: ['WATCHING THE CI', 'scry'], web: ['SCRYING THE WEB', 'scry'], query: ['QUERYING THE ORACLE', 'scry'],
+    cloud: ['CONSULTING THE CLOUDS', 'scry'], proc: ['TENDING THE FIRES', 'flask'], profile: ['PROFILING', 'search'],
+    build: ['FORGING', 'brew'], serve: ['TENDING A PORTAL', 'summon'], lint: ['CHECKING THE RUNES', 'flask'],
+    test: ['TESTING', 'flask'], wait: ['WAITING FOR A RUN', 'hourglass'], script: ['BREWING', 'brew'],
+    files: ['SHUFFLING SCROLLS', 'scroll'],
+  };
+  const SUBMIT_ACTS = { commit: 'git', push: 'git', pr: 'git', graphite: 'graphite', jujutsu: 'jujutsu' };
+  const RUN_ACTS = new Set(['wait', 'test', 'build', 'serve', 'lint']);
+  const shellTool = a => /^(bash|exec_command|exec|shell|local_shell|container\.exec)$/i.test((a && a.tool) || '');
   function submitKind(a) {
+    if (shellTool(a)) return SUBMIT_ACTS[a.act] || null;
     const tool = ((a && a.tool) || '').toLowerCase(), detail = ((a && a.detail) || '').toLowerCase(), t = tool + ' ' + detail;
-    const commandish = /bash|exec|shell|stdin|^git$|^gh$|^gt$|^jj$|graphite|jujutsu/.test(tool) || /(^|\s)(git|gh|gt|jj)\s+/.test(detail);
+    const commandish = /stdin|^git$|^gh$|^gt$|^jj$|graphite|jujutsu/.test(tool);
     if (!commandish && !/pull request|merge request/.test(t)) return null;
     if (/\b(graphite|gt\s+(submit|stack|sync|modify|restack|track|create|checkout))\b/.test(t)) return 'graphite';
     if (/\b(jujutsu|jj\s+(git|describe|new|squash|bookmark|rebase|status|diff|commit))\b/.test(t)) return 'jujutsu';
@@ -123,10 +135,8 @@
     return t.startsWith('mcp__') || /^page|click|snapshot|script|console|chrome|browser|devtools|playwright/.test(t);
   }
   function waitingOnRun(a) {
-    const tool = ((a && a.tool) || '').toLowerCase(), detail = ((a && a.detail) || '').toLowerCase();
-    if (/\b(monitor|write_stdin|wait|watch|tail)\b/.test(tool)) return true;
-    if (!/bash|exec|shell|stdin/.test(tool)) return false;
-    return /\b(wait|watch|tail|test|tests|pytest|vitest|jest|playwright|npm|pnpm|yarn|bun|cargo|make|build|compile|lint|typecheck|server|dev server|running)\b/.test(detail);
+    if (shellTool(a)) return RUN_ACTS.has(a.act);
+    return /\b(monitor|write_stdin|wait|watch|tail)\b/.test(((a && a.tool) || '').toLowerCase());
   }
   function waitingOnQuestion(a) {
     const t = ((a && a.tool) || '').toLowerCase();
@@ -148,6 +158,34 @@
     return 'bench';
   }
   const TOOL_EMOTE = { grep: 'search', glob: 'search', toolsearch: 'search' };
+  const BUSY = new Set(['working', 'thinking', 'responding']);
+  const AURA = { max: [4, '#ffe89a'], xhigh: [2, '#c8b4ff'], high: [.7, '#8fd0ff'] };  // reasoning effort: sparks/s, color
+  // Epithets earned from transcript facts, most notable first: [fact, threshold, epithet, reason].
+  const EARNED = [
+    ['limit', 1, 'THE QUOTAKEEPER', () => 'WAITED OUT A USAGE LIMIT'],
+    ['long', 1, 'OF THE LONG BUILD', n => `${n} RUN${n === 1 ? '' : 'S'} OVER TEN MINUTES`],
+    ['rebase', 1, 'THE REBASED', n => `REBASED ${n} TIME${n === 1 ? '' : 'S'}`],
+    ['merge', 1, 'MERGEWRIGHT', n => `MERGED ${n} TIME${n === 1 ? '' : 'S'}`],
+    ['spawn', 3, 'THE PARALLEL', n => `SUMMONED ${n} APPRENTICES`],
+    ['missive', 5, 'THE THREADWEAVER', n => `SENT ${n} MISSIVES`],
+    ['night', 3, 'THE NIGHTLY', n => `${n} SPELLS BETWEEN MIDNIGHT AND FIVE`],
+    ['profile', 1, 'THE PROFILED', n => `PROFILED ${n} TIME${n === 1 ? '' : 'S'}`],
+    ['query', 5, 'QUERYBINDER', n => `${n} DATABASE QUERIES`],
+    ['small', 1, 'THE SMALL DIFF', n => `SHIPPED ${n} CHANGED LINE${n === 1 ? '' : 'S'}`],
+    ['lint', 8, 'LINTBANE', n => `${n} LINT AND TYPE CHECKS`],
+    ['search', 40, 'THE GREPWORN', n => `${n} SEARCHES`],
+    ['test', 25, 'FLAKEBANE', n => `${n} TEST RUNS`],
+    ['push', 1, 'SHIPWRIGHT', n => `PUSHED ${n} TIME${n === 1 ? '' : 'S'}`],
+    ['verbose', 1500, 'THE VERBOSE', n => `REPLIES AVERAGE ${n} CHARACTERS`],
+    ['cached', 98, 'THE CACHED', n => `${n}% OF INPUT READ FROM CACHE`],
+  ];
+  function earned(a) {
+    const f = a.feats || {}, lines = a.cost ? (a.cost.added || 0) + (a.cost.removed || 0) : null;
+    const facts = { ...f, small: (f.push || f.pr || f.commit) && lines > 0 && lines <= 20 ? lines : 0 };
+    const hit = EARNED.find(([key, min]) => (facts[key] || 0) >= min);
+    return hit && { title: hit[2], why: hit[3](facts[hit[0]]) };
+  }
+  const epithetOf = w => (earned(w.a) || {}).title || w.sp.epithet;
 
   // ---------- entities ----------
   const wizards = new Map();
@@ -361,7 +399,8 @@
   function emoteFor(w) {
     const s = w.a.status;
     if (cafeWait(w.a)) return w.station === 'cafe' ? 'drink:' + ((w.order && w.order.drink || w.sp.drink).key) : null;
-    if (s === 'working') return TOOL_EMOTE[(w.a.tool || '').toLowerCase()] || ST[toolStation(w.a)].emote || 'flask';
+    if (s === 'working') return TOOL_EMOTE[(w.a.tool || '').toLowerCase()] || (shellTool(w.a) && ACTS[w.a.act] || [])[1] ||
+      ST[toolStation(w.a)].emote || 'flask';
     return { attention: 'alert', thinking: 'think', responding: 'write', done: 'star',
              waiting: w.station === 'cafe' ? 'drink:' + ((w.order && w.order.drink || w.sp.drink).key) : null }[s] || null;
   }
@@ -377,10 +416,11 @@
     for (const a of [...data.agents].sort((a, b) => Number(!!a.parent) - Number(!!b.parent))) {
       seen.add(a.id);
       let w = wizards.get(a.id);
-      const demon = a.origin === 'remote';
+      // Each remote machine is its own faction: the first host's agents are demons, later hosts recolor them.
+      const faction = a.origin === 'remote' ? Math.max(1, (data.hosts || []).indexOf(a.host) + 1) : 0, demon = faction > 0;
       const takenJobs = () => new Set([...wizards.values()].filter(o => o.a.id !== a.id).map(o => o.sp.job));
       if (!w) {
-        w = { a, sp: SP.makeWizard(a.id, a.kind, demon, takenJobs()), x: 436 + ((hash(a.id) % 9) - 4), y: 310, dir: -1, path: [], walk: false,
+        w = { a, sp: SP.makeWizard(a.id, a.kind, faction, takenJobs()), x: 436 + ((hash(a.id) % 9) - 4), y: 310, dir: -1, path: [], walk: false,
               station: null, spotI: -1, home: null, order: null, game: null, castAt: 0, blast: null, leaving: false,
               stuckAt: 0, lastX: 436, lastY: 310, alpha: 0, ph: (hash(a.id) % 100) / 16, r: rng(hash(a.id) ^ 0xbeef), emote: null,
               sigil: { seed: hash(a.id + ':sigil'), charge: 0, event: null, flash: -9 } };
@@ -391,8 +431,12 @@
         if (initialized && !w.summon) sparkleAt(436, 312);
         continue;
       }
-      if (w.sp.demon !== demon) w.sp = SP.makeWizard(a.id, a.kind, demon, takenJobs());
+      if (w.sp.faction !== faction) w.sp = SP.makeWizard(a.id, a.kind, faction, takenJobs());
       const changed = !w.station || w.a.status !== a.status || (a.status === 'working' && (w.a.tool !== a.tool || w.a.detail !== a.detail)) || w.leaving;
+      if (initialized && (a.compactions || 0) > (w.a.compactions || 0)) {
+        w.relitAt = sceneTime;
+        if (w.desk) for (let i = 0; i < 6; i++) spark(w.desk.x + (w.sp.sub ? 12 : 21), w.desk.y - 16, '#a8a2c8', -9, 1.2);
+      }
       if (w.desk && ['waiting', 'done'].includes(a.status) && !['waiting', 'done'].includes(w.a.status)) {
         RITUALS.push({ desk: w.desk, x: w.desk.x, y: w.desk.y, at: sceneTime, seed: hash(w.a.id + ':desk'),
           sigilSeed: w.sigil.seed });
@@ -1267,12 +1311,12 @@
     spark(sx, sy, '#d8ff58', -5, .35);
   }
   function rayOpponent(w) {
-    const rivals = [...wizards.values()].filter(v => v.a.kind !== 'sub' && v.sp.demon !== w.sp.demon && !v.leaving && !v.walk && !v.summon && !v.game && !v.blast && v.alpha > .8);
+    const rivals = [...wizards.values()].filter(v => v.a.kind !== 'sub' && v.sp.faction !== w.sp.faction && !v.leaving && !v.walk && !v.summon && !v.game && !v.blast && v.alpha > .8);
     if (dragonAtBar() && w.r() < EARL_GREY_TARGET_CHANCE) rivals.push(dragon);
     return rivals.length ? rivals[w.r() * rivals.length | 0] : null;
   }
   function combatHelpers(w) {
-    return [...wizards.values()].filter(v => v.a.kind === 'sub' && v.a.parent === w.a.id && v.sp.demon === w.sp.demon &&
+    return [...wizards.values()].filter(v => v.a.kind === 'sub' && v.a.parent === w.a.id && v.sp.faction === w.sp.faction &&
       !v.leaving && !v.walk && !v.summon && !v.game && !v.blast && v.alpha > .8).map(v => v.a.id);
   }
   function castRay(w, target, catCaster = false) {
@@ -1609,6 +1653,7 @@
   const props = t => [
     [174, gg => PR.cauldron(gg, 56, 150, t, BREW)],
     [91, gg => PR.shelf(gg, 10 - labExtra, 60, 11)], [127, gg => PR.shelf(gg, 10 - labExtra, 96, 23)],
+    [91.1, gg => drawShelfBooks(gg, 0)], [127.1, gg => drawShelfBooks(gg, 1)],
     [62, gg => PR.bench(gg, 88, 42, t)],
     ...RESOURCE_BALLS.map(ball => [ball.y + 22, gg =>
       PR.crystal(gg, ball.x, ball.y, t, ballReading(ball), ball.color, ball.hotColor, ball.accents)]),
@@ -1861,12 +1906,16 @@
       if (w.leaving && w.alpha <= 0) { wizards.delete(id); continue; }
       if (w.a.status === 'idle' && !w.game && Math.random() < dt * .5) spark(w.x + 6, w.y - 24, '#a8a2c8', -6, 1.4, 'z');
       if (w.a.status === 'attention' && Math.random() < dt * 2) spark(w.x, w.y - 26, '#ff5a5a', -10, .5);
+      const aura = AURA[w.a.effort];
+      if (aura && BUSY.has(w.a.status) && !w.blast && w.alpha > .8 && Math.random() < dt * aura[0])
+        spark(w.x + Math.random() * 14 - 7, w.y - 3 - Math.random() * 18, aura[1], -9, .9);
       maybeCast(w, t);
     }
     updateDragonSignal(t);
     updateDragon(dt, t);
     maybeCatCast(t);
     updateSpells(dt, t);
+    updateBirds(dt);
     cafeService(t);
     maybeCafeChat(t);
     maybeDragonStretch(t);
@@ -2070,6 +2119,106 @@
       g.globalAlpha = 1;
     }
   }
+  // ---------- missives, shared files, drinkers, strays, and the library ----------
+  const BIRDS = [], WINDOW_PERCH = [WIN_X[2] + 7, 24], DOOR_PERCH = [ST.door.spots[0][0], ST.door.spots[0][1] - 12];
+  let missiveKeys = null;
+  const perch = (id, fallback) => { const w = wizards.get(id); return w && !w.leaving ? [w.x, w.y - 22] : fallback; };
+  function launchMissives(data) {
+    const keys = new Set();
+    for (const a of data.agents) {
+      const sent = (a.missives || []).map(m => ({ ...m, from: a.id })), heard = (a.inbox || []).map(m => ({ ...m, to: a.id }));
+      for (const m of [...sent, ...heard]) {
+        const key = `${m.from}@${m.ts}`;  // a recipient resolved later is still the same missive
+        keys.add(key);
+        if (missiveKeys && !missiveKeys.has(key) && data.now - m.ts < 30 && BIRDS.length < 8)
+          BIRDS.push({ from: m.from, to: m.to, t: 0, life: 2.4, seal: (wizards.get(m.from) || { sp: {} }).sp.demon ? '#f08a2a' : '#d86ad8' });
+      }
+    }
+    missiveKeys = keys;  // the first poll only learns what has already been said
+  }
+  function birdAt(b) {
+    const [sx, sy] = perch(b.from, WINDOW_PERCH), [tx, ty] = perch(b.to, DOOR_PERCH), k = Math.min(1, b.t / b.life);
+    return [mix(sx, tx, k), mix(sy, ty, k) - Math.sin(k * Math.PI) * 26];
+  }
+  function updateBirds(dt) {
+    for (let i = BIRDS.length - 1; i >= 0; i--) {
+      const b = BIRDS[i];
+      b.t += dt;
+      if (b.t < b.life) continue;
+      sparkleAt(...perch(b.to, DOOR_PERCH).map((v, j) => v + (j ? 10 : 0)));
+      BIRDS.splice(i, 1);
+    }
+  }
+  function drawBirds(t) { for (const b of BIRDS) PR.missive(g, ...birdAt(b), t, b.seal); }
+  function drawClashes(t) {
+    for (const w of wizards.values()) for (const c of w.a.clash || []) {
+      const o = wizards.get(c.with);
+      if (!o || o.leaving || w.leaving || w.a.id > c.with) continue;
+      const hot = [sel, hover].some(id => id === w.a.id || id === o.a.id), n = Math.max(6, Math.hypot(o.x - w.x, o.y - w.y) / 4 | 0);
+      g.globalAlpha = hot ? .85 : .3; g.fillStyle = '#ff7a4a';
+      for (let i = 0; i <= n; i++) if ((i + (t * 4 | 0)) % 4 < 2)
+        g.fillRect(Math.round(mix(w.x, o.x, i / n)), Math.round(mix(w.y, o.y, i / n) - 9), 1, 1);
+      g.globalAlpha = 1;
+      PR.crossedWands(g, (w.x + o.x) / 2, (w.y + o.y) / 2 - 9, t, hot);
+    }
+  }
+  // Claude sessions name their account; anything else drinks from the only bottle in use on its machine.
+  const BOTTLES = new Map();
+  function assignBottles() {
+    BOTTLES.clear();
+    const probes = usageProbes(), parts = v => [v.q, ...(v.parts || [])];
+    for (const a of lastData.agents || []) {
+      const provider = a.engine === 'codex' ? 'codex' : 'claude';
+      const exact = a.login && probes.find(v => parts(v).some(q => q.loginId === a.login));
+      const near = probes.filter(v => parts(v).some(q => q.provider === provider && (q.origins || []).includes(a.origin)));
+      const v = exact || (near.length === 1 ? near[0] : null);
+      if (v) BOTTLES.set(a.id, v.q.id);
+    }
+  }
+  const drinkersOf = v => (lastData.agents || []).filter(a => BOTTLES.get(a.id) === v.q.id);
+  function drawDrips(t) {
+    const v = usageProbe(hover), w = wizards.get(hover) || wizards.get(sel);
+    const own = w && usageProbes().find(p => p.q.id === BOTTLES.get(w.a.id));
+    const pairs = v ? drinkersOf(v).map(a => [v, wizards.get(a.id)]) : own ? [[own, w]] : [];
+    for (const [p, x] of pairs) {
+      if (!x || x.leaving || x.alpha < .5) continue;
+      const sx = p.x + 8, sy = p.y + 26, n = Math.max(8, Math.hypot(x.x - sx, x.y - 24 - sy) / 5 | 0);
+      g.fillStyle = p.color;
+      for (let i = 0; i < n; i++) {
+        const k = (i / n + t * .35) % 1;
+        g.globalAlpha = .25 + .55 * Math.sin(k * Math.PI);
+        g.fillRect(Math.round(mix(sx, x.x, k)), Math.round(mix(sy, x.y - 24, k) + Math.sin(k * Math.PI) * 10), 1, 2);
+      }
+      g.globalAlpha = 1;
+    }
+  }
+  function drawStrays(t) {
+    const strays = lastData.orphans || [], remote = lastData.resources?.remote?.host;
+    [o => !o.host, o => remote && o.host === remote].forEach((mine, col) => strays.filter(mine).slice(0, 3).forEach((o, i) =>
+      PR.ghost(g, 201 + col * 22 + Math.cos(t * .6 + i * 2.1) * 13, 94 + Math.sin(t * .9 + i * 2.1) * 5, t + i)));
+  }
+  let annals = { days: [], library: [], edges: [] }, annalsStamp = null, copied = null;
+  const SHELVES = () => [[10 - labExtra, 60], [10 - labExtra, 96]];
+  const shelfBooks = () => (annals.library || []).slice(0, 48).map((book, i) => {
+    const [x, y] = SHELVES()[i / 24 | 0];
+    return { book, i, x: x + 3 + (i % 6) * 3, y: y + 3 + ((i % 24) / 6 | 0) * 7 };
+  });
+  function drawShelfBooks(gg, shelf) {
+    for (const { book, i, x, y } of shelfBooks().filter(b => (b.i / 24 | 0) === shelf)) {
+      gg.fillStyle = '#2c2014'; gg.fillRect(x, y - 1, 2, 6);
+      gg.fillStyle = `hsl(${hash(book.project || book.id) % 360} 55% ${hover === 'book:' + i ? 75 : 52}%)`; gg.fillRect(x, y, 2, 5);
+      gg.fillStyle = '#f7f3e8'; gg.fillRect(x, y + 2, 2, 1);  // a title plate sets quest books apart from the shelf's own
+      if ((book.prs || []).length) { gg.fillStyle = '#ffd84a'; gg.fillRect(x, y, 2, 1); }
+      if (book.engine === 'codex') { gg.fillStyle = '#f0a83c'; gg.fillRect(x, y + 3, 2, 1); }
+    }
+  }
+  async function fetchAnnals() {
+    try {
+      annals = await (await fetch('/api/annals')).json();
+      if (!$('#annals').hidden) renderAnnals();
+    } catch { /* the tower will be back */ }
+  }
+
   function drawCafeChat(t) {
     if (!cafeChat) return;
     const second = t - cafeChat.start >= 3.6, w = wizards.get(second ? cafeChat.b : cafeChat.a);
@@ -2281,6 +2430,8 @@
       const seed = hash(w.a.id + ':desk');
       if (!d.robbed) PR.deskDecor(g, x, y, width, seed, drink, t);
       if (!RITUALS.some(r => r.desk === d)) PR.deskPet(g, x + 5, y - 5, seed, t, false);
+      const ctx = w.a.ctx;  // the candle burns down as the context window fills, and is relit by compaction
+      if (ctx && ctx[1] > 0) PR.candle(g, x + width / 2 - 3, y - 7, 1 - ctx[0] / ctx[1], t, Math.max(0, 1 - (t - (w.relitAt ?? -9)) / 2));
     }
     g.restore();
   }
@@ -2343,6 +2494,7 @@
     PR.torch(g, 24, 14, t); PR.torch(g, 240, 14, t + .5); PR.torch(g, 282, 14, t + .2); PR.torch(g, 444, 14, t + .8);
     drawLightningCast(g, t);
     drawBonds(t);
+    drawClashes(t);
     drawCourt(g, t);
     const dragonFire = SPELLS.find(s => s.kind === 'counterfire' && s.t >= 0), fireVictim = dragonFire && wizards.get(dragonFire.target);
     const fireX = fireVictim ? fireVictim.x : dragonFire && dragonFire.tx;
@@ -2398,6 +2550,9 @@
     }
     if (!dragon.blast && dragon.task && dragon.task.phase === 'milk') drawMilkPour(t);
     for (const s of SPELLS) drawSpell(s, t);
+    drawDrips(t);
+    drawStrays(t);
+    drawBirds(t);
     for (const p of PARTS) {
       g.globalAlpha = Math.max(0, 1 - p.t / p.life);
       if (p.kind === 'z') drawText(g, p.x, p.y, 'Z', p.c);
@@ -2427,6 +2582,7 @@
     if (hover === 'cat') tag(cat.x, cat.y - 20, 'BIGGLES, STAFF CAT');
     if (hover === 'demon-cat' && demonCat.active) tag(demonCat.x, demonCat.y - 20, 'LUCIPURR');
     if (hover === 'barista') tag(dragon.x, dragon.y - 32, `EARL GREY: ${dragon.signal === 'attention' ? 'ALERT' : dragon.signal === 'active' ? 'ROASTING' : dragon.signal === 'empty' ? 'ASLEEP' : 'BARISTA'}`);
+    if (copied && t - copied.at < 2) tag(copied.x, copied.y, 'RESUME COMMAND COPIED');
     drawText(g, 334, 307, 'MANA CAFE', '#ffd84a');
     drawText(g, 60 - labExtra / 2, 240 + labDown, 'LABORATORIVM', '#8a84a0');
     for (const d of desks) drawTaskLabel(d);
@@ -2475,6 +2631,8 @@
     if (ball) return ball.id;
     for (const w of [...wizards.values()].sort((a, b) => b.y - a.y))
       if (Math.abs(mx - w.x) <= 9 && my >= w.y - 26 && my <= w.y + 3) return w.a.id;
+    const book = shelfBooks().find(b => mx >= b.x - 1 && mx <= b.x + 2 && my >= b.y - 1 && my <= b.y + 5);
+    if (book) return 'book:' + book.i;
     if (mx >= dragon.x - 25 && mx <= dragon.x + 25 && my >= dragon.y - 40 && my <= dragon.y + 3) return 'barista';
     if (demonCat.active && Math.abs(mx - demonCat.x) <= 8 && Math.abs(my - demonCat.y + 4) <= 7) return 'demon-cat';
     if (Math.abs(mx - cat.x) <= 8 && Math.abs(my - cat.y + 4) <= 7) return 'cat';
@@ -2493,7 +2651,7 @@
   }
   const showTip = (w, left, top) => placeTip(tipHTML(w), left, top);
   function showUsageTip(v, left, top) {
-    const q = v.q;
+    const q = v.q, names = drinkersOf(v).map(a => nameOf(a.id));
     const expirations = q.reset_expirations || [];
     const credits = Array.from({ length: q.resets_left ?? expirations.length }, (_, i) => {
       const expires = expirations[i];
@@ -2511,10 +2669,15 @@
       ${status}
       ${v.parts ? '' : `<div class="tt-age">${q.resets_at ? 'RESETS IN ' + esc(detailedResetIn(q)) : 'RESET TIME UNAVAILABLE'}${q.resets_left === 0 ? '' : ' · ' + (q.resets_left ?? '?') + ' RESET' + (q.resets_left === 1 ? '' : 'S') + ' LEFT'}</div>`}
       ${credits}
+      ${names.length ? `<div class="tt-title">DRINKERS: ${esc(names.slice(0, 6).join(', '))}${names.length > 6 ? ` +${names.length - 6}` : ''}</div>` : ''}
       ${q.error ? `<div class="tt-age">${esc(q.error)}</div>` : ''}`, left, top);
   }
   function showResourceTip(ball, left, top) {
     const machine = lastData.resources?.[ball.origin] || {}, value = ballReading(ball);
+    const onMachine = o => ball.origin === 'local' ? !o.host : !!machine.host && o.host === machine.host;
+    const key = ball.metric === 'memory' ? 'rss' : 'cpu', loads = (lastData.agents || [])
+      .filter(a => a.load && onMachine(a) && a.load[key] > 0).sort((x, y) => y.load[key] - x.load[key]).slice(0, 3);
+    const strays = (lastData.orphans || []).filter(onMachine);
     const gib = bytes => Math.round(bytes / 2**30) + ' GiB';
     const total = machine[ball.metric + 'Total'], used = machine[ball.metric + 'Used'];
     const name = ball.metric === 'memory' ? 'MEMORY' : ball.metric.toUpperCase();
@@ -2523,7 +2686,20 @@
       <div class="tt-status">${value == null ? 'USAGE UNAVAILABLE' : Math.round(value) + '% USED'}</div>
       <div class="tt-age">${ball.metric === 'cpu' ? (machine.cores == null ? 'CORE COUNT UNAVAILABLE' : machine.cores + ' LOGICAL CORES') :
         (total == null ? name + ' CAPACITY UNAVAILABLE' :
-          (used == null ? '' : gib(used) + ' / ') + gib(total) + (ball.metric === 'memory' ? ' RAM' : ' DISK'))}</div>`, left, top);
+          (used == null ? '' : gib(used) + ' / ') + gib(total) + (ball.metric === 'memory' ? ' RAM' : ' DISK'))}</div>
+      ${ball.metric !== 'disk' && loads.length ? `<div class="tt-title">BIGGEST DRAW: ${loads.map(a => esc(nameOf(a.id)) + ' ' +
+        (key === 'cpu' ? Math.round(a.load.cpu) + '%' : gib(a.load.rss))).join(' · ')}</div>` : ''}
+      ${ball.metric === 'cpu' && strays.length ? `<div class="tt-quest">${strays.length} STRAY PROCESS${strays.length === 1 ? '' : 'ES'} OUTLIVED ${strays.length === 1 ? 'ITS' : 'THEIR'} AGENT:
+        ${strays.slice(0, 3).map(o => `<br>${esc(o.pid)} ${esc(o.cmd)}${o.project ? ' (' + esc(o.project) + ')' : ''}`).join('')}</div>` : ''}`, left, top);
+  }
+  const nameOf = id => id === 'tower' ? 'THE TOWER' : (wizards.get(id) || { sp: { name: 'A DISTANT AGENT' } }).sp.name;
+  function bookHTML(b) {
+    const now = Date.now() / 1000 - serverSkew;
+    return `<div class="tt-name">${esc(b.title || b.quest || 'UNNAMED QUEST')}</div>
+      <div class="tt-meta">${b.engine === 'codex' ? 'CODEX · ' : ''}${b.host ? esc(b.host) + ' · ' : ''}${esc(b.project || '?')}${b.branch ? ' · ' + esc(b.branch) : ''}</div>
+      <div class="tt-age">FINISHED ${AGE(now - (b.ended || now))} AGO · ${esc(b.turns || 0)} TURN${b.turns === 1 ? '' : 'S'}${(b.prs || []).map(pr => ` · PR #${esc(pr.number)}${pr.ci ? ' ' + esc(String(pr.ci.state).toUpperCase()) : ''}`).join('')}</div>
+      ${b.final ? `<div class="tt-quest">"${esc(b.final.slice(0, 220))}"</div>` : ''}
+      <div class="tt-status">CLICK TO COPY THE RESUME COMMAND</div>`;
   }
   function clearHover(id) {
     if (id && hover !== id) return;
@@ -2542,9 +2718,11 @@
     } else {
       const v = usageProbe(hover), sr = $('#stage').getBoundingClientRect();
       const ball = RESOURCE_BALLS.find(b => b.id === hover);
+      const book = hover && hover.startsWith('book:') && shelfBooks()[+hover.slice(5)];
       if (v) showUsageTip(v, e.clientX - sr.left + 14, e.clientY - sr.top + 10);
       else if (ball) showResourceTip(ball, e.clientX - sr.left + 14, e.clientY - sr.top + 10);
       else if (hover === 'mtg') placeTip(magicTipHTML(), e.clientX - sr.left + 14, e.clientY - sr.top + 10);
+      else if (book) placeTip(bookHTML(book.book), e.clientX - sr.left + 14, e.clientY - sr.top + 10);
       else $('#tip').hidden = true;
     }
   });
@@ -2554,14 +2732,21 @@
     renderJournal();
     renderSide();
   }
-  cv.addEventListener('click', e => selectWizard(pickAt(e)));
+  async function copyResume(book, x, y) {
+    try { await navigator.clipboard.writeText(book.resume); copied = { at: sceneTime, x, y }; } catch { copied = null; }
+  }
+  cv.addEventListener('click', e => {
+    const id = pickAt(e), book = id && id.startsWith('book:') && shelfBooks()[+id.slice(5)];
+    if (book) copyResume(book.book, Math.max(50, book.x + 30), book.y - 10);
+    else selectWizard(id);
+  });
 
   // ---------- status text ----------
   const VERB = { Bash: 'BREWING', Read: 'READING', Edit: 'INSCRIBING', Write: 'SCRIBING', Grep: 'SCOURING FOR', Glob: 'SCOURING FOR',
     WebFetch: 'SCRYING', WebSearch: 'SCRYING', Task: 'SUMMONING', Agent: 'SUMMONING', Workflow: 'GRAND RITE', Skill: 'INVOKING',
     TodoWrite: 'UPDATING THE QUESTBOOK', LSP: 'DIVINING', ToolSearch: 'RUMMAGING FOR', AskUserQuestion: 'PETITIONING YOU',
     EnterPlanMode: 'PLOTTING', ExitPlanMode: 'PRESENTING A PLAN', KillShell: 'DOUSING A POTION', Monitor: 'WATCHING A POTION',
-    exec_command: 'BREWING', write_stdin: 'STIRRING', apply_patch: 'INSCRIBING', update_plan: 'UPDATING THE QUESTBOOK', web_search: 'SCRYING' };
+    exec_command: 'BREWING', exec: 'CHANNELING', write_stdin: 'STIRRING', apply_patch: 'INSCRIBING', update_plan: 'UPDATING THE QUESTBOOK', web_search: 'SCRYING' };
   const SUBMIT_STATUS = { git: 'SUBMITTING WITH GIT', graphite: 'SUBMITTING WITH GRAPHITE', jujutsu: 'SUBMITTING WITH JUJUTSU' };
   const drinkName = d => (d.article === '' ? '' : d.article ? d.article + ' ' : /^(AMERICANO|ESPRESSO)/.test(d.name) ? 'AN ' : 'A ') + d.name;
   const playing = w => { const table = tableById(w && w.game); return table && table.game && 'PLAYING ' + gameName(table.game, w); };
@@ -2582,8 +2767,11 @@
         const table = tableById(w && w.game);
         if (table && table.game) return 'WAITING OVER ' + gameName(table.game, w);
         if (waitingOnQuestion(a)) return 'AWAITING YOUR ANSWER' + d;
+        const pr = (a.prs || []).at(-1);
+        if (a.skill === 'pr-watch' && pr) return `WATCHING PR #${pr.number}${pr.ci ? ' (' + String(pr.ci.state).toUpperCase() + ')' : ''}`;
         const submit = submitKind(a);
         if (submit) return SUBMIT_STATUS[submit] + d;
+        if (shellTool(a) && ACTS[a.act]) return ACTS[a.act][0] + d;
         if ((a.tool || '').startsWith('mcp__')) return 'FAR-SCRYING' + ': ' + a.tool.slice(5).replace('__', ' / ') + (a.detail ? ' — ' + a.detail : '');
         if (/page|click|snapshot|script|console|chrome|browser|devtools|playwright/.test((a.tool || '').toLowerCase())) return 'FAR-SCRYING: ' + a.tool + (a.detail ? ' — ' + a.detail : '');
         if (waitingOnRun(a)) return 'WAITING FOR A RUN' + d;
@@ -2600,15 +2788,41 @@
   }
   const AGE = sIn => { const s = Math.max(0, sIn); return s < 90 ? (s | 0) + 'S' : s < 5400 ? ((s / 60) | 0) + 'M' : ((s / 3600) | 0) + 'H' + (((s % 3600) / 60) | 0) + 'M'; };
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const base = path => String(path).split('/').pop();
+  const tokens = n => n >= 1e6 ? +(n / 1e6).toFixed(1) + 'M' : Math.round(n / 1000) + 'K';
+  const contextText = a => a.ctx && a.ctx[1] ? `CONTEXT ${Math.round(100 * a.ctx[0] / a.ctx[1])}% (${tokens(a.ctx[0])}/${tokens(a.ctx[1])})` +
+    (a.compactions ? ` · ${a.compactions} COMPACTION${a.compactions === 1 ? '' : 'S'}` : '') : '';
+  const loadText = a => a.load ? `LOAD ${Math.round(a.load.cpu)}% CPU · ${(a.load.rss / 2**30).toFixed(1)} GB · ${a.load.procs} PROC${a.load.procs === 1 ? '' : 'S'}` : '';
+  const prURL = pr => `https://app.graphite.com/github/pr/${pr.repo}/${pr.number}`;
+  const prChip = pr => `<a class="chip pr ci-${esc(pr.ci ? pr.ci.state : 'unknown')}" href="${esc(prURL(pr))}" target="_blank" rel="noopener"
+    title="${esc(pr.repo)}#${esc(pr.number)}: ${esc(pr.ci ? pr.ci.state + (pr.ci.draft ? ', draft' : '') + (pr.ci.review ? ', ' + pr.ci.review.replace('_', ' ') : '') : 'CI unknown')}">#${esc(pr.number)}</a>`;
+  const BAND_COLORS = { b: '#58d878', w: '#ffd84a', i: '#5a5470' };
+  function bandStyle(a, now) {
+    const span = 3 * 3600, start = now - span, band = a.band || [], at = ts => Math.max(0, Math.min(100, (ts - start) / span * 100)).toFixed(2);
+    if (!band.length) return { css: 'none', title: '' };
+    const shares = {};
+    const stops = band.map(([ts, st], i) => {
+      const end = (band[i + 1] || [now])[0];
+      shares[st] = (shares[st] || 0) + Math.max(0, end - Math.max(ts, start));
+      return `${BAND_COLORS[st] || 'transparent'} ${at(ts)}% ${at(end)}%`;
+    });
+    const title = 'LAST 3 HOURS: ' + [['b', 'BUSY'], ['w', 'WAITING'], ['i', 'DOZING']].filter(([k]) => shares[k])
+      .map(([k, label]) => `${Math.round(100 * shares[k] / span)}% ${label}`).join(', ');
+    return { css: `linear-gradient(to right, transparent 0% ${at(band[0][0])}%, ${stops.join(', ')})`, title };
+  }
 
   function tipHTML(w) {
     const a = w.a, now = Date.now() / 1000 - serverSkew;
     const kind = w.sp.demon ? (a.kind === 'sub' ? 'DEMON APPRENTICE · ' : 'DEMON · ') : a.kind === 'sub' ? 'APPRENTICE · ' : '';
-    return `<div class="tt-name">${esc(w.sp.name)} <span>${esc(w.sp.epithet)}</span></div>
+    const honor = earned(a), facts = [contextText(a), a.effort && a.effort.toUpperCase() + ' EFFORT', loadText(a)].filter(Boolean);
+    return `<div class="tt-name">${esc(w.sp.name)} <span>${esc(epithetOf(w))}</span></div>
+      ${honor ? `<div class="tt-age">EARNED: ${esc(honor.why)}</div>` : ''}
       <div class="tt-meta">${a.engine === 'codex' ? 'CODEX · ' : ''}${kind}${a.host ? esc(a.host) + ' · ' : ''}${esc(a.project || '?')}${a.branch ? ' · ' + esc(a.branch) : ''}${a.model ? ' · ' + esc(a.model.replace('claude-', '')) : ''}</div>
       <div class="tt-status st-${a.status}">${esc(statusLine(a, w))}</div>
       ${a.title ? `<div class="tt-title">${esc(a.title)}</div>` : ''}
       ${a.quest ? `<div class="tt-quest">"${esc(a.quest.slice(0, 130))}"</div>` : ''}
+      ${(a.clash || []).map(c => `<div class="tt-clash">&#9876; SHARES ${esc(c.paths.map(base).join(', '))} WITH ${esc(nameOf(c.with))}</div>`).join('')}
+      ${facts.length ? `<div class="tt-age">${esc(facts.join(' · '))}</div>` : ''}
       <div class="tt-age">IN STATE ${AGE(now - (a.since || now))} · LAST SIGN ${AGE(now - (a.last || now))} AGO</div>`;
   }
 
@@ -2625,6 +2839,12 @@
       `Currently ${statusLine(a, w).toLowerCase()}.`;
     return `${quest ? `Quest: ${quest}. ` : ''}${tools.length ? `Recent craft: ${tools.join(', ')}. ` : ''}${state}`;
   }
+  function journalMissives(a) {
+    const out = (a.missives || []).map(m => ({ ts: m.ts, missive: true, text: `Sent a missive to ${nameOf(m.to)}: ${m.text}` }));
+    for (const o of lastData.agents || []) for (const m of o.missives || [])
+      if (m.to === a.id) out.push({ ts: m.ts, missive: true, text: `Missive from ${nameOf(o.id)}: ${m.text}` });
+    return [...out, ...(a.inbox || []).map(m => ({ ts: m.ts, missive: true, text: `Missive from ${nameOf(m.from)}: ${m.text}` }))];
+  }
   // The exchange itself, oldest first, so it reads like the window you were last looking at.
   function chatHTML(w, now) {
     const chat = w.a.chat || [];
@@ -2640,8 +2860,10 @@
     if (!w) { panel.hidden = true; journalSig = journalId = null; return; }
     const a = w.a, now = Date.now() / 1000 - serverSkew, history = [...(a.history || [])].reverse();
     // Rebuilding wipes both scroll positions, so do it only on a change or once ages go stale.
-    const sig = JSON.stringify([a.id, a.status, a.tool, a.detail, a.title, a.quest, a.project,
-      a.branch, a.chat, history.map(h => h.text)]);
+    const missives = journalMissives(a), links = [...(a.prs || []).map(prChip), ...((a.load && a.load.ports) || []).map(port =>
+      `<a class="chip portal" href="http://${esc(a.host || '127.0.0.1')}:${esc(port)}" target="_blank" rel="noopener" title="a server this agent started">:${esc(port)}</a>`)];
+    const sig = JSON.stringify([a.id, a.status, a.tool, a.detail, a.title, a.quest, a.project, a.branch, a.chat, history.map(h => h.text),
+      a.ctx && Math.round(100 * a.ctx[0] / a.ctx[1]), a.cost, a.effort, a.turns, a.clash, links, missives, earned(a)]);
     if (sig === journalSig && now - journalAt < JOURNAL_STALE && !panel.hidden) return;
     const fresh = journalId !== a.id;
     journalId = a.id;
@@ -2651,18 +2873,55 @@
     const chatKeep = chatBox ? chatBox.scrollTop : 0;
     journalSig = sig;
     journalAt = now;
+    const stats = [a.model && a.model.replace('claude-', '').toUpperCase(), a.effort && a.effort.toUpperCase() + ' EFFORT', contextText(a),
+      a.cost && `+${a.cost.added || 0} −${a.cost.removed || 0}`, a.cost && a.cost.usd != null && '$' + Number(a.cost.usd).toFixed(2),
+      a.turns && `${a.turns} TURN${a.turns === 1 ? '' : 'S'}`].filter(Boolean);
+    const events = [...history, ...missives].sort((x, y) => y.ts - x.ts), honor = earned(a);
     body.innerHTML = `<div class="j-head">${esc(w.sp.name)}</div>
-      <div class="j-ep">${esc(w.sp.epithet)} · ${esc(a.project || '?')}${a.branch ? ' · ' + esc(a.branch) : ''}</div>
+      <div class="j-ep">${esc(epithetOf(w))}${honor ? ` (${esc(honor.why.toLowerCase())})` : ''} · ${esc(a.project || '?')}${a.branch ? ' · ' + esc(a.branch) : ''}</div>
+      ${stats.length ? `<div class="j-stats">${esc(stats.join(' · '))}</div>` : ''}
+      ${links.length ? `<div class="j-links">${links.join('')}</div>` : ''}
+      ${(a.clash || []).map(c => `<div class="j-clash">&#9876; Also editing ${esc(c.paths.map(base).join(', '))}: ${esc(nameOf(c.with))}</div>`).join('')}
       <div class="j-summary">${esc(journalSummary(a, w))}</div>
       <div class="j-title">COUNSEL &amp; MISSIVES</div>
       ${chatHTML(w, now)}
       <div class="j-title">QUEST HISTORY</div>
-      ${history.length ? history.map(h => `<div class="j-event"><span class="j-time">${AGE(now - h.ts)} AGO</span><span class="j-rune">◆</span><span class="j-text">${esc(h.text)}</span></div>`).join('') :
+      ${events.length ? events.map(h => `<div class="j-event${h.missive ? ' missive' : ''}"><span class="j-time">${AGE(now - h.ts)} AGO</span><span class="j-rune">${h.missive ? '✉' : '◆'}</span><span class="j-text">${esc(h.text)}</span></div>`).join('') :
         '<div class="j-empty">No deeds have reached the chronicle yet.</div>'}`;
     panel.hidden = false;
     panel.scrollTop = keep;
     const box = $('.j-chat');
     if (box) box.scrollTop = pinned ? box.scrollHeight : chatKeep;
+  }
+  const span = sec => sec < 60 ? Math.round(sec) + 'S' : sec < 3600 ? Math.round(sec / 60) + 'M' : Math.round(sec / 3600) + 'H';
+  function medianWait(lat, edges) {
+    const n = lat.reduce((x, y) => x + y, 0);
+    for (let i = 0, seen = 0; n && i < lat.length; i++) if ((seen += lat[i]) >= n / 2)
+      return i === 0 ? 'UNDER ' + span(edges[0]) : i >= edges.length ? 'OVER ' + span(edges.at(-1)) : `${span(edges[i - 1])}–${span(edges[i])}`;
+    return '—';
+  }
+  function renderAnnals() {
+    const now = Date.now() / 1000 - serverSkew, days = annals.days || [], books = annals.library || [];
+    const most = Math.max(1, ...days.map(d => d.busy));
+    $('#annalsBody').innerHTML = `<h2>THE ANNALS</h2>
+      <h3>DAILY CHRONICLE</h3>
+      ${days.length ? `<table class="chronicle"><tr><th>DAY</th><th>AGENT-HOURS</th><th>TURNS</th><th>PROMPTS</th><th>SESSIONS</th><th>MEDIAN WAIT FOR YOU</th></tr>
+        ${days.map(d => `<tr><td>${esc(d.date)}</td><td><i class="bar" style="width:${Math.round(48 * d.busy / most)}px"></i>${(d.busy / 3600).toFixed(1)}</td>
+          <td>${d.turns}</td><td>${d.prompts}</td><td>${d.sessions}</td><td>${medianWait(d.lat || [], annals.edges || [])}</td></tr>`).join('')}</table>` :
+        '<p class="dim">The chronicle begins with this tower.</p>'}
+      <h3>LIBRARY OF FINISHED QUESTS</h3>
+      ${books.length ? books.map((b, i) => `<div class="book">
+          <div class="b-title">${esc(b.title || b.quest || 'UNNAMED QUEST')}</div>
+          <div class="b-meta">${b.engine === 'codex' ? 'CODEX · ' : ''}${b.host ? esc(b.host) + ' · ' : ''}${esc(b.project || '?')}${b.branch ? ' · ' + esc(b.branch) : ''} · FINISHED ${AGE(now - (b.ended || now))} AGO · ${esc(b.turns || 0)} TURN${b.turns === 1 ? '' : 'S'} ${(b.prs || []).map(prChip).join('')}</div>
+          ${b.final ? `<div class="b-final">${esc(b.final)}</div>` : ''}
+          <button class="pixbtn b-copy" data-i="${i}" title="${esc(b.resume)}">COPY RESUME COMMAND</button></div>`).join('') :
+        '<p class="dim">Sessions are shelved here when they leave the tower.</p>'}`;
+    $('#annalsBody').querySelectorAll('.b-copy').forEach(button => {
+      button.onclick = async () => {
+        try { await navigator.clipboard.writeText(books[+button.dataset.i].resume); button.textContent = 'COPIED'; }
+        catch { button.textContent = 'COPY FAILED'; }
+      };
+    });
   }
   function renderSide() {
     const now = Date.now() / 1000 - serverSkew;
@@ -2671,14 +2930,18 @@
     $('#rows').innerHTML = ags.map(a => {
       const w = wizards.get(a.id);
       if (!w) return '';
-      const task = esc(a.title || a.quest || a.project || 'UNNAMED QUEST');
+      const task = esc(a.title || a.quest || a.project || 'UNNAMED QUEST'), band = bandStyle(a, now);
+      const left = a.ctx && a.ctx[1] ? Math.max(0, 1 - a.ctx[0] / a.ctx[1]) : null;
+      const clashes = (a.clash || []).map(c => `<span class="chip clash" title="${esc('Shares ' + c.paths.map(base).join(', '))}">&#9876; ${esc(nameOf(c.with))}</span>`);
       return `<div class="row st-${a.status} ${sel === a.id ? 'sel' : ''} ${hover === a.id ? 'hover' : ''} ${a.kind}" data-id="${esc(a.id)}">
-        <img class="pt" src="${w.sp.portrait}" alt="">
+        <div class="ptw"><img class="pt" src="${w.sp.portrait}" alt="">${left == null ? '' :
+          `<i class="mana ${left < .15 ? 'low' : left < .5 ? 'mid' : ''}" style="width:${Math.round(left * 34)}px" title="${esc(contextText(a))}"></i>`}</div>
         <div class="mid">
           <div class="task" title="${task}">${task}</div>
           <div class="ln">${esc(statusLine(a, w))}</div>
-          <div class="nm">${a.kind === 'sub' ? '<span class="sub-arrow">&#8627;</span> ' : ''}${esc(w.sp.name)} <span class="ep">${esc(w.sp.epithet)}</span></div>
-          <div class="ch"><span class="chip">${esc(a.project || '?')}</span>${a.host ? `<span class="chip alt">${esc(a.host)}</span>` : ''}${a.engine === 'codex' ? '<span class="chip cdx">codex</span>' : ''}${a.branch ? `<span class="chip alt">${esc(a.branch)}</span>` : ''}<span class="time">${AGE(now - (a.since || now))}</span></div>
+          <div class="nm">${a.kind === 'sub' ? '<span class="sub-arrow">&#8627;</span> ' : ''}${esc(w.sp.name)} <span class="ep">${esc(epithetOf(w))}</span></div>
+          <div class="ch"><span class="chip">${esc(a.project || '?')}</span>${a.host ? `<span class="chip alt">${esc(a.host)}</span>` : ''}${a.engine === 'codex' ? '<span class="chip cdx">codex</span>' : ''}${(a.prs || []).slice(-2).map(prChip).join('')}${clashes.join('')}${a.branch ? `<span class="chip alt">${esc(a.branch)}</span>` : ''}<span class="time">${AGE(now - (a.since || now))}</span></div>
+          ${band.title ? `<div class="band" style="background:${band.css}" title="${esc(band.title)}"></div>` : ''}
         </div></div>`;
     }).join('');
     document.querySelectorAll('#rows .row').forEach(el => {
@@ -2690,6 +2953,7 @@
         if (w) showTip(w, cr.left - sr.left + cv.clientLeft + w.x * S + 14, cr.top - sr.top + cv.clientTop + (w.y - 26) * S);
       };
       el.onmouseleave = () => clearHover(id);
+      el.querySelectorAll('a').forEach(link => { link.onclick = e => e.stopPropagation(); });
       el.onclick = () => {
         const w = wizards.get(id);
         if (w && sel !== id) sparkleAt(w.x, w.y - 16);
@@ -2795,6 +3059,9 @@
       isDemo = lastData.demo;
       offline = false;
       reconcile(lastData);
+      assignBottles();
+      launchMissives(lastData);
+      if (lastData.annals !== annalsStamp) { annalsStamp = lastData.annals; fetchAnnals(); }
       renderSide();
       renderJournal();
       renderTimerPrompts(lastData.timerPrompts || []);
@@ -2816,8 +3083,17 @@
 
   $('#helpBtn').onclick = () => { $('#help').hidden = !$('#help').hidden; };
   $('#help').onclick = e => { if (e.target.id === 'help') $('#help').hidden = true; };
+  $('#annalsBtn').onclick = () => {
+    $('#annals').hidden = !$('#annals').hidden;
+    if (!$('#annals').hidden) { renderAnnals(); fetchAnnals(); }
+  };
+  $('#annals').onclick = e => { if (e.target.id === 'annals' || e.target.id === 'annalsClose') $('#annals').hidden = true; };
   $('#journalClose').onclick = () => selectWizard(sel);
-  addEventListener('keydown', e => { if (e.key === 'Escape' && sel) selectWizard(sel); });
+  addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (!$('#annals').hidden) $('#annals').hidden = true;
+    else if (sel) selectWizard(sel);
+  });
   let installPrompt;
   addEventListener('beforeinstallprompt', e => {
     e.preventDefault();
@@ -2854,5 +3130,5 @@
   catThink(0);
   poll();
   requestAnimationFrame(frame);
-  window.WF = { wizards, ST, cat, demonCat, dragon, SPELLS, TABLES };
+  window.WF = { wizards, ST, cat, demonCat, dragon, SPELLS, TABLES, BIRDS };
 })();

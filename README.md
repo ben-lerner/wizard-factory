@@ -14,9 +14,11 @@ python3 server.py                  # → http://127.0.0.1:7777
 python3 server.py --install-hooks  # one-time: instant "needs permission" alerts (see Hooks)
 python3 server.py --demo           # fake wizards, for kicking the tires
 python3 server.py --port N         # different port
+python3 server.py --remote-host a,b  # watch several machines (empty to watch only this one)
 ```
 
-Agent polling has no Python dependencies and uses the system `ssh` command.
+Agent polling has no Python dependencies and uses the system `ssh` command. Pull request
+CI states need an authenticated `gh` CLI; listening ports need `lsof`. Both are optional.
 Usage displays require the `token-quota` CLI and authenticated Codex and Claude CLIs on each
 machine; the `token-quota` source checkout is not needed. Configure the accounts to display in
 `~/.config/codex-quota/accounts.json` on `mage-tower` (or locally when remote
@@ -27,11 +29,17 @@ polling is disabled). A disconnected local Codex home does not add a usage bottl
 The server tails local transcript files written to
 `~/.claude/projects/<project>/<session>.jsonl` (and
 `<session>/subagents/agent-*.jsonl` for subagents), keeping byte offsets per file
-and re-reading the tail if a file is rewritten. It also polls the same paths on
-`mage-tower` over SSH; remote agents are namespaced and displayed as demons. OpenAI Codex
+and re-reading the tail if a file is rewritten. It also watches the same paths on
+`mage-tower` through one long-lived SSH session: the server pipes itself to the remote
+`python3`, which scans incrementally and streams a snapshot back whenever something changes
+(and every 30 seconds regardless). The session reconnects after a drop and closes when the
+dashboard stops. Remote agents are namespaced and displayed as demons; with several hosts, each
+later host's demons wear their own colors and duel the others. OpenAI Codex
 CLI sessions are tracked the same way from `~/.codex/sessions/**/rollout-*.jsonl` —
 they appear as hooded agents with a `codex` chip, and one-shot `codex exec` runs (including
-codex review subagents) finish and leave instead of waiting for input. From the
+codex review subagents) finish and leave instead of waiting for input. Codex subagents are
+titled by their task name; Codex encrypts the messages between its agents, so their text is not
+shown. From the
 last few events it infers a status for each agent:
 
 | status     | meaning                                   | where the wizard goes        |
@@ -43,6 +51,12 @@ last few events it infers a status for each agent:
 | attention  | needs permission (hooks mode only)        | petition board, red `!`      |
 | idle       | waiting 15+ min                           | hearth armchairs, `Z` (after any game) |
 | done       | subagent finished                         | celebrates, exits the door   |
+
+Shell commands are classified by their most significant step (read, search, test,
+lint, build, serve, cloud, query, commit, push, wait, and so on), ignoring `cd`, environment
+assignments, quoted strings, and heredoc bodies. Polling commands (`until …; do sleep 30`,
+`gh pr checks --watch`, `tail -f`) count as waiting for a run; only commits, pushes, and pull
+request changes count as submitting.
 
 Working wizards summon a desk and remain seated through tool calls, thinking, and
 replies, including long-running commands and tests. The desk dissolves when they
@@ -62,6 +76,21 @@ when the page opens start at their stations without an arrival ceremony.
 The laboratory reserves floor space around the cauldron to keep its circle visible.
 Biggles can accidentally summon Lucipurr by sitting in the circle, and Earl Grey's
 landings briefly scatter nearby runes.
+
+Each desk carries a candle that burns down as the agent's context window fills (Claude
+usage over a 1M-token window; Codex usage over its reported window) and is relit by
+compaction. Sparks around a busy wizard show reasoning effort: gold for max, violet for xhigh,
+blue for high. The journal header lists model, effort, context, lines added and removed, cost,
+and turns, along with pull request chips and links to any servers the agent's processes
+listen on. Pull request chips open Graphite and are colored by CI state from `gh pr view`,
+refreshed every minute: green passing, gold pending, red failing, violet merged. A wizard
+running the `pr-watch` skill reads "WATCHING PR".
+
+Paper birds carry messages between agents: Claude `SendMessage` calls (to subagents, sessions,
+or named agents), Codex `send_message`, `followup_task`, and `send_message_to_thread` calls, and the tower's own
+`continue` after a usage limit. Each appears in both agents' quest history. Two agents that
+edited the same file within 30 minutes are joined by crossed wands, with a roster chip naming
+the other; a parent and its own apprentice are exempt.
 
 Appearance and name are deterministic per agent id (seeded hats, beards, robes,
 staffs, and cafe order), so the same session keeps the same wizard
@@ -108,11 +137,18 @@ usage covers the filesystem containing the machine's home directory. Above 75%
 the crystals flare and throw sparks. If the remote machine is temporarily unreachable,
 its agents and crystal readings stay at their last known state until a successful poll.
 
+Hovering a CPU or memory crystal lists the agents drawing the most from that machine,
+summed over each agent's process tree. Ghosts by a CPU crystal are processes that outlived the
+agent session that started them; the tooltip lists them.
+
 The laboratory's usage bottles show the same configured Codex accounts as the
 `token-quota` CLI. Blue `LOC` and red `REM` labels mark the accounts
 in use locally and remotely; purple `L/R` marks an account used on both machines.
 Hover over a numbered bottle for its account name, remaining quota, detailed reset
-timing, and reset credits. Each Claude account's Claude and Fable quotas share one
+timing, reset credits, and the agents drinking from it; a dotted drip links the bottle to
+each one, and hovering a wizard links it to its bottle. Claude sessions name their account
+in the transcript; other agents drink from the only bottle of their kind in use on their
+machine. Each Claude account's Claude and Fable quotas share one
 bottle whose tooltip shows separate reset times. Bottle size follows each plan's usage over Pro: Ultra (Max 20x) and 20x Codex plans use full bottles, Claude Max, Team premium seats, and 10x Codex plans use half-width bottles, and Team standard seats use small bottles. Sizes come from each account's `planTier` in `token-quota` output. Bottle labels above 24 hours round to the nearest day. Missing usage or reset data
 shows a floating ∅ inside the bottle; an ended Claude login shows ⟳ until you run `claude auth login` again. Usage refreshes once a minute independently
 of agent polling. A full quota starts its timer with a small prompt through the CLI;
@@ -150,6 +186,21 @@ Clicking a wizard opens its journal. **Counsel & missives** is the exchange itse
 and the agent's replies, oldest first, scrolling like the window you were last looking at — read out
 of the same transcripts as everything else, including agents running over SSH.
 
+Epithets are earned from the transcript when a session gives cause — THE REBASED, OF THE LONG
+BUILD (a test or build over ten minutes), THE PARALLEL, THE NIGHTLY, THE GREPWORN, THE SMALL
+DIFF, THE QUOTAKEEPER, and others — and fall back to the seeded one. The tooltip says why.
+
+## The annals: what was done
+
+Each roster row ends in a band covering the last three hours: green busy, gold waiting for you,
+grey dozing. **ANNALS** in the header shows a daily chronicle (agent-hours, turns, prompts,
+sessions, and the median time a finished turn waited for your next prompt) and a library of
+finished quests. A session is shelved as a book when it leaves the tower; books also appear on
+the laboratory shelves, where hovering shows the final reply and clicking copies a resume command
+(`claude --resume`, `codex resume`, or the same over `ssh -t` for remote sessions). The chronicle
+and library are kept in `$CODEX_HOME/wizard-factory/` (default `~/.codex/wizard-factory/`); remote
+hosts keep their own chronicle, which the dashboard adds in.
+
 ## Hooks: instant "needs your blessing"
 
 Polling can't always distinguish a long-running Bash spell from a permission
@@ -175,7 +226,8 @@ already-running sessions keep working via polling alone.
 
 - Binds to 127.0.0.1 only.
 - Remote polling uses non-interactive SSH to `mage-tower`; pass
-  `--remote-host ''` to disable it or `--remote-host HOST` to use another machine.
+  `--remote-host ''` to disable it, or `--remote-host HOST[,HOST...]` for other machines.
+  Each host reports its own configured usage accounts; the remote crystals show the first host.
 - Sessions whose transcript hasn't been touched for 3h are ignored; waiting
   wizards leave after 45 min, finished apprentices after ~2 min.
 - Desktop-app (bridge) sessions flush transcript content lazily, so "last sign"

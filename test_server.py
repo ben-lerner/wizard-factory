@@ -1,4 +1,5 @@
 import base64
+import io
 import json
 import os
 import struct
@@ -10,6 +11,11 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import server
+
+
+def remotes(agents=(), quotas=(), resources=None):
+    return {'mage-tower': {'agents': list(agents), 'quotas': list(quotas), 'resources': resources or {},
+                           'orphans': [], 'chronicle': {}}}
 
 
 class TranscriptScanTest(unittest.TestCase):
@@ -132,6 +138,20 @@ class RemoteAgentsTest(unittest.TestCase):
             ],
         )
 
+    def test_remote_ids_are_namespaced_except_the_tower(self):
+        agent = {'id': 'a', 'missives': [{'to': 'b'}], 'clash': [{'with': 'c'}], 'inbox': [{'from': 'tower'}]}
+        [a] = server.remote_agents('mage-tower', {'agents': [agent]})
+        self.assertEqual((a['missives'][0]['to'], a['clash'][0]['with'], a['inbox'][0]['from']),
+                         ('mage-tower:b', 'mage-tower:c', 'tower'))
+
+    def test_stream_scans_before_its_first_snapshot(self):
+        out = io.StringIO()
+        with patch.object(server, 'scan_local') as scan, patch.object(server.os, 'getppid', side_effect=[2, 1]), \
+                patch.object(server.time, 'sleep'), patch.object(server, 'state_payload',
+                                                               side_effect=lambda _: scan.assert_called_once() or {'agents': []}):
+            server.stream_snapshots(out)
+        self.assertEqual(json.loads(out.getvalue())['agents'], [])
+
     def test_ignores_malformed_remote_agents(self):
         self.assertEqual(server.remote_agents('mage-tower', {'agents': [None, {}]}), [])
 
@@ -143,33 +163,52 @@ class RemoteAgentsTest(unittest.TestCase):
              'timerPrompt': {'status': 'sent', 'fact': 'A remote timer fact'}},
         ]}
 
-        agents, quotas = server.remote_snapshot('mage-tower', payload)
+        snapshot = server.remote_snapshot('mage-tower', payload)
 
-        self.assertEqual(agents, [])
-        self.assertEqual(quotas, [{
+        self.assertEqual(snapshot['agents'], [])
+        self.assertEqual(snapshot['quotas'], [{
             'id': 'claude:active', 'provider': 'claude', 'period': 'weekly', 'left': 30, 'origins': ['remote'],
         }, {
             'id': 'work', 'provider': 'codex', 'period': 'weekly', 'left': 60, 'origins': ['remote'],
             'timerPrompt': {'status': 'sent', 'fact': 'A remote timer fact'},
         }])
 
-    def test_usage_refresh_has_a_larger_remote_timeout(self):
-        proc = MagicMock(stdout=b'{"agents": [], "quotas": []}')
-        with patch.object(server.subprocess, 'run', return_value=proc) as run:
-            server.scan_remote('mage-tower', True)
+    def test_follow_remote_applies_streamed_snapshots_and_reconnects(self):
+        snapshot = lambda agent, quotas: json.dumps({'agents': [{'id': agent}], 'quotas': quotas,
+                                                     'resources': {'local': {'cpu': 7}}}).encode() + b'\n'
+        first = MagicMock(stdout=iter([snapshot('a', [{'id': 'q', 'provider': 'codex', 'origins': ['local']}])]))
+        second = MagicMock(stdout=iter([snapshot('b', None)]))  # a fresh scanner has not read usage yet
+        class Stop(Exception):
+            pass
+        with patch.object(server.subprocess, 'Popen', side_effect=[first, second]) as popen, \
+                patch.object(server, 'REMOTES', {}), patch.object(server.time, 'sleep', side_effect=[None, Stop]):
+            with self.assertRaises(Stop):
+                server.follow_remote('mage-tower')
+            remote = server.REMOTES['mage-tower']
+        self.assertEqual([a['id'] for a in remote['agents']], ['mage-tower:b'])
+        self.assertEqual([q['id'] for q in remote['quotas']], ['q'])
+        self.assertEqual(remote['resources'], {'cpu': 7, 'host': 'mage-tower'})
+        self.assertEqual(popen.call_count, 2)
+        self.assertIn('--stream', popen.call_args.args[0])
+        second.stdin.write.assert_called_once_with(server.remote_source())
 
-        self.assertEqual(run.call_args.kwargs['timeout'], server.QUOTA_TIMEOUT + 10)
-
-    def test_remote_scan_bundles_continuation_module_for_stdin_execution(self):
-        proc = MagicMock(stdout=b'{"agents": [], "quotas": []}')
-        with patch.object(server.subprocess, 'run', return_value=proc) as run:
-            server.scan_remote('mage-tower')
+    def test_bundled_source_runs_from_stdin_and_streams(self):
         with tempfile.TemporaryDirectory() as directory:
-            result = subprocess.run([sys.executable, '-', '--debug-scan'],
-                                    input=run.call_args.kwargs['input'], capture_output=True,
-                                    cwd=directory, env={**server.os.environ, 'HOME': directory,
-                                                       'CODEX_HOME': directory, 'PYTHONPATH': ''}, check=True)
-        self.assertEqual(json.loads(result.stdout)['agents'], [])
+            env = {**server.os.environ, 'HOME': directory, 'CODEX_HOME': directory, 'PYTHONPATH': ''}
+            result = subprocess.run([sys.executable, '-', '--debug-scan'], input=server.remote_source(),
+                                    capture_output=True, cwd=directory, env=env, check=True)
+            self.assertEqual(json.loads(result.stdout)['agents'], [])
+            proc = subprocess.Popen([sys.executable, '-', '--stream'], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                    stderr=subprocess.DEVNULL, cwd=directory, env=env)
+            try:
+                proc.stdin.write(server.remote_source())
+                proc.stdin.close()
+                snapshot = json.loads(proc.stdout.readline())
+            finally:
+                proc.kill()
+                proc.wait()
+                proc.stdout.close()
+        self.assertEqual((snapshot['agents'], snapshot['chronicle']), ([], {}))
 
 
 class CpuUsageTest(unittest.TestCase):
@@ -196,16 +235,15 @@ class CpuUsageTest(unittest.TestCase):
         usage.assert_called_once_with(server.Path.home())
         self.assertEqual((resources['diskUsed'], resources['diskTotal']), (300, 1000))
 
-    def test_remote_scan_returns_machine_resources(self):
+    def test_remote_snapshot_returns_machine_resources(self):
         resources = {'cpu': 30, 'cores': 8, 'memoryUsed': 1024, 'memoryTotal': 2048}
-        proc = MagicMock(stdout=json.dumps({'resources': {'local': resources}}))
-        with patch.object(server.subprocess, 'run', return_value=proc):
-            self.assertEqual(server.scan_remote('mage-tower')[2], resources)
+        self.assertEqual(server.remote_snapshot('mage-tower', {'resources': {'local': resources}})['resources'],
+                         {**resources, 'host': 'mage-tower'})
 
     def test_remote_snapshot_survives_polling_gaps(self):
-        agents = [{'id': 'mage-tower:agent', 'started': 100, 'origin': 'remote'}]
-        with patch.object(server, 'FILES', {}), patch.object(server, 'REMOTE_AGENTS', agents), \
-                patch.object(server, 'REMOTE_RESOURCES', {'cpu': 40}):
+        agents = [{'id': 'mage-tower:agent', 'started': 100, 'origin': 'remote', 'prs': []}]
+        with patch.object(server, 'FILES', {}), patch.object(server, 'REMOTES', remotes(agents, resources={'cpu': 40})), \
+                patch.object(server, 'HOSTS', ['mage-tower']):
             for now in (101, 120, 3700):
                 with self.subTest(now=now), patch.object(server.time, 'time', return_value=now):
                     state = server.state_payload(None)
@@ -213,8 +251,8 @@ class CpuUsageTest(unittest.TestCase):
                     self.assertEqual(state['resources']['remote'], {'cpu': 40})
 
     def test_remote_snapshot_reflects_successful_empty_scan(self):
-        with patch.object(server, 'FILES', {}), patch.object(server, 'REMOTE_AGENTS', []), \
-                patch.object(server, 'REMOTE_RESOURCES', {'cpu': 10}):
+        with patch.object(server, 'FILES', {}), patch.object(server, 'REMOTES', remotes(resources={'cpu': 10})), \
+                patch.object(server, 'HOSTS', ['mage-tower']):
             state = server.state_payload(None)
         self.assertEqual(state['agents'], [])
         self.assertEqual(state['resources']['remote'], {'cpu': 10})
@@ -249,7 +287,7 @@ class CpuUsageTest(unittest.TestCase):
             self.assertEqual(server.read_cpu_usage(), 50)
 
     def test_state_payload_includes_cpu_usage(self):
-        with patch.object(server, 'CPU_USAGE', 42.5), patch.object(server, 'REMOTE_QUOTAS', []), \
+        with patch.object(server, 'CPU_USAGE', 42.5), patch.object(server, 'REMOTES', {}), \
                 patch.object(server, 'LOCAL_QUOTAS', []):
             self.assertEqual(server.state_payload(None)['cpu'], 42.5)
 
@@ -273,6 +311,58 @@ class ChatLogTest(unittest.TestCase):
     def test_survives_a_re_read_of_the_same_tail(self):
         # retail() re-feeds up to TAIL_BYTES after a rewrite; the exchange must not double up.
         self.assertEqual(self.chat(self.TURN * 2), self.chat(self.TURN))
+
+
+def codex_rollout(path, rows):
+    fs = server.FileState(server.Path(path))
+    for i, (kind, payload) in enumerate(rows):
+        fs.feed({'type': kind, 'timestamp': f'2026-11-14T10:00:{i:02d}Z', 'payload': payload})
+    return fs
+
+
+def item(kind, **fields):
+    return ('event_msg', {'type': 'item_completed', 'item': {'type': kind, **fields}})
+
+
+class CodexRolloutTest(unittest.TestCase):
+    def test_current_rollouts_fill_the_journal_quest_and_branch(self):
+        fs = codex_rollout('/tmp/sessions/2026/11/14/rollout-2026-11-14T10-00-00-thread.jsonl', [
+            ('session_meta', {'id': 'thread', 'cwd': '/src/espresso', 'source': 'vscode', 'git': {'branch': 'ben/fix'}}),
+            ('event_msg', {'type': 'task_started', 'model_context_window': 258400}),
+            item('UserMessage', content=[{'type': 'text', 'text': 'Fix the flaky auth test'}]),
+            item('AgentMessage', phase='commentary', content=[{'type': 'text', 'text': 'Reading the test first.'}]),
+            ('response_item', {'type': 'function_call', 'name': 'exec_command', 'arguments': '{"cmd": "pytest -q"}'}),
+            item('AgentMessage', phase='final_answer', content=[{'type': 'text', 'text': 'Fixed: the clock was not frozen.'}]),
+            ('event_msg', {'type': 'task_complete', 'last_agent_message': 'Fixed: the clock was not frozen.'}),
+            item('UserMessage', content=[{'type': 'text', 'text': '<send_user_message_question_reply>' + json.dumps(
+                 [{'question': 'Ship it?', 'answer': 'Yes, ship it', 'questionItemId': 'q1'}]) + '</send_user_message_question_reply>'}]),
+            ('event_msg', {'type': 'thread_goal_updated', 'goal': {'objective': 'Stabilize auth tests'}}),
+        ])
+        self.assertEqual([(c['role'], c['text']) for c in fs.chat], [
+            ('user', 'Fix the flaky auth test'), ('agent', 'Fixed: the clock was not frozen.'), ('user', 'Yes, ship it')])
+        self.assertEqual((fs.quest, fs.title, fs.branch), ('Yes, ship it', 'Stabilize auth tests', 'ben/fix'))
+
+    def test_subagent_task_comes_from_its_user_message_and_injections_are_skipped(self):
+        user = lambda text: ('response_item', {'type': 'message', 'role': 'user', 'content': [{'type': 'input_text', 'text': text}]})
+        fs = codex_rollout('/tmp/sessions/2026/11/14/rollout-2026-11-14T10-00-00-child.jsonl', [
+            ('session_meta', {'id': 'child', 'parent_thread_id': 'root', 'source': {'subagent': {'thread_spawn': {}}}}),
+            user('# AGENTS.md instructions for /src\n\n<INSTRUCTIONS>be terse</INSTRUCTIONS>'),
+            user('<environment_context>cwd</environment_context>'),
+            user('Audit the cache keys'),
+            item('UserMessage', content=[{'type': 'text', 'text': 'Audit the cache keys'}]),
+            ('event_msg', {'type': 'task_complete', 'last_agent_message': 'Two keys collide.'}),
+            user('<turn_aborted>The user interrupted</turn_aborted>'),
+        ])
+        self.assertEqual([(c['role'], c['text']) for c in fs.chat], [('user', 'Audit the cache keys'), ('agent', 'Two keys collide.')])
+        self.assertEqual((fs.kind, fs.parent, fs.quest, fs.last_kind), ('sub', 'root', 'Audit the cache keys', 'assistant_text'))
+
+    def test_legacy_event_messages_still_count(self):
+        fs = codex_rollout('/tmp/sessions/2026/01/01/rollout-2026-01-01T10-00-00-old.jsonl', [
+            ('event_msg', {'type': 'user_message', 'message': '<task>Index the scrolls</task>'}),
+            ('event_msg', {'type': 'agent_message', 'message': 'Indexed.'}),
+            ('event_msg', {'type': 'task_complete'}),
+        ])
+        self.assertEqual([(c['role'], c['text']) for c in fs.chat], [('user', 'Index the scrolls'), ('agent', 'Indexed.')])
 
 
 class QuotaTest(unittest.TestCase):
@@ -380,7 +470,7 @@ class QuotaTest(unittest.TestCase):
     def test_local_label_tracks_login_without_local_quota_readings(self):
         quotas = [{'id': server.account_id(home), 'provider': 'codex', 'origins': origins}
                   for home, origins in [(self.a, []), (self.b, ['remote'])]]
-        with patch.object(server, 'REMOTE_QUOTAS', quotas), patch.object(server, 'LOCAL_QUOTAS', []):
+        with patch.object(server, 'REMOTES', remotes(quotas=quotas)), patch.object(server, 'LOCAL_QUOTAS', []):
             self.assertEqual([q['origins'] for q in server.state_payload(None)['quotas']],
                              [['local'], ['remote']])
             with patch.dict(server.os.environ, {'CODEX_HOME': str(self.b)}):
@@ -405,8 +495,8 @@ class QuotaTest(unittest.TestCase):
                 patch.object(server.subprocess, 'run', return_value=proc):
             quotas = server.account_quotas(True)
             self.assertEqual([q['origins'] for q in quotas], [[], [], ['local'], ['local']])
-            remote = server.remote_snapshot('mage-tower', {'quotas': quotas})[1]
-            with patch.object(server, 'REMOTE_QUOTAS', remote), patch.object(server, 'LOCAL_QUOTAS', []), \
+            remote = server.remote_snapshot('mage-tower', {'quotas': quotas})['quotas']
+            with patch.object(server, 'REMOTES', remotes(quotas=remote)), patch.object(server, 'LOCAL_QUOTAS', []), \
                     patch.dict(server.os.environ, {'CLAUDE_CONFIG_DIR': str(self.a)}):
                 self.assertEqual([q['origins'] for q in server.state_payload(None)['quotas']],
                                  [['local'], ['local'], ['remote'], ['remote']])
@@ -430,7 +520,7 @@ class QuotaTest(unittest.TestCase):
     def test_timer_prompts_stay_in_state_until_server_reset(self):
         prompt = {'id': 'a', 'name': 'Listed', 'provider': 'codex',
                   'timerPrompt': {'status': 'sent', 'fact': 'A timer fact'}}
-        with patch.object(server, 'TIMER_PROMPTS', []), patch.object(server, 'REMOTE_QUOTAS', []), \
+        with patch.object(server, 'TIMER_PROMPTS', []), patch.object(server, 'REMOTES', {}), \
                 patch.object(server, 'LOCAL_QUOTAS', []):
             server.record_timer_prompts([prompt, prompt])
             self.assertEqual(server.state_payload(None)['timerPrompts'],
@@ -440,7 +530,7 @@ class QuotaTest(unittest.TestCase):
 
     def test_quota_cache_survives_agent_polling_outage(self):
         cached = [{'id': 'a', 'name': 'Listed', 'origins': ['remote'], 'left': 50}]
-        with patch.object(server, 'REMOTE_QUOTAS', cached), patch.object(server, 'LOCAL_QUOTAS', []):
+        with patch.object(server, 'REMOTES', remotes(quotas=cached)), patch.object(server, 'LOCAL_QUOTAS', []):
             self.assertEqual(server.state_payload(None)['quotas'], cached)
 
     def test_local_and_remote_account_merge_keeps_name_and_both_origins(self):

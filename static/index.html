@@ -15,6 +15,7 @@
   <canvas id="logo" width="232" height="34"></canvas>
   <div id="counts"></div>
   <button id="installBtn" class="pixbtn" hidden>INSTALL</button>
+  <button id="annalsBtn" class="pixbtn" title="daily chronicle and finished quests">ANNALS</button>
   <button id="helpBtn" class="pixbtn" title="about the tower">?</button>
 </header>
 <main>
@@ -35,6 +36,12 @@
     <div id="rows"></div>
   </aside>
 </main>
+<div id="annals" hidden>
+  <div class="panel">
+    <button id="annalsClose" title="close the annals">&times;</button>
+    <div id="annalsBody"></div>
+  </div>
+</div>
 <div id="help" hidden>
   <div class="panel">
     <h2>THE WIZARD FACTORY</h2>
@@ -58,6 +65,19 @@
       <li>Click a wizard for its journal: your prompts and its replies appear under
           <b>counsel &amp; missives</b>.</li>
       <li>Demons are agents running remotely on <code>mage-tower</code>; local agents are wizards.</li>
+      <li><b>Desk candles</b> burn down as an agent's context window fills; compaction relights them.
+          The bar under each roster portrait shows the same remaining context.</li>
+      <li><b>Sparks</b> around a working wizard show reasoning effort: gold for max, violet for xhigh, blue for high.</li>
+      <li><b>Paper birds</b> carry messages between agents, and from the tower when it continues a session.</li>
+      <li><b>Crossed wands</b> link two agents that edited the same file in the last 30 minutes.</li>
+      <li><b>Ghosts</b> by a CPU crystal are processes that outlived the agent that started them; hover the crystal
+          for each machine's biggest draws.</li>
+      <li>Hover a <b>usage bottle</b> to see which agents drink from it.</li>
+      <li>The <b>band</b> under each roster row covers the last three hours: green busy, gold waiting for you, grey dozing.</li>
+      <li>Roster <b>PR chips</b> open Graphite and show CI: green passing, gold pending, red failing, violet merged.</li>
+      <li>Epithets are <b>earned</b>: rebasing, long builds, parallel apprentices, late nights, and so on.</li>
+      <li>Finished sessions become <b>books</b> on the laboratory shelves; click one to copy its resume command.
+          <b>ANNALS</b> lists them with a daily chronicle of agent-hours, turns, and how long agents waited for you.</li>
       <li>Hooded agents with a <b>codex</b> chip are OpenAI Codex CLI sessions
           (read from <code>~/.codex/sessions</code>); one-shot <code>codex exec</code> runs
           finish and leave rather than waiting around.</li>

@@ -19,7 +19,7 @@ function scene(random = Math.random) {
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, showResourceTip, RESOURCE_BALLS, ballReading, pickAt, usageProbe, castSpell, castRay, updateBattle, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawRally, drawCourt, updateTableGames, updateBoardGame, drawTableGame, playGo, gameName, MTG, updateMagic, updateMagicCards, drawMagic, drawMagicFront, magicTipHTML, magicEvent, statusLine, callJudge, BREW, updateBrew, RITUALS, SIGIL_EVENTS, SIGIL_LINKS, SUMMON_CIRCLE, CAULDRON_SIGIL, sigilEvent, sigilLink, drawFloorSigils, cat, demonCat, catThink, canUseCat, updateDemonCat, finishDragonTravel, sigilGust, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, showResourceTip, RESOURCE_BALLS, ballReading, pickAt, usageProbe, castSpell, castRay, updateBattle, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawRally, drawCourt, updateTableGames, updateBoardGame, drawTableGame, playGo, gameName, MTG, updateMagic, updateMagicCards, drawMagic, drawMagicFront, magicTipHTML, magicEvent, statusLine, callJudge, BREW, updateBrew, RITUALS, SIGIL_EVENTS, SIGIL_LINKS, SUMMON_CIRCLE, CAULDRON_SIGIL, sigilEvent, sigilLink, drawFloorSigils, cat, demonCat, catThink, canUseCat, updateDemonCat, finishDragonTravel, sigilGust, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, launchMissives, BIRDS, statusLine, emoteFor, earned, drawStrays, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, MAGIC: sandbox.MAGIC, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
@@ -1193,4 +1193,50 @@ test('memory crystal remains blue at high usage', () => {
   assert.ok(fills.includes('#8fd0ff'));
   assert.ok(fills.includes('#3972d5'));
   assert.ok(!fills.includes('#ff4a4a'));
+});
+
+test('missives fly once, even when the recipient is resolved later', () => {
+  const s = scene(), agents = [agent('a', 'waiting'), agent('b', 'waiting')];
+  s.reconcile({ agents });
+  const said = to => ({ now: 100, agents: [{ ...agents[0], missives: [{ ts: 90, to, text: 'hi' }] }, agents[1]] });
+  s.launchMissives({ now: 100, agents });
+  s.launchMissives(said(null));
+  s.launchMissives(said('b'));
+  assert.equal(s.BIRDS.length, 1);
+  const fresh = scene();
+  fresh.reconcile({ agents });
+  fresh.launchMissives(said('b'));  // what was said before the page opened stays on the ground
+  assert.equal(fresh.BIRDS.length, 0);
+});
+test('shell command classes drive status lines and emotes', () => {
+  const s = scene(), cases = [['test', 'TESTING', 'flask'], ['search', 'SCOURING', 'search'], ['wait', 'WAITING FOR A RUN', 'hourglass'],
+    ['push', 'SUBMITTING WITH GIT', 'write'], ['git', 'CONSULTING THE ANNALS', 'scroll']];
+  for (const [act, line, emote] of cases) {
+    const a = { ...agent(act), act, detail: 'cmd' };
+    s.reconcile({ agents: [a] });
+    assert.equal(s.statusLine(a, s.wizards.get(act)), line + ': cmd');
+    assert.equal(s.emoteFor(s.wizards.get(act)), emote);
+  }
+});
+test('epithets are earned from transcript facts, most notable first', () => {
+  const s = scene();
+  assert.equal(s.earned({ feats: { search: 39 } }), undefined);
+  assert.equal(s.earned({ feats: { search: 52, rebase: 1 } }).title, 'THE REBASED');
+  assert.equal(s.earned({ feats: { search: 52 } }).why, '52 SEARCHES');
+  assert.equal(s.earned({ feats: { push: 1 }, cost: { added: 3, removed: 1 } }).title, 'THE SMALL DIFF');
+  assert.equal(s.earned({ feats: { push: 1 }, cost: { added: 0, removed: 0 } }).title, 'SHIPWRIGHT');
+});
+test('remote crystals ignore local agents and strays until a remote host reports', () => {
+  const s = scene(), ghosts = [];
+  s.SP.PR.ghost = (g, x) => ghosts.push(x);
+  s.setData({ agents: [{ ...agent('a'), load: { cpu: 50, rss: 2 ** 30, procs: 3, ports: [] } }], orphans: [{ pid: 7, cmd: 'vite' }],
+    resources: { local: { host: 'here', cpu: 10 }, remote: {} } });
+  s.drawStrays(0);
+  assert.equal(ghosts.length, 1);
+  const crystal = origin => s.RESOURCE_BALLS.find(b => b.origin === origin && b.metric === 'cpu');
+  s.showResourceTip(crystal('remote'), 0, 0);
+  assert.doesNotMatch(s.element.innerHTML, /BIGGEST DRAW|STRAY/);
+  s.showResourceTip(crystal('local'), 0, 0);
+  assert.match(s.element.innerHTML, /BIGGEST DRAW/);
+  assert.match(s.element.innerHTML, /1 STRAY PROCESS/);
 });

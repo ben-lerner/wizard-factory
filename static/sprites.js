@@ -198,7 +198,14 @@ window.SP = (() => {
       { hatType: 'turban', robe: '#123a44', robeD: '#08222a', hat: '#1a4a54', hatD: '#0c2a32', trim: '#f08a2a', mask: '#ece3c4', maskD: '#8a7e64' }],
   };
 
-  function makeWizard(id, kind, demon, takenJobs = new Set()) {
+  // Demons from a second, third, ... remote machine wear their own colors.
+  const FACTIONS = [null, null,
+    { skin: '#4a7fb8', beardC: '#16243c', robe: '#24406a', robeD: '#142844', trim: '#8fd0ff' },
+    { skin: '#5f9a48', beardC: '#1c2c16', robe: '#2f5a2a', robeD: '#1c3a18', trim: '#d8ff58' },
+    { skin: '#b89040', beardC: '#3a2410', robe: '#5a3a14', robeD: '#38220a', trim: '#ffe89a' }];
+
+  function makeWizard(id, kind, faction = 0, takenJobs = new Set()) {
+    const demon = faction > 0, tint = FACTIONS[faction] || (faction > 4 ? FACTIONS[2 + faction % 3] : null);
     const r = rng(hash(id));
     const sub = kind === 'sub';
     const hue = (r() * 360) | 0;
@@ -221,6 +228,7 @@ window.SP = (() => {
     if (demon) Object.assign(o, { demon, skin: '#b84a48', beardC: '#241622', robe: '#542238', robeD: '#321424', trim: '#f08a2a' });
     if (job) Object.assign(o, { job, decal: null, beardType: job === 'black' ? 'none' : o.beardType }, JOBS[job][demon ? 1 : 0]);
     if (!job && hash(id + ':bycoket') % 8 === 0) Object.assign(o, { hatType: 'bycoket', feather: demon ? '#f08a2a' : '#fff0ce' });
+    if (tint) Object.assign(o, job ? { skin: tint.skin } : tint);
     o.skinD = shade(o.skin, .82);
     let name = sub ? (demon ? 'DEMON ' : 'APPRENTICE ') + pick(r, APPRENTICE) : pick(r, N1) + pick(r, N2) + pick(r, N3);
     for (let i = 0; !sub && name.length > 11 && i < 4; i++) name = pick(r, N1) + pick(r, N2) + pick(r, N3);
@@ -239,7 +247,7 @@ window.SP = (() => {
     const pc = document.createElement('canvas'); pc.width = 42; pc.height = 42;
     const pg = pc.getContext('2d'); pg.imageSmoothingEnabled = false;
     pg.drawImage(frames.idleA, 3, sub ? 1 : 0, 14, 14, 0, 0, 42, 42);
-    return { name, epithet, frames, portrait: pc.toDataURL(), hue, robe: o.robe, hat: o.hat, sub, demon, job: o.job && o.job + (demon ? ':demon' : ''), drink: drinkFor(id, demon) };
+    return { name, epithet, frames, portrait: pc.toDataURL(), hue, robe: o.robe, hat: o.hat, sub, demon, faction, job: o.job && o.job + (demon ? ':demon' : ''), drink: drinkFor(id, demon) };
   }
 
   // ---------- the staff cat ----------
@@ -1049,6 +1057,44 @@ window.SP = (() => {
   }
   PR.cup = drawCup;
 
+  // A desk candle that burns down as the agent's context fills; `left` is the unused share.
+  PR.candle = (g, x, y, left, t, relit) => {
+    const h = 2 + Math.round(Math.max(0, Math.min(1, left)) * 9), top = y - h, low = left < .15;
+    rc(g, x, top, 2, h, '#efe3c8'); px(g, x + 1, top + 1, '#cdbf9f'); rc(g, x - 1, y - 1, 4, 1, '#8a6a42');
+    px(g, x, top - 1, '#3a2c20');
+    const flicker = (t * (low ? 13 : 6) + x) % 2 < 1;
+    px(g, x + (flicker ? 0 : 1), top - 2, low ? '#ff5a3a' : '#ffd84a');
+    px(g, x, top - 3, low ? '#f08a2a' : flicker ? '#ffe89a' : '#f0a83c');
+    if (relit > 0) for (let i = 0; i < 4; i++) px(g, x + Math.round(Math.sin(t * 5 + i) * 2), top - 4 - i * 2 - Math.round((1 - relit) * 6), '#a8a2c8');
+  };
+
+  // A folded note on wings, for messages between agents.
+  PR.missive = (g, x, y, t, tint) => {
+    x = Math.round(x); y = Math.round(y);
+    const up = (t * 10 | 0) % 2;
+    rc(g, x - 2, y - 1, 5, 3, '#f7f3e8'); px(g, x, y, tint); px(g, x - 1, y - 1, '#cdbf9f'); px(g, x + 1, y - 1, '#cdbf9f');
+    rc(g, x - 4, y - 1 - up * 2, 2, 1, '#e8dcff'); rc(g, x + 3, y - 1 - up * 2, 2, 1, '#e8dcff');
+    if (!up) { px(g, x - 3, y, '#e8dcff'); px(g, x + 3, y, '#e8dcff'); }
+  };
+
+  // A process that outlived the agent that started it.
+  PR.ghost = (g, x, y, t) => {
+    x = Math.round(x); y = Math.round(y + Math.sin(t * 2) * 1.5);
+    g.save(); g.globalAlpha = .55 + Math.sin(t * 3) * .15;
+    rc(g, x - 2, y - 5, 5, 5, '#dfe6f5'); rc(g, x - 3, y - 3, 7, 3, '#dfe6f5');
+    for (let i = 0; i < 3; i++) px(g, x - 3 + i * 3, y + ((t * 4 | 0) + i) % 2, '#dfe6f5');
+    px(g, x - 1, y - 3, '#262032'); px(g, x + 1, y - 3, '#262032');
+    g.restore();
+  };
+
+  // Crossed wands: two agents working on the same files.
+  PR.crossedWands = (g, x, y, t, hot) => {
+    x = Math.round(x); y = Math.round(y);
+    for (let i = -3; i <= 3; i++) { px(g, x + i, y + i, '#8a5a32'); px(g, x + i, y - i, '#6b4226'); }
+    const spark = (t * 6 | 0) % 2 ? '#ffd84a' : hot ? '#ff5a5a' : '#f08a2a';
+    px(g, x - 4, y - 4, spark); px(g, x + 4, y - 4, spark); px(g, x, y, hot ? '#ff5a5a' : '#ffe89a');
+  };
+
   // ---------- emotes ----------
   function drawEmote(g, cx, topY, key, t) {
     if (key === 'sleep') return;
@@ -1073,6 +1119,14 @@ window.SP = (() => {
       case 'star': I(5, 2, '#ffd84a'); I(5, 3, '#ffd84a'); rc(g, x + 3, y + 4, 6, 1, '#ffd84a'); I(4, 5, '#ffd84a'); I(6, 5, '#ffd84a'); I(3, 7, '#ffd84a'); I(7, 7, '#ffd84a'); break;
       case 'flask': I(5, 2, '#d8def0'); I(5, 3, '#d8def0'); rc(g, x + 4, y + 4, 4, 4, '#d86ad8'); I(4, 4, '#e8a8e8'); break;
       case 'search': rc(g, x + 3, y + 3, 4, 4, '#d8def0'); I(4, 4, '#f7f3e8'); I(7, 7, '#8a92a8'); I(8, 8, '#8a92a8'); break;
+      case 'hourglass': {
+        const fall = (t * 2 | 0) % 3;
+        rc(g, x + 3, y + 2, 6, 1, '#8a5a32'); rc(g, x + 3, y + 8, 6, 1, '#8a5a32');
+        rc(g, x + 4, y + 3, 4, 1, fall ? '#e9ba69' : '#d8def0'); I(5, 4, '#e9ba69'); I(6, 4, '#d8def0');
+        I(5, 5, '#e9ba69'); I(6, 5 + (fall === 1 ? 1 : 0), '#e9ba69');
+        rc(g, x + 4, y + 7, 4, 1, '#e9ba69'); if (fall === 2) I(5, 6, '#e9ba69');
+        break;
+      }
     }
   }
 

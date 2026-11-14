@@ -231,6 +231,11 @@ window.SP = (() => {
       paintWizard(c.getContext('2d'), o, m);
       frames[m] = c;
     }
+    const silhouette = document.createElement('canvas'); silhouette.width = 20; silhouette.height = 24;
+    const sg = silhouette.getContext('2d');
+    sg.drawImage(frames.idleA, 0, 0); sg.globalCompositeOperation = 'source-in';
+    sg.fillStyle = demon ? '#ffb68a' : '#e8dcff'; sg.fillRect(0, 0, 20, 24);
+    frames.silhouette = silhouette;
     const pc = document.createElement('canvas'); pc.width = 42; pc.height = 42;
     const pg = pc.getContext('2d'); pg.imageSmoothingEnabled = false;
     pg.drawImage(frames.idleA, 3, sub ? 1 : 0, 14, 14, 0, 0, 42, 42);
@@ -682,6 +687,11 @@ window.SP = (() => {
   };
 
   const SIGIL_RUNES = ['010111010', '101010101', '010101010', '111010111', '100111001', '001111100'];
+  const sigilRune = (g, x, y, seed, color) => {
+    const rune = SIGIL_RUNES[seed % SIGIL_RUNES.length];
+    g.fillStyle = color;
+    for (let j = 0; j < 9; j++) if (rune[j] === '1') g.fillRect(Math.round(x) + j % 3 - 1, Math.round(y) + (j / 3 | 0) - 1, 1, 1);
+  };
   const SIGIL_RINGS = new Map();
   const sigilRing = (radius, color) => {
     const key = `${radius}:${color}`;
@@ -699,6 +709,77 @@ window.SP = (() => {
       SIGIL_RINGS.set(key, image);
     }
     return SIGIL_RINGS.get(key);
+  };
+
+  const WORK_SIGILS = new Map();
+  function workSigilImage(radius, seed, color, open) {
+    const pattern = seed % 8, key = `${radius}:${pattern}:${color}:${open}`;
+    if (!WORK_SIGILS.has(key)) {
+      const image = document.createElement('canvas'), h = Math.ceil(radius * .48) + 3, cx = radius + 3;
+      image.width = cx * 2 + 1; image.height = h * 2 + 1;
+      const g = image.getContext('2d');
+      for (const r of [radius, radius - 5]) g.drawImage(sigilRing(r, color), cx - r, h - Math.ceil(r * .48));
+      const count = 4 + pattern % 4, points = [];
+      for (let i = 0; i < count; i++) {
+        const a = (i / count + pattern / 16) * Math.PI * 2;
+        points.push([cx + Math.round(Math.cos(a) * (radius - 8)), h + Math.round(Math.sin(a) * (radius - 8) * .48)]);
+        sigilRune(g, cx + Math.cos(a) * (radius - 2), h + Math.sin(a) * (radius - 2) * .48, pattern + i, color);
+      }
+      g.globalAlpha = .35; g.strokeStyle = color; g.lineWidth = 1; g.beginPath();
+      points.forEach((p, i) => { g.moveTo(...p); g.lineTo(...points[(i + 2 + pattern % 2) % count]); });
+      g.stroke();
+      if (open) g.clearRect(cx + radius - 6, h - 5, 12, 10);
+      WORK_SIGILS.set(key, image);
+    }
+    return WORK_SIGILS.get(key);
+  }
+
+  PR.workSigil = (g, x, y, radius, seed, color, mode, t, charge, flash, wobble) => {
+    const image = workSigilImage(radius, seed, color, mode === 'ask'), pulse = Math.max(0, 1 - (t - flash) / .7);
+    const alpha = g.globalAlpha, speed = { read: .55, weave: .2, run: 1.6, think: .12, ask: .12 }[mode];
+    g.save();
+    g.globalAlpha = alpha * (mode === 'ask' ? .28 + Math.sin(t * 2) * .09 : .36 + pulse * .3);
+    g.drawImage(image, x - radius - 3, y - Math.ceil(radius * .48) - 3);
+    g.globalAlpha = alpha * (.55 + pulse * .35);
+    for (let i = 0; i < (radius < 20 ? 1 : 2); i++) {
+      const a = t * speed + seed % 16 + i * Math.PI + wobble * .12;
+      sigilRune(g, x + Math.cos(a) * radius, y + Math.sin(a) * radius * .48 + Math.sin(a * 3) * wobble,
+        (seed + i) % 6, pulse > .5 ? '#f7f3e8' : color);
+    }
+    for (let i = 0; i < charge; i++) {
+      const a = i * Math.PI / 3 + seed % 8;
+      px(g, Math.round(x + Math.cos(a) * (radius - 5)), Math.round(y + Math.sin(a) * (radius - 5) * .48), '#e8dcff');
+    }
+    if (mode === 'weave') {
+      const a = t * .7 + seed % 8, r = radius - 9;
+      g.globalAlpha = alpha * .45; g.strokeStyle = color; g.lineWidth = 1; g.beginPath();
+      for (let i = 0; i < 3; i++) {
+        const p = a + i * Math.PI * 2 / 3;
+        g.moveTo(x + Math.cos(p) * r, y + Math.sin(p) * r * .48);
+        g.lineTo(x + Math.cos(p + 2.3) * r, y + Math.sin(p + 2.3) * r * .48);
+      }
+      g.stroke();
+    }
+    g.restore();
+  };
+
+  PR.sigilSeal = (g, x, y, seed, p) => {
+    const q = Math.max(0, (p - .2) / .8), image = workSigilImage(29, seed, '#eedaa1', false);
+    g.save(); g.globalAlpha = Math.max(0, 1 - p); g.translate(x, y - q * 32); g.scale(1 - q * .7, 1 + q);
+    g.drawImage(image, -32, -Math.ceil(29 * .48) - 3);
+    sigilRune(g, 0, 0, seed % 6, '#fff1cd');
+    for (let i = 0; i < 4; i++) {
+      const a = i * Math.PI / 2, r = 33 - Math.min(1, p * 5) * 4;
+      rc(g, Math.round(Math.cos(a) * r) - 1, Math.round(Math.sin(a) * r * .48), 3, 1, '#fff1cd');
+    }
+    g.restore();
+  };
+
+  PR.sigilRipple = (g, x, y, p, color) => {
+    g.save(); g.globalAlpha = Math.max(0, 1 - p) * .45;
+    g.translate(x, y); g.scale(1 + p * 1.5, 1 + p * 1.5);
+    g.drawImage(sigilRing(30, color), -30, -Math.ceil(30 * .48));
+    g.restore();
   };
 
   PR.floorSigil = (g, x, y, radius, t, color, glow, phase) => {
@@ -723,9 +804,9 @@ window.SP = (() => {
     }
     for (let i = 0; i < count; i++) {
       const a = (i + .5) / count * Math.PI * 2, [rx, ry] = point(a, (radius + inner) / 2);
-      const lit = i === (Math.floor(t * .7 + phase) % count), rune = SIGIL_RUNES[(i + phase) % SIGIL_RUNES.length];
+      const lit = i === (Math.floor(t * .7 + phase) % count);
       g.globalAlpha = lit ? .85 : .5 + pulse;
-      for (let j = 0; j < 9; j++) if (rune[j] === '1') px(g, rx + j % 3 - 1, ry + (j / 3 | 0) - 1, lit ? glow : color);
+      sigilRune(g, rx, ry, i + phase, lit ? glow : color);
     }
     g.globalAlpha = .65;
     for (let i = 0; i < 4; i++) {
@@ -740,13 +821,36 @@ window.SP = (() => {
     g.restore();
   };
 
-  PR.circle = (g, x, y, t, active) => {
-    const cx = x + 26, cy = y + 14, col = active ? '#b49aff' : '#8068bd';
-    PR.floorSigil(g, cx, cy, 34, t, active ? '#e8dcff' : '#b49aff', '#e8dcff', 3);
+  PR.circle = (g, x, y, t, active, event = null, wobble = 0) => {
+    const cx = x + 26, cy = y + 14, demon = event && event.demon;
+    const col = demon ? '#f08a2a' : active ? '#b49aff' : '#8068bd', glow = demon ? '#ffd2a0' : '#e8dcff';
+    PR.floorSigil(g, cx, cy, 34, t, demon ? '#f05a3a' : active ? '#e8dcff' : '#b49aff', glow, 3);
     [[0, -7], [13, 0], [0, 7], [-13, 0]].forEach(([dx, dy], i) => px(g, cx + dx, cy + dy, i === ((t * 2 | 0) % 4) ? '#e8dcff' : col));
-    const th = t * (active ? 2.8 : .8), glow = active ? '#f0e8ff' : '#b9a5e8';
+    const th = t * (active ? 2.8 : .8);
     px(g, cx + Math.round(Math.cos(th) * 24), cy + Math.round(Math.sin(th) * 11), glow);
     if (active) px(g, cx + Math.round(Math.cos(th + Math.PI) * 24), cy + Math.round(Math.sin(th + Math.PI) * 11), glow);
+    if (active || Math.abs(wobble) > .2) {
+      g.save(); g.globalAlpha = .8;
+      for (let band = 0; band < 2; band++) for (let i = 0; i < 4; i++) {
+        const turn = event && event.progress >= .65 ? Math.round(event.at * 2 / (Math.PI / 4)) * Math.PI / 4 : t * (band ? -1.7 : 1.3);
+        const a = i * Math.PI / 2 + turn + wobble * Math.sin(i + band) * .12, r = band ? 17 : 29;
+        sigilRune(g, cx + Math.cos(a) * r, cy + Math.sin(a) * r * .48, i + band * 2, glow);
+      }
+      if (demon) {
+        g.strokeStyle = '#ff684a'; g.lineWidth = 1; g.beginPath();
+        for (let i = 0; i < 3; i++) {
+          const a = i * Math.PI * 2 / 3 + .4;
+          g.moveTo(cx + Math.cos(a) * 8, cy + Math.sin(a) * 4);
+          g.lineTo(cx + Math.cos(a + .15) * 24, cy + Math.sin(a + .15) * 11);
+          g.lineTo(cx + Math.cos(a) * 38, cy + Math.sin(a) * 18);
+        }
+        g.stroke();
+      }
+      if (event && event.kind === 'cat') {
+        [[-3, -3], [0, -4], [3, -3], [0, 0]].forEach(([dx, dy], i) => rc(g, cx + dx, cy + dy, i === 3 ? 3 : 1, 2, glow));
+      }
+      g.restore();
+    }
   };
 
   PR.board = (g, x, y) => {

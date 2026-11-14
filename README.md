@@ -51,6 +51,18 @@ to the task or project; hover over a wizard to read a longer label. Apprentices 
 smaller desks in the nearest available space to their parent. Explicit questions
 send wizards to the café while they wait for an answer.
 
+Each desk has a personal sigil: orbiting glyphs mark reading, woven lines mark
+writing, and faster rotation marks running commands. Lit runes reflect observed
+tool activity rather than percentage complete. Questions leave an open, breathing
+ring at the café; finished turns align their sigils into rising gold seals.
+Newly active apprentices and remote agents materialize through the summoning circle.
+Delegation and returned results send brief pulses between agents; hover or select
+an agent to keep its apprentice connections visible. Sessions already present
+when the page opens start at their stations without an arrival ceremony.
+The laboratory reserves floor space around the cauldron to keep its circle visible.
+Biggles can accidentally summon Lucipurr by sitting in the circle, and Earl Grey's
+landings briefly scatter nearby runes.
+
 Appearance and name are deterministic per agent id (seeded hats, beards, robes,
 staffs, and cafe order), so the same session keeps the same wizard
 across reloads. Long quiet stretches are occasionally interrupted by a ray duel;

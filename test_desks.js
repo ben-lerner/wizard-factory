@@ -17,10 +17,180 @@ function scene(random = Math.random) {
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, showResourceTip, RESOURCE_BALLS, ballReading, pickAt, usageProbe, castSpell, castRay, updateBattle, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawRally, drawCourt, updateTableGames, updateBoardGame, drawTableGame, playGo, gameName, BREW, updateBrew, RITUALS, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, showResourceTip, RESOURCE_BALLS, ballReading, pickAt, usageProbe, castSpell, castRay, updateBattle, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawRally, drawCourt, updateTableGames, updateBoardGame, drawTableGame, playGo, gameName, BREW, updateBrew, RITUALS, SIGIL_EVENTS, SIGIL_LINKS, SUMMON_CIRCLE, CAULDRON_SIGIL, sigilEvent, sigilLink, drawFloorSigils, cat, demonCat, catThink, canUseCat, updateDemonCat, finishDragonTravel, sigilGust, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
   return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
+test('cauldron sigil has reserved floor space and draws beneath its pot', () => {
+  const s = scene(), space = s.CAULDRON_SIGIL.space;
+  s.reconcile({ agents: Array.from({ length: 12 }, (_, i) => agent(`cauldron-${i}`)) });
+  for (const d of s.desks) {
+    const b = s.deskSpace(d.x, d.y, d.w);
+    assert.ok(b.x >= space.x + space.w || b.x + b.w <= space.x || b.y >= space.y + space.h || b.y + b.h <= space.y);
+  }
+  const order = [], floor = s.SP.PR.floorSigil, pot = s.SP.PR.cauldron;
+  s.SP.PR.floorSigil = (...args) => { order.push(['sigil', ...args.slice(1, 4)]); floor(...args); };
+  s.SP.PR.cauldron = (...args) => { order.push(['pot']); pot(...args); };
+  s.calls.length = 0; s.draw(1);
+  assert.deepEqual(order[0], ['sigil', 72, 176, 40]);
+  assert.ok(order.findIndex(c => c[0] === 'pot') > 0);
+  assert.ok(!s.calls.some(c => c[0] === 'clip' && c[1] === 'evenodd'));
+});
+test('personal sigils retain identity and react to observed tool activity once', () => {
+  const s = scene(), a = { ...agent('sigil-tools'), tool: 'Read', detail: 'book.py' };
+  s.reconcile({ agents: [a] });
+  const w = s.wizards.get(a.id), seed = w.sigil.seed, charge = w.sigil.charge;
+  s.reconcile({ agents: [a] });
+  assert.equal(w.sigil.charge, charge);
+  for (const [tool, mode] of [['Read', 'read'], ['Edit', 'weave'], ['Bash', 'run']]) {
+    s.reconcile({ agents: [{ ...a, tool, title: 'A renamed quest' }] });
+    assert.equal(w.sigil.mode, mode);
+    assert.equal(w.sigil.seed, seed);
+  }
+  const before = w.sigil.charge;
+  const next = { ...a, tool: 'Bash', history: [{ ts: 100, kind: 'tool_result', tool: 'Bash', text: 'Tests finished' }] };
+  s.reconcile({ agents: [next] }); s.reconcile({ agents: [next] });
+  assert.equal(w.sigil.charge, before + 1);
+});
+test('questions leave an open sigil without a completion ceremony', () => {
+  const s = scene(), a = agent('sigil-question');
+  s.reconcile({ agents: [a] });
+  s.reconcile({ agents: [{ ...a, tool: 'request_user_input' }] });
+  const w = s.wizards.get(a.id);
+  assert.equal(w.desk, null);
+  assert.equal(w.sigil.mode, 'ask');
+  assert.equal(s.RITUALS.length, 0);
+  [w.x, w.y] = w.home; w.path = []; w.walk = false;
+  const modes = [];
+  s.SP.PR.workSigil = (...args) => modes.push(args[6]);
+  s.drawFloorSigils(1);
+  assert.ok(modes.includes('ask'));
+  s.reconcile({ agents: [{ ...a, tool: 'request_user_input', status: 'responding' }] });
+  s.reconcile({ agents: [{ ...a, tool: 'request_user_input', status: 'waiting' }] });
+  assert.notEqual(w.sigil.mode, 'ask');
+  assert.equal(s.RITUALS.length, 1);
+});
+test('namespaced asynchronous question tools also open a waiting sigil', () => {
+  const s = scene(), a = agent('async-question');
+  s.reconcile({ agents: [a] });
+  s.reconcile({ agents: [{ ...a, tool: 'functions.request_user_input_async' }] });
+  const w = s.wizards.get(a.id);
+  assert.equal(w.sigil.mode, 'ask');
+  assert.equal(w.station, 'cafe');
+});
+test('new apprentices materialize at the circle before traveling to their desks', () => {
+  const s = scene(), parent = agent('summoner'), child = agent('summoned', 'working', parent.id);
+  s.reconcile({ agents: [parent] });
+  assert.equal(s.SIGIL_EVENTS.length, 0);
+  s.reconcile({ agents: [parent, child] });
+  const w = s.wizards.get(child.id), start = [w.x, w.y], until = w.summon.until;
+  w.r = () => 1;
+  assert.ok(Math.hypot(w.x - 430, w.y - 220) < 10);
+  assert.equal(s.SIGIL_LINKS.length, 1);
+  s.update(.1, until - .2);
+  assert.deepEqual([w.x, w.y], start);
+  assert.equal(w.desk.elapsed, 0);
+  assert.ok(w.alpha > 0 && w.alpha < 1);
+  s.update(.1, until + .1);
+  assert.equal(w.summon, null);
+  assert.ok(w.path.length);
+  assert.equal(s.SIGIL_LINKS.length, 2);
+});
+test('desk relayout and replacement preserve a wizard still materializing', () => {
+  const s = scene(), locals = [agent('local-1'), agent('local-2'), agent('local-3')];
+  const a = { ...agent('relayout-summon'), origin: 'remote', title: 'Short title' };
+  s.reconcile({ agents: locals }); s.reconcile({ agents: [...locals, a] });
+  const w = s.wizards.get(a.id), start = [w.x, w.y], steps = s.layout().labSteps, until = w.summon.until;
+  const renamed = { ...a, title: 'one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen' };
+  s.reconcile({ agents: [...locals, renamed] });
+  assert.ok(s.layout().labSteps > steps);
+  assert.deepEqual([w.x, w.y], start);
+  w.desk.x = 220; w.desk.y = 70; w.home = [220, 70]; w.r = () => 0;
+  const replaced = w.desk;
+  s.reconcile({ agents: [...locals, renamed] });
+  assert.notEqual(w.desk, replaced);
+  assert.deepEqual([w.x, w.y], start);
+  assert.equal(w.summon.until, until);
+  assert.equal(w.path.length, 0);
+  s.update(.1, until + .1);
+  assert.equal(w.summon, null);
+});
+test('circle arrivals do not also cast an entrance teleport at their desk', () => {
+  const s = scene(), parent = agent('portal-parent');
+  const id = Array.from({ length: 100 }, (_, i) => `portal-child-${i}`)
+    .find(id => s.SP.rng(s.SP.hash(id) ^ 0xbeef)() < .05);
+  assert.ok(id);
+  s.reconcile({ agents: [parent] });
+  s.reconcile({ agents: [parent, agent(id, 'working', parent.id)] });
+  assert.ok(s.wizards.get(id).summon);
+  assert.equal(s.SPELLS.filter(s => s.kind === 'teleport').length, 0);
+  assert.equal(s.PARTS.length, 0);
+});
+test('remote arrivals ignite the circle and interrupted summons can leave', () => {
+  const s = scene(), a = { ...agent('infernal-arrival'), origin: 'remote' };
+  s.reconcile({ agents: [] }); s.reconcile({ agents: [a] });
+  const w = s.wizards.get(a.id);
+  assert.equal(s.SIGIL_EVENTS.at(-1).demon, true);
+  assert.ok(w.summon);
+  s.reconcile({ agents: [] }); s.update(.1, .5);
+  assert.equal(w.summon, null);
+  assert.ok(w.leaving);
+});
+test('a simultaneous apprentice arrival does not extinguish a demon portal', () => {
+  const s = scene(), parent = agent('mixed-parent');
+  s.reconcile({ agents: [parent] });
+  s.reconcile({ agents: [parent, { ...agent('mixed-demon'), origin: 'remote' }, agent('mixed-child', 'working', parent.id)] });
+  let portal;
+  s.SP.PR.circle = (...args) => { portal = args[5]; };
+  s.drawFloorSigils(1);
+  assert.equal(portal.demon, true);
+});
+test('apprentice results pulse back once and all short-lived sigils expire', () => {
+  const s = scene(), parent = agent('result-parent'), child = agent('result-child', 'working', parent.id);
+  s.reconcile({ agents: [parent, child] });
+  assert.equal(s.SIGIL_EVENTS.length, 0);
+  s.reconcile({ agents: [parent, { ...child, status: 'done' }] });
+  s.reconcile({ agents: [parent, { ...child, status: 'done' }] });
+  assert.equal(s.SIGIL_LINKS.length, 1);
+  assert.equal(s.SIGIL_LINKS[0].returning, true);
+  assert.equal(s.RITUALS[0].sigilSeed, s.wizards.get(child.id).sigil.seed);
+  s.update(.1, 4);
+  assert.equal(s.SIGIL_LINKS.length, 0);
+  assert.equal(s.RITUALS.length, 0);
+});
+test('Biggles sits in the circle and accidentally summons Lucipurr', () => {
+  const s = scene();
+  s.SUMMON_CIRCLE.nextCat = 0; s.demonCat.summonAt = 0;
+  s.catThink(30);
+  assert.equal(s.cat.dest, 'sigil');
+  assert.equal(s.canUseCat(), false);
+  s.cat.path = []; s.cat.x = 430; s.cat.y = 220;
+  s.update(.1, 30.1);
+  assert.equal(s.cat.state, 'sit');
+  assert.equal(s.demonCat.active, false);
+  s.updateDemonCat(.1, 32);
+  assert.equal(s.demonCat.active, true);
+  assert.equal(s.SIGIL_EVENTS.at(-1).demon, true);
+  s.updateDemonCat(.1, 33.5);
+  assert.ok(s.demonCat.path.length);
+});
+test('Earl Grey lands once and disturbs nearby sigils briefly', () => {
+  const s = scene();
+  s.dragon.path = []; s.dragon.dest = 'bar'; s.dragon.mode = 'fly';
+  s.finishDragonTravel(10); s.finishDragonTravel(10.1);
+  assert.equal(s.SIGIL_EVENTS.length, 1);
+  assert.equal(s.SIGIL_EVENTS[0].kind, 'landing');
+  assert.notEqual(s.sigilGust(s.dragon.x + 20, s.dragon.y, 10.3), 0);
+  s.update(.1, 12);
+  assert.equal(s.SIGIL_EVENTS.length, 0);
+});
+test('sigil bursts remain bounded when many events arrive together', () => {
+  const s = scene(), parent = agent('burst-parent'), child = agent('burst-child', 'working', parent.id);
+  s.reconcile({ agents: [parent, child] });
+  for (let i = 0; i < 40; i++) { s.sigilEvent({ kind: 'cat' }); s.sigilLink(s.wizards.get(child.id), false); }
+  assert.equal(s.SIGIL_EVENTS.length, 24);
+  assert.equal(s.SIGIL_LINKS.length, 16);
+});
 test('startup agents are visible at their stations without entrance effects', () => {
   const s = scene(), agents = ['working', 'thinking', 'responding', 'waiting', 'attention', 'idle', 'done'].map(status => agent(status, status));
   agents.push(agent('child', 'working', 'working'));

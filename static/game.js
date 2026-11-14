@@ -129,7 +129,7 @@
   }
   function waitingOnQuestion(a) {
     const t = ((a && a.tool) || '').toLowerCase();
-    return t === 'request_user_input' || /(^|[_-])ask[_-]?user/.test(t) || /question/.test(t);
+    return /(^|[._-])request_user_input($|_)/.test(t) || /(^|[_-])ask[_-]?user/.test(t) || /question/.test(t);
   }
   function cafeWait(a) {
     return a && (a.status === 'waiting' || (a.status === 'working' && waitingOnQuestion(a)));
@@ -150,9 +150,11 @@
 
   // ---------- entities ----------
   const wizards = new Map();
-  const desks = [], RITUALS = [], HAUNTED_TODOS = [];
+  const desks = [], RITUALS = [], HAUNTED_TODOS = [], SIGIL_EVENTS = [], SIGIL_LINKS = [];
+  const SUMMON_CIRCLE = { x: 430, y: 220, nextCat: 24 };
+  const CAULDRON_SIGIL = { x: 72, y: 176, radius: 40, space: { x: 28, y: 148, w: 88, h: 50 } };
   let sceneTime = 0, initialized = false;
-  const atDesk = w => w.desk && !w.path.length && !w.leaving && !w.blast;
+  const atDesk = w => w.desk && !w.path.length && !w.leaving && !w.blast && !w.summon;
   let sel = null, hover = null, cafeChat = null, nextCafeChat = 10;
   let offline = false, isDemo = false, serverSkew = 0, lastData = { agents: [] };
   const ballReading = ball => {
@@ -163,6 +165,53 @@
   const eggR = rng(0xe457e2), mimicR = rng(0xc4e57);
   const MIMIC = { active: false, x: 38, y: 76, path: [], r: mimicR, phase: 'hidden', desk: null, nextAt: 45 };
   let doorStandoff = null, nextDoorStandoff = 20;
+
+  const sigilColor = w => (w.sp.demon ? ['#f08a2a', '#ef8fa8', '#c18bea'] : ['#8fd0ff', '#8ce8ce', '#c8b4ff', '#e8c77b'])[w.sigil.seed % (w.sp.demon ? 3 : 4)];
+  function sigilMode(a) {
+    if (a.status === 'working' && waitingOnQuestion(a)) return 'ask';
+    if (a.status === 'thinking') return 'think';
+    if (a.status === 'responding' || /edit|write|apply/.test((a.tool || '').toLowerCase())) return 'weave';
+    return /bash|exec|shell|stdin|monitor|wait/.test((a.tool || '').toLowerCase()) ? 'run' : 'read';
+  }
+  function updateWorkSigil(w, a) {
+    const event = [...(a.history || [])].reverse().find(h => h.kind === 'tool_use' || h.kind === 'tool_result');
+    const key = event ? `${event.ts}:${event.kind}:${event.tool}:${event.text}` : `${a.tool || ''}:${a.detail || ''}`;
+    if (key !== w.sigil.event && a.tool && !waitingOnQuestion(a)) {
+      w.sigil.charge = Math.min(6, w.sigil.charge + 1);
+      w.sigil.flash = sceneTime;
+    }
+    w.sigil.event = key; w.sigil.mode = sigilMode(a);
+  }
+  function sigilEvent(event) {
+    SIGIL_EVENTS.push({ at: sceneTime, life: 2.4, ...event });
+    if (SIGIL_EVENTS.length > 24) SIGIL_EVENTS.shift();
+  }
+  function sigilLink(w, returning) {
+    const parent = wizards.get(w.a.parent);
+    if (!parent) return;
+    const target = w.summon ? [w.x, w.y] : w.home || [w.x, w.y];
+    const points = [[parent.x, parent.y], ...route(parent.x, parent.y, ...target, 0)];
+    if (returning) points.reverse();
+    const lengths = points.slice(1).map((p, i) => Math.hypot(p[0] - points[i][0], p[1] - points[i][1]));
+    SIGIL_LINKS.push({ parent: parent.a.id, child: w.a.id, returning, at: sceneTime, life: 2.4,
+      points, lengths, length: lengths.reduce((a, b) => a + b, 0) });
+    if (SIGIL_LINKS.length > 16) SIGIL_LINKS.shift();
+  }
+  function summonWizard(w) {
+    const delay = Math.min(3, SIGIL_EVENTS.filter(e => e.kind === 'summon').length) * .2;
+    w.summon = { at: sceneTime + delay, until: sceneTime + delay + 1.6 };
+    w.x = SUMMON_CIRCLE.x + (w.sigil.seed % 3 - 1) * 6;
+    w.y = SUMMON_CIRCLE.y + w.sigil.seed % 2 * 3;
+    w.alpha = 0; w.path = []; w.walk = false;
+    sigilEvent({ kind: 'summon', id: w.a.id, demon: w.sp.demon, at: w.summon.at, life: 2.2 });
+    if (w.a.kind === 'sub') sigilLink(w, false);
+  }
+  function sigilGust(x, y, t) {
+    let gust = 0;
+    for (const e of SIGIL_EVENTS) if (e.kind === 'landing')
+      gust += Math.max(0, 1 - Math.hypot(x - e.x, y - e.y) / 130) * Math.max(0, 1 - (t - e.at) / e.life) * Math.sin((t - e.at) * 14) * 4;
+    return gust;
+  }
 
   function clampZone(x, y) {
     const lab = x < 264;
@@ -179,7 +228,7 @@
     w.stuckAt = 0; w.lastX = w.x; w.lastY = w.y;
   }
   const DESK_FIXTURES = [
-    { x: 56, y: 150, w: 30, h: 26 }, // cauldron
+    CAULDRON_SIGIL.space,
     { x: 88, y: 42, w: 34, h: 20 }, // bench
     ...RESOURCE_BALLS.map(({ x, y, metric }) => ({ x, y, w: 16, h: metric === 'disk' ? 30 : 24 })),
   ];
@@ -247,7 +296,7 @@
       const dest = actor.desk ? actor.home : actor.path.at(-1);
       if (actor.x < 18 - labExtra + bodyR(actor) || actor.x < 264 && actor.y > 266 + labDown)
         [actor.x, actor.y] = gridOpenNear(...clampZone(actor.x, actor.y), bodyR(actor));
-      if (dest) actor.path = route(actor.x, actor.y, ...clampZone(...dest), bodyR(actor));
+      if (dest && !actor.summon) actor.path = route(actor.x, actor.y, ...clampZone(...dest), bodyR(actor));
     }
   }
   function makeDesk(w) {
@@ -274,7 +323,7 @@
       while (!(pos = deskPosition([d.x, d.y], occupied, steps, d.w))) steps++;
       [d.x, d.y] = pos; d.w.home = pos;
       if (d.w.path.length) reroute.push(d.w);
-      else if (initialized) [d.w.x, d.w.y] = pos;
+      else if (initialized && !d.w.summon) [d.w.x, d.w.y] = pos;
       occupied.push(deskSpace(...pos, d.w));
     }
     if (steps > labSteps) sizeLab(steps);
@@ -295,7 +344,7 @@
     else if (i >= 0) { st.occ[i] = w.a.id; w.spotI = i; pos = st.spots[i]; }
     else pos = clampZone(st.spots[0][0] + ((w.r() * 56 - 28) | 0), st.spots[0][1] + ((w.r() * 22 - 6) | 0));
     w.station = key; w.home = pos;
-    if (initialized) pathTo(w, pos[0], pos[1]);
+    if (initialized && !w.summon) pathTo(w, pos[0], pos[1]);
     w.emote = emoteFor(w);
   }
   function placeFor(w) {
@@ -331,19 +380,26 @@
       if (!w) {
         w = { a, sp: SP.makeWizard(a.id, a.kind, demon, takenJobs()), x: 436 + ((hash(a.id) % 9) - 4), y: 250, dir: -1, path: [], walk: false,
               station: null, spotI: -1, home: null, order: null, game: null, castAt: 0, blast: null, leaving: false,
-              stuckAt: 0, lastX: 436, lastY: 250, alpha: 0, ph: (hash(a.id) % 100) / 16, r: rng(hash(a.id) ^ 0xbeef), emote: null };
+              stuckAt: 0, lastX: 436, lastY: 250, alpha: 0, ph: (hash(a.id) % 100) / 16, r: rng(hash(a.id) ^ 0xbeef), emote: null,
+              sigil: { seed: hash(a.id + ':sigil'), charge: 0, event: null, flash: -9 } };
         wizards.set(a.id, w);
-        if (initialized) sparkleAt(436, 252);
-        w.a = a; retarget(w);
+        updateWorkSigil(w, a);
+        if (initialized && (a.kind === 'sub' || demon) && placeFor(w) === 'work') summonWizard(w);
+        retarget(w);
+        if (initialized && !w.summon) sparkleAt(436, 252);
         continue;
       }
       if (w.sp.demon !== demon) w.sp = SP.makeWizard(a.id, a.kind, demon, takenJobs());
       const changed = !w.station || w.a.status !== a.status || (a.status === 'working' && (w.a.tool !== a.tool || w.a.detail !== a.detail)) || w.leaving;
       if (w.desk && ['waiting', 'done'].includes(a.status) && !['waiting', 'done'].includes(w.a.status)) {
-        RITUALS.push({ desk: w.desk, x: w.desk.x, y: w.desk.y, at: sceneTime, seed: hash(w.a.id + ':desk') });
+        RITUALS.push({ desk: w.desk, x: w.desk.x, y: w.desk.y, at: sceneTime, seed: hash(w.a.id + ':desk'),
+          sigilSeed: w.sigil.seed });
+        if (a.kind === 'sub') sigilLink(w, true);
         if (eggR() < .18) spawnHauntedTodo(w, w.desk, sceneTime);
       }
+      updateWorkSigil(w, a);
       w.a = a;
+      if (placeFor(w) !== 'work') w.summon = null;
       w.leaving = false;
       if (!cafeWait(a)) {
         if (w.order && w.order.stage !== 'served') w.order = null;
@@ -378,6 +434,12 @@
     if (cat.game) return;
     if (cat.state === 'cafe') cat.order = null;
     cat.dest = null;
+    if (t >= SUMMON_CIRCLE.nextCat && !demonCat.active && !SIGIL_EVENTS.some(e => e.kind === 'summon')) {
+      pathTo(cat, SUMMON_CIRCLE.x, SUMMON_CIRCLE.y);
+      cat.state = 'walk'; cat.dest = 'sigil'; cat.until = t + 20;
+      SUMMON_CIRCLE.nextCat = t + 120 + catR() * 90;
+      return;
+    }
     const roll = catR();
     if (roll < .08) sendCatToCafe(t);
     else if (roll < .38) { cat.state = 'sleep'; cat.until = t + 6 + catR() * 8; pathTo(cat, 440, 112); }
@@ -585,7 +647,7 @@
     return true;
   }
   function canUseCat() {
-    return !cat.game && !cat.path.length && cat.state !== 'walk' && cat.state !== 'sleep' && cat.state !== 'cafe';
+    return !cat.game && cat.dest !== 'sigil' && !cat.path.length && cat.state !== 'walk' && cat.state !== 'sleep' && cat.state !== 'cafe';
   }
   function startGame(table, players, t) {
     const types = table.types || GAME_TYPES;
@@ -880,13 +942,13 @@
     spark(sx, sy, '#d8ff58', -5, .35);
   }
   function rayOpponent(w) {
-    const rivals = [...wizards.values()].filter(v => v.a.kind !== 'sub' && v.sp.demon !== w.sp.demon && !v.leaving && !v.walk && !v.game && !v.blast && v.alpha > .8);
+    const rivals = [...wizards.values()].filter(v => v.a.kind !== 'sub' && v.sp.demon !== w.sp.demon && !v.leaving && !v.walk && !v.summon && !v.game && !v.blast && v.alpha > .8);
     if (dragonAtBar() && w.r() < EARL_GREY_TARGET_CHANCE) rivals.push(dragon);
     return rivals.length ? rivals[w.r() * rivals.length | 0] : null;
   }
   function combatHelpers(w) {
     return [...wizards.values()].filter(v => v.a.kind === 'sub' && v.a.parent === w.a.id && v.sp.demon === w.sp.demon &&
-      !v.leaving && !v.walk && !v.game && !v.blast && v.alpha > .8).map(v => v.a.id);
+      !v.leaving && !v.walk && !v.summon && !v.game && !v.blast && v.alpha > .8).map(v => v.a.id);
   }
   function castRay(w, target, catCaster = false) {
     const demon = catCaster ? w === demonCat : w.sp.demon, c = demon ? '#f05a3a' : catCaster ? '#d8ff58' : '#8fd0ff';
@@ -900,10 +962,10 @@
   }
   function updateBattle(t) {
     if (t < nextBattle || !wizards.size) return;
-    const wizardsReady = [...wizards.values()].filter(w => w.a.kind !== 'sub' && !w.walk && !w.leaving && !w.game && !w.blast && w.alpha > .8);
+    const wizardsReady = [...wizards.values()].filter(w => w.a.kind !== 'sub' && !w.walk && !w.summon && !w.leaving && !w.game && !w.blast && w.alpha > .8);
     const fights = wizardsReady.map(w => [w, rayOpponent(w)]).filter(([, target]) => target);
     const catsReady = [cat, demonCat].filter(c => (c !== demonCat || c.active) && !c.path.length && !c.game && c.state !== 'walk' && c.state !== 'sleep' && (c.alpha === undefined || c.alpha > .8));
-    const targets = [...wizards.values()].filter(w => !w.leaving && !w.walk && !w.game && !w.blast && w.alpha > .8);
+    const targets = [...wizards.values()].filter(w => !w.leaving && !w.walk && !w.summon && !w.game && !w.blast && w.alpha > .8);
     const casters = [...fights, ...catsReady.filter(() => targets.length || dragonAtBar()).map(c => [c, null])];
     if (!casters.length) return;
     nextBattle = t + BATTLE_COOLDOWN + battleR() * BATTLE_COOLDOWN_JITTER;
@@ -933,16 +995,19 @@
   }
   function updateDemonCat(dt, t) {
     if (!demonCat.active) {
-      if (t < demonCat.summonAt || cat.state === 'walk' || cat.state === 'sleep') return;
-      [demonCat.x, demonCat.y] = clampZone(cat.x + (cat.x > 268 ? -18 : 18), cat.y + 3);
+      if (t < demonCat.summonAt || cat.dest !== 'sigil' || cat.state !== 'sit' || t < cat.sigilAt + 1.6) return;
+      [demonCat.x, demonCat.y] = [SUMMON_CIRCLE.x + 10, SUMMON_CIRCLE.y + 2];
       const drink = INFERNAL_DRINKS[hash('lucipurr:drink') % INFERNAL_DRINKS.length];
       Object.assign(demonCat, { active: true, alpha: 0, until: t + 48 + demonCatR() * 10, dest: 'cafe',
         order: { drink, stage: 'queued', askAt: t + 3, servedAt: 0 }, path: [] });
-      castTeleport(cat, demonCat.x, demonCat.y, demonCatR, '#f08a2a');
-      pathTo(demonCat, 414, 226);
+      demonCat.summoningUntil = t + 1.2;
+      sigilEvent({ kind: 'cat', demon: true, at: t, life: 2.4 });
+      teleportBurst(demonCat.x, demonCat.y, '#f08a2a');
       return;
     }
     demonCat.alpha = Math.min(1, demonCat.alpha + dt * 3);
+    if (t < demonCat.summoningUntil) return;
+    if (demonCat.summoningUntil) { demonCat.summoningUntil = null; pathTo(demonCat, 414, 226); }
     if (t >= demonCat.until) {
       teleportBurst(demonCat.x, demonCat.y, '#f08a2a');
       demonCat.active = false;
@@ -1311,6 +1376,7 @@
 
   function finishDragonTravel(t) {
     if (dragon.path.length) return;
+    if (dragon.dest === 'stretch' || dragon.dest === 'bar') sigilEvent({ kind: 'landing', x: dragon.x, y: dragon.y, at: t, life: 1.5 });
     if (dragon.dest === 'stretch') {
       dragon.dest = 'stretching';
       dragon.stretchUntil = t + 2.2;
@@ -1342,7 +1408,7 @@
   }
   function collisionActors() {
     const frozen = w => doorStandoff && sceneTime < doorStandoff.at + .9 && doorStandoff.ids.includes(w.a.id);
-    const a = [...wizards.values()].filter(w => w.alpha > .25 && !w.blast).map(w => ({ e: w, r: WIZ_R + 1, fixed: !!atDesk(w) || frozen(w) }));
+    const a = [...wizards.values()].filter(w => w.alpha > .25 && !w.blast && !w.summon).map(w => ({ e: w, r: WIZ_R + 1, fixed: !!atDesk(w) || frozen(w) }));
     a.push({ e: cat, r: CAT_R + 1 });
     return a;
   }
@@ -1453,6 +1519,8 @@
 
   function update(dt, t) {
     sceneTime = t;
+    for (const events of [SIGIL_EVENTS, SIGIL_LINKS])
+      for (let i = events.length - 1; i >= 0; i--) if (t - events[i].at > events[i].life) events.splice(i, 1);
     updateBrew(t);
     updateMimic(dt, t);
     updateHauntedTodos(dt, t);
@@ -1464,6 +1532,16 @@
     if (removed) shrinkLab();
     updateBattle(t);
     for (const [id, w] of wizards) {
+      if (w.summon && !w.leaving) {
+        if (t < w.summon.until) {
+          w.alpha = Math.max(0, Math.min(1, (t - w.summon.at) / 1.6));
+          continue;
+        }
+        w.summon = null;
+        if (w.a.kind === 'sub') sigilLink(w, false);
+        if (w.home) pathTo(w, ...w.home);
+      }
+      if (w.leaving) w.summon = null;
       if (w.blast) {
         if (t < w.blast.until) continue;
         w.blast = null;
@@ -1491,7 +1569,7 @@
     updateLightning(t);
     // ambient particles
     if (Math.random() < dt * (2 + BREW.flame * 7)) spark(62 + Math.random() * 16, 154, BREW.color, -14, .8);
-    const circleActive = occupied('circle');
+    const circleActive = SIGIL_EVENTS.some(e => e.kind === 'summon' || e.kind === 'cat');
     if (Math.random() < dt * (circleActive ? 7 : .45)) { const a = Math.random() * 6.28; spark(430 + Math.cos(a) * 22, 220 + Math.sin(a) * 9, circleActive ? '#d8c8ff' : '#9a7cf0', -12, .9); }
     for (const ball of RESOURCE_BALLS) if (ballReading(ball) > 75 && Math.random() < dt * 12)
       spark(ball.x + 7 + Math.random() * 12 - 6, ball.y + 3, Math.random() < .5 ? ball.hotColor : ball.accents.flare || '#ffe89a', -12, .7);
@@ -1524,6 +1602,9 @@
           cat.dest = null;
           cat.until = t + 22 + catR() * 8;
           cat.order = { drink: catDrink(), stage: 'queued', askAt: t, servedAt: 0 };
+        } else if (cat.dest === 'sigil') {
+          cat.state = 'sit'; cat.sigilAt = t; cat.until = t + 5;
+          sigilEvent({ kind: 'cat', at: t, life: 2.4 });
         } else if (cat.dest === 'game') {
           cat.state = 'game';
           cat.dest = null;
@@ -1560,11 +1641,13 @@
     const rest = w.a.status === 'idle' && !w.walk;
     const idle = rest ? 'sleep' : 'idle';
     const f = w.walk ? ((t * 6 | 0) % 2 ? 'walkA' : 'walkB') : ((t + w.ph) % 2.6 < 1.3 ? idle + 'A' : idle + 'B');
-    const img = w.sp.frames[f];
+    const materializing = w.summon && Math.max(0, Math.min(1, (t - w.summon.at) / 1.6));
+    const img = w.summon && materializing < .6 ? w.sp.frames.silhouette : w.sp.frames[f];
     g.globalAlpha = .3 * w.alpha; g.fillStyle = '#0a0810'; g.fillRect(w.x - 5, w.y - 1, 10, 2);
     g.globalAlpha = w.alpha;
     g.save(); g.translate(w.x + (w.dir < 0 ? 10 : -10), w.y - 23 + (atDesk(w) ? 3 : 0));
     if (w.dir < 0) g.scale(-1, 1);
+    if (w.summon) { g.beginPath(); g.rect(0, 24 * (1 - materializing), 20, 24 * materializing); g.clip(); }
     if (atDesk(w)) { g.beginPath(); g.rect(0, 0, 20, 16); g.clip(); }
     g.drawImage(img, 0, 0); drawGlowingEyes(w, f, t); g.restore();
     if (w.a.id === sel || w.a.id === hover || w.a.status === 'attention') {
@@ -1645,11 +1728,29 @@
     }
   }
   function drawBonds(t) {
+    for (const link of SIGIL_LINKS) {
+      const p = Math.max(0, Math.min(1, (t - link.at) / link.life));
+      g.save(); g.globalAlpha = Math.sin(p * Math.PI) * .65;
+      g.strokeStyle = link.returning ? '#ffd84a' : '#b9a5e8'; g.lineWidth = 1; g.setLineDash([2, 4]);
+      g.beginPath();
+      link.points.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y));
+      g.stroke();
+      let distance = p * link.length;
+      for (let i = 0; i < link.lengths.length; i++) {
+        if (distance > link.lengths[i]) { distance -= link.lengths[i]; continue; }
+        const a = link.points[i], b = link.points[i + 1], k = link.lengths[i] ? distance / link.lengths[i] : 1;
+        g.fillStyle = link.returning ? '#ffe89a' : '#e8dcff';
+        g.fillRect(Math.round(a[0] + (b[0] - a[0]) * k) - 1, Math.round(a[1] + (b[1] - a[1]) * k) - 1, 3, 3);
+        break;
+      }
+      g.restore();
+    }
     for (const child of wizards.values()) {
       if (child.a.kind !== 'sub' || !child.a.parent) continue;
       const parent = wizards.get(child.a.parent);
       if (!parent || parent.leaving || child.leaving) continue;
       const hot = [sel, hover].includes(parent.a.id) || [sel, hover].includes(child.a.id);
+      if (!hot) continue;
       const color = child.a.status === 'done' ? '#ffd84a' : child.a.status === 'attention' ? '#ff5a5a' : '#9a7cf0';
       const n = Math.max(8, Math.hypot(child.x - parent.x, child.y - parent.y) / 4 | 0);
       g.globalAlpha = hot ? .9 : .28;
@@ -1887,19 +1988,23 @@
   }
   function drawFloorSigils(t) {
     g.save();
-    const objects = [...BLOCKERS, ...DESK_FIXTURES, shelfSpace(labExtra), quotaSpace(),
-      ...desks.map(d => deskSpace(d.x, d.y, d.w)),
-      ...TABLES.map(tb => ({ x: tb.x - 18, y: tb.y - 12, w: 36, h: 24 })),
-      ...[...wizards.values(), cat, ...(demonCat.active ? [demonCat] : []), dragon]
-        .map(actor => ({ x: actor.x - 12, y: actor.y - 26, w: 24, h: 29 }))];
-    for (const b of objects) {
-      g.beginPath(); g.rect(-labExtra, 34, VW + labExtra, VH + labDown - 34);
-      g.rect(b.x - 1, b.y - 1, b.w + 2, b.h + 2); g.clip('evenodd');
-    }
-    PR.floorSigil(g, 72, 164, 32, t, '#8ce8ce', '#ddfff1', 0);
+    g.beginPath(); g.rect(8 - labExtra, 34, 256 + labExtra, 226 + labDown); g.rect(272, 34, 200, 226); g.clip();
+    PR.floorSigil(g, CAULDRON_SIGIL.x, CAULDRON_SIGIL.y, CAULDRON_SIGIL.radius, t, BREW.color, '#ddfff1', 0);
     RESOURCE_BALLS.forEach((ball, i) => PR.floorSigil(g, ball.x + 7, ball.y + 21, 12, t,
       { cpu: '#dda1b1', memory: '#a9c7ff', disk: '#8ce8b0' }[ball.metric], '#e4f4ff', i));
-    PR.circle(g, 404, 206, t, occupied('circle'));
+    for (const d of desks) if (d.active && !d.w.summon) {
+      g.save(); g.globalAlpha = d.alpha;
+      const w = d.w;
+      PR.workSigil(g, d.x, d.y - 9, w.sp.sub ? 18 : 29, w.sigil.seed, sigilColor(w), w.sigil.mode, t,
+        w.sigil.charge, w.sigil.flash, sigilGust(d.x, d.y, t));
+      g.restore();
+    }
+    for (const w of wizards.values()) if (w.sigil.mode === 'ask' && !w.walk && !w.leaving && !w.blast)
+      PR.workSigil(g, w.x, w.y + 1, 18, w.sigil.seed, sigilColor(w), 'ask', t, 0, -9, 0);
+    const summons = SIGIL_EVENTS.filter(e => (e.kind === 'summon' || e.kind === 'cat') && t >= e.at);
+    const event = summons.find(e => e.demon) || summons.at(-1);
+    PR.circle(g, 404, 206, t, !!event, event && { ...event, progress: (t - event.at) / event.life }, sigilGust(430, 220, t));
+    for (const e of SIGIL_EVENTS) if (e.kind === 'landing') PR.sigilRipple(g, e.x, e.y, (t - e.at) / e.life, '#e8c77b');
     g.restore();
   }
   // Clodex's drifting, twinkling motes use the scene clock and expand with the lab.
@@ -1996,10 +2101,9 @@
       if ((hover === w.a.id || sel === w.a.id) && !w.blast && w.alpha > .5) tag(w.x, w.y - 38, w.sp.name);
     }
     drawRally(t);
-    for (const d of desks) if (d.active && atDesk(d.w)) PR.ritual(g, d.x, d.y - 17, d.elapsed, 0);
     for (const r of RITUALS) {
       const p = Math.max(0, (t - r.at) / 3);
-      PR.ritual(g, r.x, r.y - 17, 36, p);
+      PR.sigilSeal(g, r.x, r.y - 9, r.sigilSeed, p);
       g.save(); g.globalAlpha = 1 - p;
       PR.deskPet(g, r.x + 5, r.y - 5, r.seed, t, true); g.restore();
     }

@@ -2,7 +2,7 @@
 'use strict';
 (() => {
   const VW = 480, VH = 272, POLL = 1500, SPEED = 42;
-  let labExtra = 0, labDown = 0, labSteps = 0;
+  let labExtra = 0, labDown = 60, labSteps = 0;  // labSize(0): the base storey below the original floor plan
   const $ = q => document.querySelector(q);
   const cv = $('#view'), g = cv.getContext('2d');
   const { drawText, textW, rng, hash, PR, drawEmote, WARM_MILK, DRINKS, INFERNAL_DRINKS } = SP;
@@ -22,7 +22,7 @@
     odesk:    { spots: [[313, 92], [373, 112], [336, 130]], emote: null },
     cafe:     { spots: [[308, 226], [330, 226], [352, 226], [374, 226], [394, 224]], emote: 'coffee' },
     hearth:   { spots: [[425, 65], [425, 87]], emote: null },
-    door:     { spots: [[436, 248]], emote: 'star' },
+    door:     { spots: [[436, 308]], emote: 'star' },
   };
   for (const k in ST) ST[k].occ = ST[k].spots.map(() => null);
 
@@ -44,11 +44,12 @@
     { x: 299, y: 96, w: 28, h: 14 }, { x: 359, y: 116, w: 28, h: 14 },
     { x: 438, y: 52, w: 32, h: 24 },
     { x: 294, y: 194, w: 102, h: 25 },
+    { x: 296, y: 256, w: 112, h: 40 },
   ];
   const bodyR = e => e && e.sp ? WIZ_R : e && e.frames ? DRAGON_R : CAT_R;
   const snap = v => Math.round(v / GRID) * GRID;
   const hitRect = (x, y, r, b) => x + r > b.x && x - r < b.x + b.w && y + r > b.y && y - r < b.y + b.h;
-  const blocked = (x, y, r) => x < 18 - labExtra + r || x > 462 - r || y < 42 + r || y > (x < 264 ? 266 + labDown : 266) ||
+  const blocked = (x, y, r) => x < 18 - labExtra + r || x > 462 - r || y < 42 + r || y > (x < 264 ? 266 + labDown : 326) ||
     (labDown > 0 && hitRect(x, y, r, { x: 264, y: 260, w: 8, h: labDown })) || BLOCKERS.some(b => hitRect(x, y, r, b));
   function gridOpenNear(x, y, r) {
     let best = null, bd = 1e9, sx = snap(x), sy = snap(y);
@@ -215,7 +216,7 @@
 
   function clampZone(x, y) {
     const lab = x < 264;
-    return [Math.max(lab ? 18 - labExtra : 282, Math.min(lab ? 252 : 462, x)), Math.max(46, Math.min(lab ? 250 + labDown : 250, y))];
+    return [Math.max(lab ? 18 - labExtra : 282, Math.min(lab ? 252 : 462, x)), Math.max(46, Math.min(lab ? 250 + labDown : 310, y))];
   }
   function pathTo(w, tx, ty) {
     const path = route(w.x, w.y, tx, ty, bodyR(w)), last = path[path.length - 1], r = w.r || catR;
@@ -249,7 +250,8 @@
   }
   const deskSpace = (x, y, w) => ({ x: x - 32, y: y - 30, w: 64, h: Math.max(54, 36 + taskLabelLines(w).length * 8) });
   const overlaps = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-  const labSize = steps => [Math.floor(steps / 3) * 72, (steps - Math.floor(steps / 3)) * 60];
+  // The tower always has one storey below the original floor plan: the cafe keeps its Magic table there.
+  const labSize = steps => [Math.floor(steps / 3) * 72, (1 + steps - Math.floor(steps / 3)) * 60];
   const shelfSpace = width => ({ x: 8 - width, y: 58, w: 26, h: 70 });
   const fitsLab = (d, width, height) => {
     const b = deskSpace(d.x, d.y, d.w);
@@ -349,7 +351,7 @@
   }
   function placeFor(w) {
     const s = w.a.status;
-    if (cafeWait(w.a)) return 'cafe';
+    if (cafeWait(w.a) || playsOn(w)) return 'cafe';
     if (['working', 'thinking', 'responding'].includes(s)) return 'work';
     if (s === 'attention') return 'board';
     if (s === 'idle') return 'hearth';
@@ -378,15 +380,15 @@
       const demon = a.origin === 'remote';
       const takenJobs = () => new Set([...wizards.values()].filter(o => o.a.id !== a.id).map(o => o.sp.job));
       if (!w) {
-        w = { a, sp: SP.makeWizard(a.id, a.kind, demon, takenJobs()), x: 436 + ((hash(a.id) % 9) - 4), y: 250, dir: -1, path: [], walk: false,
+        w = { a, sp: SP.makeWizard(a.id, a.kind, demon, takenJobs()), x: 436 + ((hash(a.id) % 9) - 4), y: 310, dir: -1, path: [], walk: false,
               station: null, spotI: -1, home: null, order: null, game: null, castAt: 0, blast: null, leaving: false,
-              stuckAt: 0, lastX: 436, lastY: 250, alpha: 0, ph: (hash(a.id) % 100) / 16, r: rng(hash(a.id) ^ 0xbeef), emote: null,
+              stuckAt: 0, lastX: 436, lastY: 310, alpha: 0, ph: (hash(a.id) % 100) / 16, r: rng(hash(a.id) ^ 0xbeef), emote: null,
               sigil: { seed: hash(a.id + ':sigil'), charge: 0, event: null, flash: -9 } };
         wizards.set(a.id, w);
         updateWorkSigil(w, a);
         if (initialized && (a.kind === 'sub' || demon) && placeFor(w) === 'work') summonWizard(w);
         retarget(w);
-        if (initialized && !w.summon) sparkleAt(436, 252);
+        if (initialized && !w.summon) sparkleAt(436, 312);
         continue;
       }
       if (w.sp.demon !== demon) w.sp = SP.makeWizard(a.id, a.kind, demon, takenJobs());
@@ -401,13 +403,13 @@
       w.a = a;
       if (placeFor(w) !== 'work') w.summon = null;
       w.leaving = false;
-      if (!cafeWait(a)) {
+      if (!cafeWait(a) && !playsOn(w)) {
         if (w.order && w.order.stage !== 'served') w.order = null;
         leaveGameForWizard(w, 0);
       }
       if (changed) { w.castAt = 0; retarget(w); }
     }
-    for (const [id, w] of wizards) if (!seen.has(id) && !w.leaving) { leaveGameForWizard(w, 0); w.leaving = true; release(w); w.station = null; pathTo(w, 436, 250); w.path.push([436, 266]); }
+    for (const [id, w] of wizards) if (!seen.has(id) && !w.leaving) { leaveGameForWizard(w, 0); w.leaving = true; release(w); w.station = null; pathTo(w, 436, 310); w.path.push([436, 326]); }
     settleDesks();
     if (!initialized) {
       for (const w of wizards.values()) {
@@ -454,7 +456,7 @@
   }
   // Earl Grey roasts the house beans himself.
   const barY = 196, DRAGON_HOME = [338, barY], DRAGON_STRETCH = [[304, 66], [420, 54], [448, 126], [286, 148]], dragonR = rng(777);
-  const dragon = { frames: SP.makeDragon(), x: DRAGON_HOME[0], y: DRAGON_HOME[1], dir: -1, path: [], dest: null, mode: null, signal: null, stretchUntil: -9, roastAt: 7, roastUntil: -9, flapAt: 45 + dragonR() * 60, flapUntil: -9, task: null, game: null, blast: null };
+  const dragon = { frames: SP.makeDragon(), x: DRAGON_HOME[0], y: DRAGON_HOME[1], dir: -1, path: [], dest: null, mode: null, signal: null, stretchUntil: -9, roastAt: 7, roastUntil: -9, flapAt: 45 + dragonR() * 60, flapUntil: -9, task: null, game: null, blast: null, lookAt: -9, lookUntil: -9, lookX: 0 };
   const PAN = [324, 196];
   const CUP = [316, 187], CAT_CAFE = [404, 226];
 
@@ -568,12 +570,15 @@
 
   // ---------- table games ----------
   const COURT = { id: 'court', x: 368, y: 164, seats: [[310, 170], [426, 170]], types: ['badminton', 'pingpong'], game: null, burnUntil: 0 };
+  // Duelists sit at either end of the long Magic table; the third seat, behind it, is the judge's.
+  const MTG = { id: 'mtg', x: 352, y: 292, seats: [[286, 294], [418, 294], [318, 250]], types: ['magic'], game: null, burnUntil: 0 };
   const TABLES = [
     COURT,
-    { id: 't1', x: 313, y: 101, seats: [[292, 112], [332, 112], [313, 84]], game: null, burnUntil: 0 },
-    { id: 't2', x: 373, y: 121, seats: [[352, 132], [392, 132], [373, 104]], game: null, burnUntil: 0 },
+    { id: 't1', x: 313, y: 101, seats: [[292, 112], [332, 112], [313, 84]], types: ['go'], game: null, burnUntil: 0 },
+    { id: 't2', x: 373, y: 121, seats: [[352, 132], [392, 132], [373, 104]], types: ['go'], game: null, burnUntil: 0 },
+    MTG,
   ];
-  const GAME_TYPES = ['magic', 'go'], tableR = rng(4242);
+  const tableR = rng(4242);
   const SPORT_SHOTS = {
     pingpong: [
       { name: 'normal', duration: .85, lift: 12, bounce: .72 },
@@ -596,8 +601,15 @@
     table.x = x;
     table.seats = [[x - 21, 112], [x + 19, 112], [x, 84]];
   }
-  const gameName = ({ type, record: r }) => (type === 'magic' ? 'MAGIC THE GATHERING' : type === 'pingpong' ? 'PING PONG' : type.toUpperCase()) +
-    (r ? `: ${r.black} VS ${r.white}, ${r.date.slice(0, 4)}`.toUpperCase() : '');
+  // w, when given, is the duelist reading the name: Magic then reports their life before the opponent's.
+  const gameName = ({ type, record: r, mtg, players }, w) => {
+    const me = mtg && w && mtg.sides[players.find(p => p.id === w.a.id)?.seat];
+    return (type === 'magic' ? 'MAGIC THE GATHERING' : type === 'pingpong' ? 'PING PONG' : type.toUpperCase()) +
+      (r ? `: ${r.black} VS ${r.white}, ${r.date.slice(0, 4)}`.toUpperCase() : '') +
+      (me ? `: ${me.life} LIFE VS ${mtg.sides[1 - me.i].life}` : '');
+  };
+  // Idle agents finish the game in front of them before dozing off by the hearth.
+  const playsOn = w => !!w.game && w.a.status === 'idle';
   const gameHas = (table, kind, id) => !!table.game && table.game.players.some(p => p.kind === kind && (!id || p.id === id));
   function waitingForGame(w) {
     return cafeReady(w) && !w.game && w.order && w.order.stage === 'served';
@@ -605,7 +617,7 @@
   function releaseGamePlayer(p, t) {
     if (p.kind === 'wizard') {
       const w = wizards.get(p.id);
-      if (w) { w.game = null; if (!w.leaving && cafeWait(w.a)) { w.station = null; w.home = null; retarget(w); } }
+      if (w) { w.game = null; if (!w.leaving) { w.station = null; w.home = null; retarget(w); } }
     } else if (p.kind === 'cat') {
       cat.game = null;
       if (cat.state === 'game' || cat.dest === 'game') { cat.dest = null; catThink(t); }
@@ -649,20 +661,19 @@
   function canUseCat() {
     return !cat.game && cat.dest !== 'sigil' && !cat.path.length && cat.state !== 'walk' && cat.state !== 'sleep' && cat.state !== 'cafe';
   }
+  // Court games run on a timer; Go and Magic play to their conclusion.
   function startGame(table, players, t) {
-    const types = table.types || GAME_TYPES;
-    const type = types[tableR() * types.length | 0];
-    if (type === 'go') players = players.slice(0, 2);
-    table.game = { type, players, started: t, until: t + 28 + tableR() * 28 };
+    const type = table.types[tableR() * table.types.length | 0];
+    table.game = { type, started: t, until: table === COURT ? t + 28 + tableR() * 28 : Infinity };
     updateTopTable();
-    table.game.players = players.filter((p, i) => seatPlayer(table, p, i, t));
+    table.game.players = players.slice(0, 2).filter((p, i) => seatPlayer(table, p, i, t));
     if (table !== COURT) initBoardGame(table.game, t);
     if (table.game.players.length < 2) endGame(table, t, false);
   }
   function initBoardGame(game, t) {
-    game.turn = 0; game.nextMove = t + 2;
+    game.nextMove = t + 2;
     if (game.type === 'go') startGoRecord(game);
-    else game.cards = [];
+    else game.mtg = MAGIC.newGame(game.players.map(duelist), rng(tableR() * 2 ** 32 >>> 0), tableR() < .03 ? tableR() * 2 | 0 : -1);
   }
   function startGoRecord(game) {
     const records = window.GO_GAMES || [];
@@ -691,57 +702,45 @@
     }
     return goGroup(board, point).liberties.size ? [...board.values()] : null;
   }
+  // A judge watching from the third seat never holds up play.
   const tableReady = game => game.players.every(p => {
+    if (p.judge) return true;
     if (p.kind === 'cat') return cat.game && !cat.path.length;
     const w = wizards.get(p.id);
     return w && !w.path.length && !w.blast;
   });
   function updateBoardGame(game, t) {
     if (game.finishedAt !== undefined || t < game.nextMove || !tableReady(game)) return;
-    const player = game.turn++ % game.players.length, seat = game.players[player].seat, duration = .75;
-    if (game.type === 'go') {
-      const moves = game.record?.moves || [], [x, y, side] = moves[game.ply++] || [];
-      const next = x >= 0 && playGo(game.stones, { x, y, side, placedAt: t });
-      if (next) {
-        game.stones = next;
-        game.move = { player: side, seat: game.players[side].seat, to: [x, y], start: t, duration };
-      } else delete game.move;
-      if (game.ply >= moves.length) game.finishedAt = t;
-    } else {
-      if (game.cards.length === 6) game.cards.shift();
-      const slots = [[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1]], used = new Set(game.cards.map(c => c.slot));
-      const slot = slots.findIndex((_, i) => !used.has(i));
-      const card = { slot, side: seat, color: ['#4878a8', '#a84848', '#48a868', '#8b5eb5', '#d49a42'][game.turn % 5], placedAt: t };
-      game.cards.push(card); game.move = { player, seat, card, to: slots[slot], start: t, duration };
-    }
+    const moves = game.record?.moves || [], [x, y, side] = moves[game.ply++] || [];
+    const next = x >= 0 && playGo(game.stones, { x, y, side, placedAt: t });
+    if (next) {
+      game.stones = next;
+      game.move = { player: side, seat: game.players[side].seat, to: [x, y], start: t, duration: .75 };
+    } else delete game.move;
+    if (game.ply >= moves.length) game.finishedAt = t;
     game.nextMove = t + 1.6 + tableR() * .7;
   }
   function updateTableGames(t) {
     updateTopTable();
     for (const table of (tableR() < .5 ? TABLES : [...TABLES].reverse())) {
-      if (table.game) {
-        table.game.players = table.game.players.filter(p => {
-          if (p.kind === 'wizard') {
-            const w = wizards.get(p.id);
-            return w && !w.leaving && cafeWait(w.a);
-          }
+      const game = table.game;
+      if (game) {
+        game.players = game.players.filter(p => {
           if (p.kind === 'cat') return cat.game === table.id;
-          return false;
+          const w = wizards.get(p.id);
+          return w && !w.leaving && (cafeWait(w.a) || playsOn(w));
         });
-        if (table.game.type === 'go' && table.game.finishedAt !== undefined) {
-          if (t >= table.game.finishedAt + 30) endGame(table, t, false);
-        } else if (table.game.type === 'go' && t > table.game.until) table.game.finishedAt = t;
-        else if (table.game.players.length < 2 || t > table.game.until) endGame(table, t, false);
+        if (game.finishedAt !== undefined) { if (t >= game.finishedAt + (game.type === 'go' ? 30 : 9)) endGame(table, t, false); }
+        else if (game.players.filter(p => !p.judge).length < 2 || t > game.until) endGame(table, t, false);
         else if (table === COURT) updateRally(table, t);
-        else updateBoardGame(table.game, t);
+        else if (game.type === 'magic') updateMagic(game, t);
+        else updateBoardGame(game, t);
       }
       if (table.game || t < table.burnUntil || t < (table.nextAt || 0)) continue;
       const ws = [...wizards.values()].filter(w => waitingForGame(w)).sort((a, b) => (a.a.started || 0) - (b.a.started || 0));
       if (!ws.length || (table === COURT && ws.length < 2)) continue;
-      const players = [{ kind: 'wizard', id: ws[0].a.id }];
-      if (ws[1]) players.push({ kind: 'wizard', id: ws[1].a.id });
-      if (table !== COURT && canUseCat()) players.push({ kind: 'cat' });
-      if (table !== COURT && players.length > 1 && players.length < 3 && !players.some(p => p.kind === 'cat') && canUseCat() && tableR() < .35) players.push({ kind: 'cat' });
+      const players = ws.slice(0, 2).map(w => ({ kind: 'wizard', id: w.a.id }));
+      if (players.length < 2 && canUseCat()) players.push({ kind: 'cat' });
       if (players.length > 1) startGame(table, players, t);
     }
   }
@@ -863,11 +862,337 @@
     } else { g.fillStyle = '#fff5d6'; g.fillRect(-1, -1, 3, 3); }
     g.restore();
   }
+  // ---------- the Magic table ----------
+  // Card frame fill and edge per colour. Engine cards carry their eased position on the table in vx/vy/vz
+  // (vz: 0 lies on the mat, 1 is held up large on the stack).
+  const MANA = { W: ['#f3ecd2', '#a89a70'], U: ['#5b8fd8', '#28508c'], B: ['#6c5c7c', '#262030'], R: ['#de5a40', '#86281e'],
+    G: ['#4fa65a', '#28642f'], '': ['#bcae9c', '#6e6258'], back: ['#8a5f3a', '#3e2a1a'] };
+  const FIRE = ['#fff0a0', '#ffd84a', '#f08a2a', '#f05a3a'];
+  const AURAS = { swords: ['#f4f0e0', '#ffe89a'], terror: ['#4a2a6a', '#1c1430', '#9a5fd0'], growth: ['#8cf08a', '#5cb85a'] };
+  const HUE_COLORS = [[20, 'R'], [70, 'W'], [170, 'G'], [260, 'U'], [330, 'B'], [361, 'R']];
+  const TOOL_COLORS = [[/bash|exec|shell|stdin|kill/, 'R'], [/read|grep|glob|search|fetch|lsp/, 'U'],
+    [/edit|write|patch|notebook/, 'G'], [/task|agent|workflow|skill/, 'W']];
+  // Pale or grey robes are white; otherwise the hue decides, with yellows white and purples black.
+  function robeColor(robe) {
+    const [r, g, b] = [1, 3, 5].map(i => parseInt(robe.slice(i, i + 2), 16) / 255), max = Math.max(r, g, b), d = max - Math.min(r, g, b);
+    const lightness = max - d / 2;
+    if (lightness > .7 || d < .15) return lightness > .45 ? 'W' : 'B';
+    const hue = (max === r ? (g - b) / d + 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4) * 60 % 360;
+    return HUE_COLORS.find(([h]) => hue < h)[1];
+  }
+  // A deck takes the robe's colour and the colour of the agent's favourite tools; demons play black, Biggles white.
+  function duelist(p) {
+    if (p.kind === 'cat') return { name: 'BIGGLES', colors: ['W'] };
+    const w = wizards.get(p.id), tally = {};
+    for (const h of w.a.history || []) {
+      const color = TOOL_COLORS.find(([re]) => re.test(String(h.tool).toLowerCase()))?.[1];
+      if (color) tally[color] = (tally[color] || 0) + 1;
+    }
+    const first = w.sp.demon ? 'B' : robeColor(w.sp.robe);
+    const second = Object.keys(tally).sort((a, b) => tally[b] - tally[a])[0];
+    return { name: w.sp.name, demon: w.sp.demon, colors: second && second !== first ? [first, second] : [first] };
+  }
+  const actorOf = (game, side) => {
+    const p = game.players.find(p => p.seat === side && !p.judge);
+    return p && (p.kind === 'cat' ? cat : wizards.get(p.id));
+  };
+  const edgeX = (side, d, w = 4) => side ? MTG.x + 52 - d - w : MTG.x - 52 + d;  // a card d pixels in from a duelist's end
+  const handAt = (game, side) => {
+    const a = actorOf(game, side);
+    return a ? [a.x + (side ? -8 : 6), a.y - (a === cat ? 6 : 12)] : [edgeX(side, -8), MTG.y - 20];
+  };
+  const cardArtFor = (game, c) => { const a = c.key === 'sorcerer' && actorOf(game, c.side); return SP.cardArt(c.key, a?.sp?.robe, a?.sp?.hat); };
+  const magicCards = s => [...s.stack.map(sp => sp.c), ...s.sides.flatMap(me => [...me.field, ...me.grave])];
+  function fieldSlot(me, c) {
+    const land = c.type === 'land', i = me.field.filter(o => (o.type === 'land') === land).indexOf(c);
+    return land ? [edgeX(me.i, 14 + i % 2 * 6, c.tapped ? 5 : 4), MTG.y - 34 + (i >> 1) % 4 * 7 + (i >> 3)]
+      : [edgeX(me.i, 27 + i % 3 * 8), MTG.y - 25 + (i / 3 | 0) % 2 * 13 + (i / 6 | 0)];
+  }
+  // Where a card rests now ([x, y, vz]), or null while it is in a hand or exiled. Attackers advance to the
+  // centre line and lunge at the defending duelist when unblocked; blockers step up to meet them.
+  function cardHome(game, c, t) {
+    const s = game.mtg, me = s.sides[c.side], foe = s.sides[1 - c.side], k = s.stack.findIndex(sp => sp.c === c);
+    if (k >= 0) return [MTG.x - 9 + k * 6, MTG.y - 67 - k * 3, 1];
+    if (me.scooped) return [edgeX(me.i, 2), MTG.y - 34, 0];
+    if (me.grave.includes(c)) return [edgeX(me.i, 2), MTG.y - 14, 0];
+    if (!me.field.includes(c)) return null;
+    const [x, y] = fieldSlot(me, c), ev = game.ev;
+    if (c.attacking) return [!c.blocked && ev?.type === 'damage' && t - ev.at < ev.dur * .5 ? edgeX(foe.i, 0) : edgeX(me.i, 49), y, 0];
+    const attacker = foe.field.find(a => a.attacking && a.blocked === c);
+    return attacker ? [edgeX(me.i, 41), fieldSlot(foe, attacker)[1], 0] : [x, y, 0];
+  }
+  const LATER = [];
+  const later = (at, fn) => LATER.push({ at, fn });
+  function updateMagicCards(dt, t) {
+    for (let i = LATER.length - 1; i >= 0; i--) if (t >= LATER[i].at) LATER.splice(i, 1)[0].fn();
+    const game = MTG.game, s = game?.mtg;
+    if (!s) return;
+    const k = Math.min(1, dt * 7);
+    for (const c of magicCards(s)) {
+      const home = cardHome(game, c, t);
+      if (!home) continue;
+      if (c.vx === undefined) { [c.vx, c.vy] = handAt(game, c.side); c.vz = 0; }
+      c.vx += (home[0] - c.vx) * k; c.vy += (home[1] - c.vy) * k; c.vz += (home[2] - c.vz) * k;
+    }
+    const lap = game.lap;
+    if (lap && t >= lap.at && t < lap.until) {
+      const [x, y] = lapPos(lap, t);
+      Object.assign(dragon, { lookX: x, lookUntil: t + .3 });
+      if (Math.random() < dt * 24) spark(x + Math.random() * 8 - 4, y - 4, FIRE[Math.random() * 4 | 0], -4, .5);
+    }
+  }
+  function updateMagic(game, t) {
+    for (const p of game.players) {
+      const a = p.kind === 'cat' ? cat : wizards.get(p.id);
+      if (a && !p.judge && !a.path.length) a.dir = p.seat ? -1 : 1;
+    }
+    if (game.judgeUntil && t > game.judgeUntil) {
+      game.players = game.players.filter(p => !p.judge);
+      game.judgeUntil = 0;
+      releaseGamePlayer({ kind: 'cat' }, t);
+    } else if (game.judgeUntil && !game.ruled && cat.state === 'game') {
+      game.ruled = true;
+      game.say = { who: 'cat', text: 'MRRP.', until: t + 2.4 };
+    }
+    if (t < game.nextMove || !tableReady(game)) return;
+    const step = game.mtg.play.next();
+    if (step.done) { game.finishedAt = t; return; }
+    game.ev = { ...step.value, at: t };
+    game.nextMove = t + step.value.dur + .3 + tableR() * .5;
+    magicEvent(game, game.ev, t);
+  }
+  // Biggles comes to rule on disputed counterspells when he is free, then wanders off again.
+  function callJudge(game, t) {
+    if (game.players.some(p => p.kind === 'cat') || !canUseCat()) return;
+    const judge = { kind: 'cat', judge: true };
+    seatPlayer(MTG, judge, 2, t);
+    game.players.push(judge);
+    Object.assign(game, { judgeUntil: t + 18, ruled: false });
+  }
+  // Earl Grey turns to watch a Shivan Dragon land; sometimes it flies a lap of the cafe first.
+  function shivanLands(game, card, t) {
+    Object.assign(dragon, { lookAt: t, lookUntil: t + 3, lookX: card.vx });
+    if (tableR() >= .35) return;
+    game.lap = { card, at: t + 1, until: t + 7.5 };
+    game.nextMove = Math.max(game.nextMove, game.lap.until + .4);
+  }
+  function lapPos(lap, t) {
+    const k = Math.max(0, Math.min(1, (t - lap.at) / (lap.until - lap.at))), a = Math.PI / 2 - k * Math.PI * 2;
+    const blend = Math.min(1, k * 7, (1 - k) * 7);
+    return [mix(lap.card.vx + 2, 370 + Math.cos(a) * 80, blend), mix(lap.card.vy - 6, 168 + Math.sin(a) * 96, blend)];
+  }
+  function magicEvent(game, ev, t) {
+    const s = game.mtg, source = actorOf(game, ev.side)?.a?.id, stack = [MTG.x, MTG.y - 56];
+    const spot = target => 'life' in target ? (a => a ? [a.x, a.y - 14] : [edgeX(target.i, -8), MTG.y - 20])(actorOf(game, target.i))
+      : [target.vx + 2, target.vy];
+    const burst = (target, colors, n = 14) => radialBurst(...spot(target), colors, n, 16, .8);
+    if (ev.say) game.say = { who: ev.side, text: ev.say, until: t + 2.6 };
+    switch (ev.type) {
+      case 'cast': {
+        if (!ev.lotus) break;
+        for (let i = 0; i < 3; i++) spark(ev.lotus.vx + i * 2, ev.lotus.vy, ['#9a5fd0', '#f4f0e0', '#a0a8bc'][i], -14, 1.1);
+        const foe = actorOf(game, 1 - ev.side);
+        if (foe?.sp) {
+          const was = foe.emote;
+          foe.emote = 'alert';
+          later(t + 2, () => { if (foe.emote === 'alert' && foe.a.status !== 'attention') foe.emote = was; });
+        }
+        break;
+      }
+      case 'enter':
+        ev.card.bornAt = t;
+        if (ev.card.key === 'shivan') shivanLands(game, ev.card, t);
+        break;
+      case 'counter':
+        ev.target.crossedAt = t;
+        burst(ev.target, ['#8fd0ff', '#5b8fd8', '#e8f6ff']);
+        if (s.stack.length || tableR() < .3) { game.say = { who: ev.target.side, text: 'JUDGE!', until: t + 2.4 }; callJudge(game, t); }
+        break;
+      case 'bolt': case 'ping': {
+        const [sx, sy] = ev.type === 'ping' ? [ev.card.vx + 2, ev.card.vy - 4] : stack, [tx, ty] = spot(ev.target);
+        SPELLS.push({ kind: ev.type === 'bolt' ? 'bolt' : 'missile', source, sx, sy, tx, ty, t: 0, life: .5, seed: tableR() * 99 | 0, c: '#ffc070' });
+        later(t + .45, () => radialBurst(tx, ty, ['#fff6d8', '#ffc070'], ev.type === 'bolt' ? 14 : 6, 18, .5));
+        break;
+      }
+      case 'fireball': {
+        const [tx, ty] = spot(ev.target), size = ev.x >= 10 ? 3 : ev.x >= 5 ? 2 : 1;
+        SPELLS.push({ kind: 'fireball', source, sx: stack[0], sy: stack[1], tx, ty, t: 0, life: .9, seed: tableR() * 99 | 0, size });
+        later(t + .9, () => radialBurst(tx, ty, FIRE, 6 + size * 8, 10 + size * 8, .8));
+        if (ev.x >= 10 && 'life' in ev.target) game.bigFireball = true;
+        break;
+      }
+      case 'swords': case 'terror': case 'growth': burst(ev.target, AURAS[ev.type]); break;
+      case 'wrath': game.flashAt = t; break;
+      case 'ritual': case 'recall': case 'channel': {
+        const [x, y] = handAt(game, ev.side), colors = { ritual: ['#6c5c7c', '#9a5fd0'], recall: ['#8fd0ff', '#e8f6ff'], channel: ['#d0402e', '#ffb4a8'] }[ev.type];
+        for (let i = 0; i < 9; i++) spark(x + Math.random() * 6 - 3, y, colors[i % 2], -10 - Math.random() * 10, .9);
+        if (ev.type === 'channel') s.sides[ev.side].hurtAt = t;
+        break;
+      }
+      case 'breath': for (let i = 0; i < 10; i++) spark(ev.card.vx + 2, ev.card.vy - 6, FIRE[i % 4], -8, .5); break;
+      case 'damage':
+        for (const [, target, n] of ev.hits) if (n > 0 && 'life' in target) later(t + .45, () => { target.hurtAt = sceneTime; burst(target, ['#f05a3a', '#ffb4a8'], 10); });
+        break;
+      case 'die': for (const c of ev.cards) burst(c, [MANA[c.color][0], '#fff6d8', '#ffe89a'], 22); break;
+      case 'devour':
+        if ('life' in ev.target) ev.target.hurtAt = t;
+        burst(ev.target, ['#f05a3a', '#7a2420', '#1c1430'], 18);
+        break;
+      case 'win': {
+        const loser = actorOf(game, 1 - ev.side), winner = actorOf(game, ev.side);
+        game.say = { who: 1 - ev.side, text: loser === cat ? 'MRRP.' : 'GG', until: t + 3 };
+        s.sides[1 - ev.side].scooped = t;
+        if (loser?.sp && (game.bigFireball || tableR() < .2)) explodeWizard(loser, t);
+        if (winner?.sp) { winner.emote = 'star'; sparkleAt(winner.x, winner.y - 16); }
+        break;
+      }
+    }
+  }
+  function drawCardAt(gg, c, x, y, z, tapped) {
+    x = Math.round(x); y = Math.round(y);
+    if (z > .9) { drawBigCard(gg, c, x, y); return; }
+    const [fill, edge] = MANA[c ? c.color : 'back'], w = Math.round(4 + 14 * z), h = Math.round(5 + 19 * z);
+    const [cw, ch] = tapped ? [h, w] : [w, h], top = y + (tapped ? 1 : 0);
+    gg.fillStyle = edge; gg.fillRect(x, top, cw, ch);
+    gg.fillStyle = fill; gg.fillRect(x + 1, top + 1, cw - 2, ch - 2);
+  }
+  // A card held up on the stack: frame, art box, rules box and, for creatures, a power/toughness box.
+  function drawBigCard(gg, c, x, y) {
+    const [fill, edge] = MANA[c.color], art = cardArtFor(MTG.game, c);
+    gg.fillStyle = '#120d1c'; gg.fillRect(x - 1, y - 1, 20, 26);
+    gg.fillStyle = edge; gg.fillRect(x, y, 18, 24);
+    gg.fillStyle = fill; gg.fillRect(x + 1, y + 1, 16, 22);
+    gg.fillStyle = '#3a4668'; gg.fillRect(x + 2, y + 4, 14, 10);
+    gg.drawImage(art, x + 9 - Math.ceil(art.width / 2), y + 14 - art.height);
+    gg.fillStyle = '#ece4cc'; gg.fillRect(x + 2, y + 15, 14, 7);
+    gg.fillStyle = '#b4a888'; gg.fillRect(x + 3, y + 17, 11, 1); gg.fillRect(x + 3, y + 19, 7, 1);
+    if (c.type === 'creature') { gg.fillStyle = edge; gg.fillRect(x + 12, y + 20, 5, 3); }
+  }
+  function drawMini(gg, game, c, t) {
+    if (game.lap?.card === c && t >= game.lap.at && t < game.lap.until) return;
+    const art = cardArtFor(game, c), z = c.pump ? 2 : 1, w = art.width * z, h = art.height * z, born = t - (c.bornAt ?? -9);
+    const lift = c.fly ? 3 + Math.round(Math.sin(t * 3 + c.id)) : 0, x = Math.round(c.vx + 2 - w / 2), y = Math.round(c.vy + 4 - h - lift);
+    gg.save();
+    if (born < .8) {
+      gg.globalAlpha = 1 - born / .8; gg.strokeStyle = MANA[c.color][0]; gg.lineWidth = 1;
+      gg.beginPath(); gg.ellipse(c.vx + 2, c.vy + 4, 3 + born * 8, 1 + born * 3, 0, 0, Math.PI * 2); gg.stroke();
+    }
+    if (c.fly) { gg.globalAlpha = .45; gg.fillStyle = '#0a0810'; gg.fillRect(Math.round(c.vx), Math.round(c.vy) + 4, 4, 1); }
+    gg.globalAlpha = Math.min(1, born / .5);
+    if (c.side) { gg.translate(x + w, y); gg.scale(-1, 1); gg.drawImage(art, 0, 0, w, h); }
+    else gg.drawImage(art, x, y, w, h);
+    gg.restore();
+  }
+  function drawDie(gg, x, y, n, hurt) {
+    const text = String(n), w = textW(text) + 4;
+    gg.fillStyle = '#6c6680'; gg.fillRect(x + 1, y, w - 2, 7); gg.fillRect(x, y + 1, w, 5);
+    gg.fillStyle = hurt ? '#ffb4a8' : '#f4f0e8'; gg.fillRect(x + 1, y + 1, w - 2, 5);
+    drawText(gg, x + 2, y + 1, text, n <= 5 ? '#c8402e' : '#2a2030');
+  }
+  // The table prop: libraries, d20 life counters, lands, creatures standing on their cards, and the stack.
+  function drawMagic(gg, t) {
+    PR.magicTable(gg, MTG.x, MTG.y);
+    const game = MTG.game, s = game?.mtg;
+    if (!s) return;
+    const ev = game.ev, since = ev ? t - ev.at : 99;
+    for (const me of s.sides) {
+      const shaking = (ev?.type === 'shuffle' || ev?.type === 'mulligan' && ev.side === me.i) && since < ev.dur;
+      for (let i = Math.min(3, me.library.length >> 3); i >= 0 && me.library.length; i--)
+        drawCardAt(gg, null, edgeX(me.i, 2) + (shaking && !i ? Math.round(Math.sin(t * 40)) : 0), MTG.y - 34 + i, 0, false);
+      const rolling = ev?.type === 'roll' && since < ev.dur, landed = !rolling || since > ev.dur * .55;
+      const n = rolling ? (landed ? ev.rolls[me.i] : 1 + (t * 23 + me.i * 7 | 0) % 20) : me.life, w = textW(String(n)) + 4;
+      const k = rolling ? Math.min(1, since / (ev.dur * .55)) : 1, home = me.i ? MTG.x + 51 - w : MTG.x - 51;
+      drawDie(gg, Math.round(mix(MTG.x - w / 2 + (me.i ? 6 : -6), home, k)), Math.round(MTG.y - 25 - (landed ? 0 : Math.abs(Math.sin(since * 10)) * 4)),
+        n, t - (me.hurtAt ?? -9) < .5);
+    }
+    const cards = magicCards(s).filter(c => c.vx !== undefined).sort((a, b) => a.vz - b.vz || a.vy - b.vy);
+    for (const c of cards.filter(c => c.vz < .5)) {
+      const me = s.sides[c.side], home = cardHome(game, c, t);
+      if (!home || me.grave.includes(c) && me.grave.at(-1) !== c && Math.hypot(home[0] - c.vx, home[1] - c.vy) < 1) continue;
+      gg.save();
+      if (me.scooped) gg.globalAlpha = Math.max(0, 1 - (t - me.scooped) / 1.2);
+      drawCardAt(gg, c, c.vx, c.vy, c.vz, c.tapped && me.field.includes(c));
+      gg.restore();
+    }
+    for (const c of cards) if (c.type === 'creature' && s.sides[c.side].field.includes(c) && !s.sides[c.side].scooped) drawMini(gg, game, c, t);
+    const held = s.stack.map(sp => sp.c);   // the top of the stack is drawn last
+    for (const c of [...cards.filter(c => c.vz >= .5 && !held.includes(c)), ...held]) drawCardAt(gg, c, c.vx, c.vy, c.vz, false);
+    for (const c of cards.filter(c => t - (c.crossedAt ?? -9) < .9)) {   // countered: struck through in blue
+      const w = 3 + 14 * c.vz, h = 4 + 19 * c.vz;
+      pixLine(c.vx, c.vy, c.vx + w, c.vy + h, '#8fd0ff', 2); pixLine(c.vx + w, c.vy, c.vx, c.vy + h, '#8fd0ff', 2);
+    }
+    if (t - (game.flashAt ?? -9) < .7) {
+      gg.save(); gg.globalAlpha = .8 * (1 - (t - game.flashAt) / .7);
+      gg.fillStyle = '#fffbe6'; gg.fillRect(MTG.x - 52, MTG.y - 36, 104, 31); gg.restore();
+    }
+  }
+  function drawHand(x, y, n) {
+    for (let i = 0, k = Math.min(n, 7); i < k; i++) {
+      const o = i - (k - 1) / 2, hx = Math.round(x + o * 1.5), hy = Math.round(y + Math.abs(o) * .5);
+      g.fillStyle = '#3e2a1a'; g.fillRect(hx, hy, 2, 3);
+      g.fillStyle = '#9a6a3a'; g.fillRect(hx, hy, 1, 2);
+    }
+  }
+  // Drawn over the scene: hands of cards, cards flying in from the library, table talk, and Shivan's lap.
+  function drawMagicFront(t) {
+    const game = MTG.game, s = game?.mtg;
+    if (!s) return;
+    const ev = game.ev, since = ev ? t - ev.at : 99;
+    for (const me of s.sides) {
+      const [hx, hy] = handAt(game, me.i), lx = edgeX(me.i, 2), ly = MTG.y - 34;
+      let flying = 0;
+      if (ev?.type === 'draw' && ev.side === me.i) for (let j = 0; j < ev.n; j++) {
+        const p = Math.max(0, Math.min(1, (since - j * .12) / .45));
+        if (p >= 1) continue;
+        flying++;
+        drawCardAt(g, null, mix(lx, hx, p), mix(ly, hy, p) - Math.sin(p * Math.PI) * 6, 0, false);
+      }
+      drawHand(hx, hy, me.hand.length - flying);
+    }
+    if (game.say && t < game.say.until) {
+      const a = game.say.who === 'cat' ? cat : actorOf(game, game.say.who);
+      if (a) bubble(a.x, Math.max(38, a.y - (a === cat ? 24 : 51)), game.say.text);
+    }
+    if (game.lap && t >= game.lap.at && t < game.lap.until) {
+      const [x, y] = lapPos(game.lap, t), flip = lapPos(game.lap, t + .05)[0] < x, flap = (t * 8 | 0) % 2;
+      g.save(); g.translate(Math.round(x + (flip ? 9 : -9)), Math.round(y - 16 + flap)); g.scale(flip ? -2 : 2, 2);
+      g.drawImage(SP.cardArt('shivan'), 0, 0); g.restore();
+    }
+  }
+  const COLOR_NAMES = { W: 'WHITE', U: 'BLUE', B: 'BLACK', R: 'RED', G: 'GREEN' };
+  const deckName = me => me.colors.map(c => COLOR_NAMES[c]).join('-');
+  const TYPE_LINES = { land: 'BASIC LAND', creature: 'CREATURE', instant: 'INSTANT', sorcery: 'SORCERY', artifact: 'ARTIFACT' };
+  const ART_URLS = new Map();
+  function artURL(art) {
+    if (!ART_URLS.has(art)) {
+      const c = document.createElement('canvas'), cg = c.getContext('2d');
+      c.width = art.width * 6; c.height = art.height * 6;
+      cg.imageSmoothingEnabled = false;
+      cg.drawImage(art, 0, 0, c.width, c.height);
+      ART_URLS.set(art, c.toDataURL());
+    }
+    return ART_URLS.get(art);
+  }
+  function cardHTML(game, c) {
+    const pip = p => /[WUBRG]/.test(p) ? `<i class="mp mp-${p}"></i>` : `<i class="mp">${p}</i>`;
+    return `<div class="mtg-card mc-${c.color || 'C'}">
+      <div class="mc-bar"><b>${esc(c.name)}</b><span>${(c.cost.match(/\d+|[WUBRGX]/g) || []).map(pip).join('')}</span></div>
+      <div class="mc-art"><img src="${artURL(cardArtFor(game, c))}" alt=""></div>
+      <div class="mc-bar">${TYPE_LINES[c.type]}${c.sub ? ' — ' + c.sub : c.type === 'land' ? ' — ' + c.name : ''}</div>
+      <div class="mc-text">${esc(c.text || '')}${c.type === 'creature' ? `<b>${c.p}/${c.t}</b>` : ''}</div></div>`;
+  }
+  function magicTipHTML() {
+    const game = MTG.game, s = game.mtg;
+    return `<div class="tt-name">MAGIC: THE GATHERING <span>TURN ${Math.max(1, s.turn)}</span></div>
+      ${s.sides.map(me => `<div class="tt-meta">${esc(me.name)} · ${deckName(me)} · ${me.life} LIFE · ${me.library.length} CARDS</div>`).join('')}
+      ${s.last ? cardHTML(game, s.last) : ''}`;
+  }
+
+  // Biggles' stray spells can still burn a court game, but board games play to their conclusion.
   function burnGameAt(x, y, t) {
-    const table = TABLES.find(tb => tb.game && !gameHas(tb, 'cat') && Math.abs(x - tb.x) < 20 && Math.abs(y - tb.y) < 16);
-    if (!table) return false;
-    endGame(table, t, true);
-    for (let i = 0; i < 12; i++) spark(table.x + (Math.random() * 20 - 10), table.y + (Math.random() * 10 - 5), Math.random() < .5 ? '#ffd84a' : '#f08a2a', -10, .7);
+    if (!COURT.game || Math.abs(x - COURT.x) >= 20 || Math.abs(y - COURT.y) >= 16) return false;
+    endGame(COURT, t, true);
+    for (let i = 0; i < 12; i++) spark(COURT.x + (Math.random() * 20 - 10), COURT.y + (Math.random() * 10 - 5), Math.random() < .5 ? '#ffd84a' : '#f08a2a', -10, .7);
     return true;
   }
 
@@ -1102,21 +1427,21 @@
     for (let ty = 34; ty < 260 + labDown; ty += 16) for (let tx = 8 - labExtra; tx < 264; tx += 16)
       if (((tx + ty) / 16) % 2) { b.fillStyle = '#423d4b'; b.fillRect(tx, ty, 16, 16); }
     for (let i = 0; i < 70; i++) { b.fillStyle = r() < .5 ? '#3c3846' : '#4c4756'; b.fillRect(8 + (r() * 254 | 0), 34 + (r() * 222 | 0), r() < .3 ? 2 : 1, 1); }
-    for (let ry = 34; ry < 260; ry += 8) {
+    for (let ry = 34; ry < 320; ry += 8) {
       b.fillStyle = ((ry / 8) | 0) % 2 ? '#684832' : '#5f422c'; b.fillRect(264, ry, 208, 8);
       b.fillStyle = '#53391f';
       for (let sx = 264 + ((ry / 8) % 3) * 24; sx < 472; sx += 72) b.fillRect(sx, ry, 1, 8);
       b.fillRect(264, ry + 7, 208, 1);
     }
-    b.fillStyle = WALL; b.fillRect(-labExtra, 0, VW + labExtra, 34); b.fillRect(-labExtra, 0, 8, VH + labDown); b.fillRect(472, 0, 8, VH); b.fillRect(-labExtra, 260 + labDown, 272 + labExtra, 12); b.fillRect(272, 260, 208, 12);
+    b.fillStyle = WALL; b.fillRect(-labExtra, 0, VW + labExtra, 34); b.fillRect(-labExtra, 0, 8, VH + labDown); b.fillRect(472, 0, 8, VH + 60); b.fillRect(-labExtra, 260 + labDown, 272 + labExtra, 12); b.fillRect(272, 320, 208, 12);
     b.fillStyle = WALL_HI; b.fillRect(-labExtra, 0, VW + labExtra, 2);
-    b.fillStyle = WALL_D; b.fillRect(-labExtra, 32, VW + labExtra, 2); b.fillRect(-labExtra, 260 + labDown, 272 + labExtra, 2); b.fillRect(272, 260, 208, 2); b.fillRect(6 - labExtra, 0, 2, VH + labDown); b.fillRect(472, 0, 2, VH);
+    b.fillStyle = WALL_D; b.fillRect(-labExtra, 32, VW + labExtra, 2); b.fillRect(-labExtra, 260 + labDown, 272 + labExtra, 2); b.fillRect(272, 320, 208, 2); b.fillRect(6 - labExtra, 0, 2, VH + labDown); b.fillRect(472, 0, 2, VH + 60);
     b.fillStyle = WALL; b.fillRect(264, 0, 8, 112); b.fillRect(264, 168, 8, 92 + labDown);
     b.fillStyle = WALL_D; b.fillRect(264, 110, 8, 2); b.fillRect(264, 168, 8, 2); b.fillRect(264, 0, 1, 112); b.fillRect(271, 0, 1, 112); b.fillRect(264, 168, 1, 92 + labDown); b.fillRect(271, 168, 1, 92 + labDown);
     for (let i = 0; i < 26; i++) { b.fillStyle = '#352d3e'; b.fillRect((r() * 470 | 0), (r() * 30 | 0) + 2, 2, 1); }
     PR.banner(b, 88, 6, '#7a3b4a'); PR.banner(b, 168, 6, '#3f5b9b'); PR.banner(b, 352, 6, '#3f7b4c');
     PR.rug(b, 318, 96);
-    b.fillStyle = '#53391f'; b.fillRect(296, 252, 96, 1);
+    b.fillStyle = '#53391f'; b.fillRect(296, 316, 112, 1);
   }
   drawBackground();
 
@@ -1153,7 +1478,7 @@
     const p = lightningPower(t);
     if (!p) return;
     const sx = WIN_X[lightning.win] + 7, sy = 24;
-    gg.globalAlpha = .18 * p; gg.fillStyle = '#e8f6ff'; gg.fillRect(8 - labExtra, 34, 256 + labExtra, 226 + labDown); gg.fillRect(264, 34, 208, 226);
+    gg.globalAlpha = .18 * p; gg.fillStyle = '#e8f6ff'; gg.fillRect(8 - labExtra, 34, 256 + labExtra, 226 + labDown); gg.fillRect(264, 34, 208, 286);
     gg.globalAlpha = .32 * p; gg.fillStyle = '#090512';
     const shadow = (x, y, w, l = 30) => {
       const dx = x - sx, dy = y - sy, d = Math.max(1, Math.hypot(dx, dy)), ux = dx / d, uy = dy / d;
@@ -1179,46 +1504,24 @@
     gg.fillStyle = '#d8b18b'; gg.fillRect(Math.round(hx) - 1, Math.round(hy) - 1, 3, 3); gg.restore();
   }
   function drawTableGame(gg, table, t) {
-    const x = table.x - 10, y = table.y - 6, game = table.game;
-    if (game) {
-      if (game.type === 'magic') {
-        gg.fillStyle = '#384530'; gg.fillRect(x, y, 17, 13);
-        for (const card of game.cards) {
-          const tx = x + 1 + (card.slot % 3) * 5, ty = y + 1 + (card.slot / 3 | 0) * 6;
-          let cx = tx, cy = ty;
-          if (game.move && game.move.card === card && moveProgress(game, t) < 1) {
-            const [sx, sy] = table.seats[game.move.seat], k = moveProgress(game, t);
-            cx = mix(sx, tx, k); cy = mix(sy - 11, ty, k);
-          }
-          gg.fillStyle = '#e8dfc0'; gg.fillRect(Math.round(cx), Math.round(cy), 4, 5);
-          gg.fillStyle = card.color; gg.fillRect(Math.round(cx) + 1, Math.round(cy) + 1, 2, 2);
-        }
-        if (game.move) drawTableReach(gg, table, [x + 2 + game.move.to[0] * 5, y + 3 + game.move.to[1] * 6], t);
-      } else {
-        const side = GO * 2 + 3, bx = table.x - 20, by = table.y + 6 - side, at = (gx, gy) => [bx + 2 + gx * 2, by + 2 + gy * 2];
-        gg.fillStyle = '#6b4932'; gg.fillRect(bx, by + side, side, 1);
-        gg.fillStyle = '#d8b878'; gg.fillRect(bx, by, side, side);
-        gg.fillStyle = '#ccaa6c';
-        for (let i = 0; i < GO; i++) { gg.fillRect(bx + 2 + i * 2, by + 2, 1, GO * 2 - 1); gg.fillRect(bx + 2, by + 2 + i * 2, GO * 2 - 1, 1); }
-        gg.fillStyle = '#5a3a24';
-        for (const gx of [3, 9, 15]) for (const gy of [3, 9, 15]) gg.fillRect(...at(gx, gy), 1, 1);
-        for (const stone of game.stones) {
-          let [sx, sy] = at(stone.x, stone.y);
-          if (game.move && game.stones.at(-1) === stone && moveProgress(game, t) < 1) {
-            const [ox, oy] = seatAt(table, game.move.seat), k = moveProgress(game, t); sx = mix(ox, sx, k); sy = mix(oy - 11, sy, k);
-          }
-          gg.fillStyle = stone.side % 2 ? '#f7f3e8' : '#1c1430'; gg.fillRect(Math.round(sx), Math.round(sy), 2, 2);
-          gg.fillStyle = stone.side % 2 ? '#fffdf4' : '#4a4358'; gg.fillRect(Math.round(sx), Math.round(sy), 1, 1);
-        }
-        if (game.move) drawTableReach(gg, table, at(...game.move.to), t);
+    const game = table.game;
+    if (!game) return;
+    const side = GO * 2 + 3, bx = table.x - 20, by = table.y + 6 - side, at = (gx, gy) => [bx + 2 + gx * 2, by + 2 + gy * 2];
+    gg.fillStyle = '#6b4932'; gg.fillRect(bx, by + side, side, 1);
+    gg.fillStyle = '#d8b878'; gg.fillRect(bx, by, side, side);
+    gg.fillStyle = '#ccaa6c';
+    for (let i = 0; i < GO; i++) { gg.fillRect(bx + 2 + i * 2, by + 2, 1, GO * 2 - 1); gg.fillRect(bx + 2, by + 2 + i * 2, GO * 2 - 1, 1); }
+    gg.fillStyle = '#5a3a24';
+    for (const gx of [3, 9, 15]) for (const gy of [3, 9, 15]) gg.fillRect(...at(gx, gy), 1, 1);
+    for (const stone of game.stones) {
+      let [sx, sy] = at(stone.x, stone.y);
+      if (game.move && game.stones.at(-1) === stone && moveProgress(game, t) < 1) {
+        const [ox, oy] = seatAt(table, game.move.seat), k = moveProgress(game, t); sx = mix(ox, sx, k); sy = mix(oy - 11, sy, k);
       }
+      gg.fillStyle = stone.side % 2 ? '#f7f3e8' : '#1c1430'; gg.fillRect(Math.round(sx), Math.round(sy), 2, 2);
+      gg.fillStyle = stone.side % 2 ? '#fffdf4' : '#4a4358'; gg.fillRect(Math.round(sx), Math.round(sy), 1, 1);
     }
-    if (t < table.burnUntil) {
-      for (let i = 0; i < 9; i++) {
-        gg.fillStyle = i % 2 ? '#ffd84a' : '#f08a2a';
-        gg.fillRect(table.x - 10 + i * 3, table.y - 7 + ((t * 9 + i) | 0) % 3, 2, 8 - (i % 3));
-      }
-    }
+    if (game.move) drawTableReach(gg, table, at(...game.move.to), t);
   }
   function resetIn(q) {
     if (!q || !q.resets_at) return '';
@@ -1310,18 +1613,19 @@
     ...RESOURCE_BALLS.map(ball => [ball.y + 22, gg =>
       PR.crystal(gg, ball.x, ball.y, t, ballReading(ball), ball.color, ball.hotColor, ball.accents)]),
     [29, gg => PR.board(gg, 300, 8)],
-    ...TABLES.filter(table => table !== COURT).map(table => [table.y + 5, gg => {
+    ...TABLES.filter(table => table !== COURT && table !== MTG).map(table => [table.y + 5, gg => {
       if (table === TABLES[1]) updateTopTable();
       PR.gameTable(gg, table.x, table.y);
       if (table === TABLES[1]) PR.tableStillLife(gg, table.x, table.y, t);
       drawTableGame(gg, table, t);
     }]),
+    [MTG.y + 1, gg => drawMagic(gg, t)],
     [86, gg => PR.hearth(gg, 440, 50, t)],
     [82, gg => PR.chair(gg, 418, 57, false)], [104, gg => PR.chair(gg, 418, 79, false)],
     [214.5, gg => PR.counter(gg, 296, 196)], [215, gg => PR.espresso(gg, 306, 186, t)],
     [215.2, gg => PR.beans(gg, PAN[0], PAN[1], t < dragon.roastUntil + 4)],
     [215.3, gg => { if (dragon.task) PR.cup(gg, CUP[0], CUP[1], dragon.task.drink.key, t); }],
-    [274, gg => PR.doorway(gg, 424, 258, t)],
+    [334, gg => PR.doorway(gg, 424, 318, t)],
   ];
   const occupied = key => [...wizards.values()].some(w => w.station === key && !w.path.length && (w.a.status === 'working' || w.a.status === 'attention'));
 
@@ -1361,7 +1665,8 @@
     else if (!tryMove(nx, e.y)) tryMove(e.x, ny);
     return true;
   }
-  function unstickWizard(w, t) {
+  // A walker that has made no progress for a second blinks to the end of its path.
+  function unstick(w, t) {
     if (!w.path.length) { w.stuckAt = 0; w.lastX = w.x; w.lastY = w.y; return; }
     const moved = Math.hypot(w.x - (w.lastX ?? w.x), w.y - (w.lastY ?? w.y));
     if (moved > .6) { w.stuckAt = t; w.lastX = w.x; w.lastY = w.y; return; }
@@ -1500,7 +1805,7 @@
       if (w && dest) pathTo(w, dest[0], dest[1]);
     }
     if (doorStandoff || t < nextDoorStandoff) return;
-    const near = [...wizards.values()].filter(w => w.path.length && !w.game && !w.blast && w.alpha > .7 && w.x > 410 && w.y > 220);
+    const near = [...wizards.values()].filter(w => w.path.length && !w.game && !w.blast && w.alpha > .7 && w.x > 410 && w.y > 280);
     for (let i = 0; i < near.length; i++) for (let j = i + 1; j < near.length; j++) {
       const da = Math.sign(near[i].path.at(-1)[1] - near[i].y), db = Math.sign(near[j].path.at(-1)[1] - near[j].y);
       if (da && db && da !== db && Math.hypot(near[i].x - near[j].x, near[i].y - near[j].y) < 28) {
@@ -1550,11 +1855,11 @@
       }
       const standingOff = standoffMove(w, dt, t);
       if (standingOff) w.stuckAt = 0;
-      else { w.walk = moveAlong(w, dt, SPEED); unstickWizard(w, t); }
+      else { w.walk = moveAlong(w, dt, SPEED); unstick(w, t); }
       if (atDesk(w)) { w.desk.elapsed += dt; w.x = w.desk.x; w.y = w.desk.y; w.walk = false; }
-      w.alpha = Math.max(0, Math.min(1, w.alpha + (w.leaving && !w.path.length ? -3 : w.leaving && w.y > 252 ? -1.2 : 3) * dt));
+      w.alpha = Math.max(0, Math.min(1, w.alpha + (w.leaving && !w.path.length ? -3 : w.leaving && w.y > 312 ? -1.2 : 3) * dt));
       if (w.leaving && w.alpha <= 0) { wizards.delete(id); continue; }
-      if (w.a.status === 'idle' && Math.random() < dt * .5) spark(w.x + 6, w.y - 24, '#a8a2c8', -6, 1.4, 'z');
+      if (w.a.status === 'idle' && !w.game && Math.random() < dt * .5) spark(w.x + 6, w.y - 24, '#a8a2c8', -6, 1.4, 'z');
       if (w.a.status === 'attention' && Math.random() < dt * 2) spark(w.x, w.y - 26, '#ff5a5a', -10, .5);
       maybeCast(w, t);
     }
@@ -1566,6 +1871,7 @@
     maybeCafeChat(t);
     maybeDragonStretch(t);
     updateTableGames(t);
+    updateMagicCards(dt, t);
     updateLightning(t);
     // ambient particles
     if (Math.random() < dt * (2 + BREW.flame * 7)) spark(62 + Math.random() * 16, 154, BREW.color, -14, .8);
@@ -1610,7 +1916,7 @@
           cat.dest = null;
           cat.until = t + 120;
         } else catThink(t);
-      }
+      } else unstick(cat, t);
     }
     else if (!cat.game && t > cat.until) catThink(t);
     updateDemonCat(dt, t);
@@ -1638,7 +1944,7 @@
       drawBlast(w, w.blast, t, w.sp.demon ? '#f08a2a' : '#8fd0ff');
       return;
     }
-    const rest = w.a.status === 'idle' && !w.walk;
+    const rest = w.a.status === 'idle' && !w.walk && !w.game;
     const idle = rest ? 'sleep' : 'idle';
     const f = w.walk ? ((t * 6 | 0) % 2 ? 'walkA' : 'walkB') : ((t + w.ph) % 2.6 < 1.3 ? idle + 'A' : idle + 'B');
     const materializing = w.summon && Math.max(0, Math.min(1, (t - w.summon.at) / 1.6));
@@ -1768,13 +2074,16 @@
     if (!cafeChat) return;
     const second = t - cafeChat.start >= 3.6, w = wizards.get(second ? cafeChat.b : cafeChat.a);
     if (!w || !cafeReady(w)) { cafeChat = null; return; }
-    const text = cafeChat.lines[second ? 1 : 0], width = textW(text) + 8;
-    const x = Math.max(274, Math.min(478 - width, w.x - width / 2)), y = Math.max(38, w.y - 51);
-    g.fillStyle = '#f7f3e8'; g.fillRect(x, y, width, 11);
-    g.fillStyle = '#262032'; g.fillRect(x, y, width, 1); g.fillRect(x, y + 10, width, 1);
-    g.fillRect(x, y, 1, 11); g.fillRect(x + width - 1, y, 1, 11);
-    g.fillStyle = '#f7f3e8'; g.fillRect(Math.round(w.x), y + 11, 2, 2);
-    drawText(g, x + 4, y + 3, text, '#30283e');
+    bubble(w.x, Math.max(38, w.y - 51), cafeChat.lines[second ? 1 : 0]);
+  }
+  // A speech bubble kept inside the cafe, its tail pointing down at x.
+  function bubble(x, y, text) {
+    const width = textW(text) + 8, left = Math.max(274, Math.min(478 - width, x - width / 2));
+    g.fillStyle = '#f7f3e8'; g.fillRect(left, y, width, 11);
+    g.fillStyle = '#262032'; g.fillRect(left, y, width, 1); g.fillRect(left, y + 10, width, 1);
+    g.fillRect(left, y, 1, 11); g.fillRect(left + width - 1, y, 1, 11);
+    g.fillStyle = '#f7f3e8'; g.fillRect(Math.round(x), y + 11, 2, 2);
+    drawText(g, left + 4, y + 3, text, '#30283e');
   }
   function drawPortal(cx, cy, t, c, seed, flip) {
     const fade = Math.max(0, 1 - t), spin = t * 8 + seed + (flip ? 3.14 : 0);
@@ -1895,7 +2204,7 @@
     if (s.kind === 'bolt') {
       g.save();
       g.globalAlpha = (1 - k * .7) * ((s.t * 40 | 0) % 3 === 1 ? .55 : 1);
-      drawLightning(s.sx, s.sy, s.tx, s.ty, s.seed + (s.t * 18 | 0) * 97, '#8fd0ff');
+      drawLightning(s.sx, s.sy, s.tx, s.ty, s.seed + (s.t * 18 | 0) * 97, s.c || '#8fd0ff');
       g.restore();
       return;
     }
@@ -1929,7 +2238,8 @@
       for (let j = 0; j < 4; j++) {
         const q = Math.max(0, k - j * .05), p = spellPos(s, q);
         g.fillStyle = ['#ffe89a', '#ffd84a', '#f08a2a', '#d83a3a'][j];
-        g.fillRect(Math.round(p[0]) - 1, Math.round(p[1]) - 1, j ? 2 : 4, j ? 2 : 4);
+        const size = (j ? 2 : 4) * (s.size || 1);
+        g.fillRect(Math.round(p[0] - size / 2), Math.round(p[1] - size / 2), size, size);
       }
     } else {
       const c = s.kind === 'rune' ? '#58d878' : '#d8ff58';
@@ -1988,7 +2298,7 @@
   }
   function drawFloorSigils(t) {
     g.save();
-    g.beginPath(); g.rect(8 - labExtra, 34, 256 + labExtra, 226 + labDown); g.rect(272, 34, 200, 226); g.clip();
+    g.beginPath(); g.rect(8 - labExtra, 34, 256 + labExtra, 226 + labDown); g.rect(272, 34, 200, 286); g.clip();
     PR.floorSigil(g, CAULDRON_SIGIL.x, CAULDRON_SIGIL.y, CAULDRON_SIGIL.radius, t, BREW.color, '#ddfff1', 0);
     RESOURCE_BALLS.forEach((ball, i) => PR.floorSigil(g, ball.x + 7, ball.y + 21, 12, t,
       { cpu: '#dda1b1', memory: '#a9c7ff', disk: '#8ce8b0' }[ball.metric], '#e4f4ff', i));
@@ -2060,7 +2370,7 @@
       } else {
         const fr = firing || brewing || t < dragon.roastUntil ? ((t * 8 | 0) % 2 ? 'roastA' : 'roastB') : (t % 2.6 < 1.3 ? 'idleA' : 'idleB');
         const img = dragon.frames[fr], y = Math.round(dragon.y - 25 - (firing ? lift : 0));
-        if (firing && fireX > dragon.x) {
+        if (firing ? fireX > dragon.x : !busy && t < dragon.lookUntil && dragon.lookX > dragon.x) {
           g.save(); g.translate(Math.round(dragon.x + 15), y); g.scale(-1, 1); g.drawImage(img, 0, 0); g.restore();
         } else g.drawImage(img, Math.round(dragon.x - 15), y);
       }
@@ -2075,7 +2385,7 @@
       g.globalAlpha = 1;
     } });
     items.sort((a, b) => a.y - b.y).forEach(i => i.f());
-    if (doorStandoff) tag(436, 224, t < doorStandoff.at + .9 ? 'YOU SHALL NOT PASS' : 'AFTER YOU');
+    if (doorStandoff) tag(436, 284, t < doorStandoff.at + .9 ? 'YOU SHALL NOT PASS' : 'AFTER YOU');
     for (const todo of HAUNTED_TODOS) if (todo.caughtAt) tag(todo.x, todo.y - 10, 'TODO!');
     const fireTarget = !dragon.blast && dragon.task && dragon.task.phase === 'brew' ? [CUP[0] + 5, CUP[1] + 4] : dragonAtBar() && t < dragon.roastUntil ? [PAN[0] + 4, PAN[1] - 2] : null;
     if (fireTarget) {  // fire breath, drawn over the counter
@@ -2096,7 +2406,7 @@
     g.globalAlpha = 1;
     for (const w of wizards.values()) {
       if (w.emote && !w.walk && !w.blast && w.alpha > .8 && !SPELLS.some(s => s.source === w.a.id && (s.kind === 'rain' || s.kind === 'storm'))) drawEmote(g, w.x, w.y - 26, w.emote, t + w.ph);
-      if (w.order && w.order.stage === 'served' && !atDesk(w) && w.game !== COURT.id && !w.walk && !w.blast && w.alpha > .8) PR.cup(g, w.x + (w.dir < 0 ? -14 : 4), w.y - 11, w.order.drink.key, t + w.ph);
+      if (w.order && w.order.stage === 'served' && !atDesk(w) && w.game !== COURT.id && w.game !== MTG.id && !w.walk && !w.blast && w.alpha > .8) PR.cup(g, w.x + (w.dir < 0 ? -14 : 4), w.y - 11, w.order.drink.key, t + w.ph);
       if (w.order && w.order.stage !== 'served' && !w.walk && !w.blast && w.alpha > .8 && ((t + w.ph) % 6) < 2.4) tag(w.x, w.y - 45, w.order.drink.name);
       if ((hover === w.a.id || sel === w.a.id) && !w.blast && w.alpha > .5) tag(w.x, w.y - 38, w.sp.name);
     }
@@ -2108,6 +2418,8 @@
       PR.deskPet(g, r.x + 5, r.y - 5, r.seed, t, true); g.restore();
     }
     drawCafeChat(t);
+    drawMagicFront(t);
+    if (t - dragon.lookAt < 1.2 && !dragon.blast) drawEmote(g, dragon.x, dragon.y - 36, 'alert', t);
     if (cat.order && cat.order.stage === 'served') PR.cup(g, cat.x + 5, cat.y - 6, cat.order.drink.key, t);
     if (cat.order && cat.order.stage !== 'served' && ((t + 1.7) % 6) < 2.4) tag(cat.x, cat.y - 25, cat.order.drink.name);
     if (demonCat.active && demonCat.order && demonCat.order.stage === 'served') PR.cup(g, demonCat.x + 5, demonCat.y - 6, demonCat.order.drink.key, t);
@@ -2115,7 +2427,7 @@
     if (hover === 'cat') tag(cat.x, cat.y - 20, 'BIGGLES, STAFF CAT');
     if (hover === 'demon-cat' && demonCat.active) tag(demonCat.x, demonCat.y - 20, 'LUCIPURR');
     if (hover === 'barista') tag(dragon.x, dragon.y - 32, `EARL GREY: ${dragon.signal === 'attention' ? 'ALERT' : dragon.signal === 'active' ? 'ROASTING' : dragon.signal === 'empty' ? 'ASLEEP' : 'BARISTA'}`);
-    drawText(g, 320, 240, 'MANA CAFE', '#ffd84a');
+    drawText(g, 334, 307, 'MANA CAFE', '#ffd84a');
     drawText(g, 60 - labExtra / 2, 240 + labDown, 'LABORATORIVM', '#8a84a0');
     for (const d of desks) drawTaskLabel(d);
     drawUsageProbes(t);
@@ -2166,20 +2478,22 @@
     if (mx >= dragon.x - 25 && mx <= dragon.x + 25 && my >= dragon.y - 40 && my <= dragon.y + 3) return 'barista';
     if (demonCat.active && Math.abs(mx - demonCat.x) <= 8 && Math.abs(my - demonCat.y + 4) <= 7) return 'demon-cat';
     if (Math.abs(mx - cat.x) <= 8 && Math.abs(my - cat.y + 4) <= 7) return 'cat';
+    if (MTG.game && Math.abs(mx - MTG.x) <= 56 && my >= MTG.y - 68 && my <= MTG.y + 2) return 'mtg';
     return null;
   }
   function hoverRow(id) {
     document.querySelectorAll('#rows .row').forEach(row => row.classList.toggle('hover', row.dataset.id === id));
   }
-  function showTip(w, left, top) {
+  function placeTip(html, left, top) {
     const tip = $('#tip'), stage = $('#stage').getBoundingClientRect();
-    tip.innerHTML = tipHTML(w);
+    tip.innerHTML = html;
     tip.hidden = false;
     tip.style.left = Math.max(4, Math.min(left, stage.width - tip.offsetWidth - 4)) + 'px';
     tip.style.top = Math.max(4, Math.min(top, stage.height - tip.offsetHeight - 4)) + 'px';
   }
+  const showTip = (w, left, top) => placeTip(tipHTML(w), left, top);
   function showUsageTip(v, left, top) {
-    const q = v.q, tip = $('#tip'), stage = $('#stage').getBoundingClientRect();
+    const q = v.q;
     const expirations = q.reset_expirations || [];
     const credits = Array.from({ length: q.resets_left ?? expirations.length }, (_, i) => {
       const expires = expirations[i];
@@ -2192,31 +2506,24 @@
     const status = v.parts ? v.parts.map(part => `<div class="tt-status">${esc(part.model || part.name)}: ${part.left != null ? Math.round(part.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>
       <div class="tt-age">${esc(part.model || part.name)}: ${part.resets_at ? 'RESETS IN ' + esc(detailedResetIn(part)) : 'RESET TIME UNAVAILABLE'}</div>`).join('') :
       `<div class="tt-status">${q.left != null ? Math.round(q.left) + '% REMAINING' : 'QUOTA UNAVAILABLE'}</div>`;
-    tip.innerHTML = `<div class="tt-name">${esc(q.name)} <span>${esc((q.provider || 'codex').toUpperCase())}</span></div>
+    placeTip(`<div class="tt-name">${esc(q.name)} <span>${esc((q.provider || 'codex').toUpperCase())}</span></div>
       ${q.origins.length ? `<div class="tt-meta">${esc(q.origins.join(' + ').toUpperCase())}</div>` : ''}
       ${status}
       ${v.parts ? '' : `<div class="tt-age">${q.resets_at ? 'RESETS IN ' + esc(detailedResetIn(q)) : 'RESET TIME UNAVAILABLE'}${q.resets_left === 0 ? '' : ' · ' + (q.resets_left ?? '?') + ' RESET' + (q.resets_left === 1 ? '' : 'S') + ' LEFT'}</div>`}
       ${credits}
-      ${q.error ? `<div class="tt-age">${esc(q.error)}</div>` : ''}`;
-    tip.hidden = false;
-    tip.style.left = Math.max(4, Math.min(left, stage.width - tip.offsetWidth - 4)) + 'px';
-    tip.style.top = Math.max(4, Math.min(top, stage.height - tip.offsetHeight - 4)) + 'px';
+      ${q.error ? `<div class="tt-age">${esc(q.error)}</div>` : ''}`, left, top);
   }
   function showResourceTip(ball, left, top) {
-    const machine = lastData.resources?.[ball.origin] || {}, value = ballReading(ball), tip = $('#tip');
+    const machine = lastData.resources?.[ball.origin] || {}, value = ballReading(ball);
     const gib = bytes => Math.round(bytes / 2**30) + ' GiB';
     const total = machine[ball.metric + 'Total'], used = machine[ball.metric + 'Used'];
     const name = ball.metric === 'memory' ? 'MEMORY' : ball.metric.toUpperCase();
-    tip.innerHTML = `<div class="tt-name">${ball.origin.toUpperCase()} ${name}</div>
+    placeTip(`<div class="tt-name">${ball.origin.toUpperCase()} ${name}</div>
       <div class="tt-meta">${esc(machine.host || ball.origin)}</div>
       <div class="tt-status">${value == null ? 'USAGE UNAVAILABLE' : Math.round(value) + '% USED'}</div>
       <div class="tt-age">${ball.metric === 'cpu' ? (machine.cores == null ? 'CORE COUNT UNAVAILABLE' : machine.cores + ' LOGICAL CORES') :
         (total == null ? name + ' CAPACITY UNAVAILABLE' :
-          (used == null ? '' : gib(used) + ' / ') + gib(total) + (ball.metric === 'memory' ? ' RAM' : ' DISK'))}</div>`;
-    const stage = $('#stage').getBoundingClientRect();
-    tip.hidden = false;
-    tip.style.left = Math.max(4, Math.min(left, stage.width - tip.offsetWidth - 4)) + 'px';
-    tip.style.top = Math.max(4, Math.min(top, stage.height - tip.offsetHeight - 4)) + 'px';
+          (used == null ? '' : gib(used) + ' / ') + gib(total) + (ball.metric === 'memory' ? ' RAM' : ' DISK'))}</div>`, left, top);
   }
   function clearHover(id) {
     if (id && hover !== id) return;
@@ -2237,6 +2544,7 @@
       const ball = RESOURCE_BALLS.find(b => b.id === hover);
       if (v) showUsageTip(v, e.clientX - sr.left + 14, e.clientY - sr.top + 10);
       else if (ball) showResourceTip(ball, e.clientX - sr.left + 14, e.clientY - sr.top + 10);
+      else if (hover === 'mtg') placeTip(magicTipHTML(), e.clientX - sr.left + 14, e.clientY - sr.top + 10);
       else $('#tip').hidden = true;
     }
   });
@@ -2256,10 +2564,10 @@
     exec_command: 'BREWING', write_stdin: 'STIRRING', apply_patch: 'INSCRIBING', update_plan: 'UPDATING THE QUESTBOOK', web_search: 'SCRYING' };
   const SUBMIT_STATUS = { git: 'SUBMITTING WITH GIT', graphite: 'SUBMITTING WITH GRAPHITE', jujutsu: 'SUBMITTING WITH JUJUTSU' };
   const drinkName = d => (d.article === '' ? '' : d.article ? d.article + ' ' : /^(AMERICANO|ESPRESSO)/.test(d.name) ? 'AN ' : 'A ') + d.name;
+  const playing = w => { const table = tableById(w && w.game); return table && table.game && 'PLAYING ' + gameName(table.game, w); };
   function cafeStatus(w) {
     if (!w || w.station !== 'cafe') return 'AWAITING YOUR COUNSEL AT THE CAFE';
-    const table = tableById(w.game);
-    if (table && table.game) return 'PLAYING ' + gameName(table.game);
+    if (playing(w)) return playing(w);
     const d = w.order && w.order.drink || w.sp.drink, name = drinkName(d);
     if (!w.order) return 'ASKING EARL GREY FOR ' + name;
     if (w.order.stage === 'brewing') return 'HAVING ' + name + ' BREWED WITH FIRE';
@@ -2272,7 +2580,7 @@
     switch (a.status) {
       case 'working': {
         const table = tableById(w && w.game);
-        if (table && table.game) return 'WAITING OVER ' + gameName(table.game);
+        if (table && table.game) return 'WAITING OVER ' + gameName(table.game, w);
         if (waitingOnQuestion(a)) return 'AWAITING YOUR ANSWER' + d;
         const submit = submitKind(a);
         if (submit) return SUBMIT_STATUS[submit] + d;
@@ -2285,7 +2593,7 @@
       case 'responding': return 'COMPOSING A MISSIVE…';
       case 'waiting': return cafeStatus(w);
       case 'attention': return (a.engine === 'codex' ? 'Codex needs your help' : a.msg || 'SEEKS YOUR BLESSING') + ' (!)';
-      case 'idle': return 'DOZING BY THE HEARTH…';
+      case 'idle': return playing(w) || 'DOZING BY THE HEARTH…';
       case 'done': return 'QUEST COMPLETE!';
     }
     return a.status;

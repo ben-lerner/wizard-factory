@@ -41,7 +41,7 @@ last few events it infers a status for each agent:
 | responding | writing the final answer                  | task desk, quill bubble      |
 | waiting    | turn ended, your move                     | café, fresh drink in hand    |
 | attention  | needs permission (hooks mode only)        | petition board, red `!`      |
-| idle       | waiting 15+ min                           | hearth armchairs, `Z`        |
+| idle       | waiting 15+ min                           | hearth armchairs, `Z` (after any game) |
 | done       | subagent finished                         | celebrates, exits the door   |
 
 Working wizards summon a desk and remain seated through tool calls, thinking, and
@@ -77,9 +77,27 @@ blast anyone, including Earl Grey, but are themselves immune. Earl Grey, the dra
 barista, brews cafe orders with fire and pours milk for milk drinks. He sleeps when
 the factory is empty, roasts beans while agents are active, and flies alert near the
 petition board when an agent needs attention.
-Go tables replay professional 19x19 games from the NHK Cup, televised since 1953, from
+Waiting wizards play games in the café. Go tables replay professional 19x19 games from the NHK Cup,
+televised since 1953, from
 [Andries Brouwer's public-domain database](https://homepages.cwi.nl/~aeb/go/games/);
-`python3 make_go_games.py` regenerates `static/go-games.js` from it.
+`python3 make_go_games.py` regenerates `static/go-games.js` from it. Badminton and ping pong
+rallies last under a minute, while Go and Magic play to their conclusion: a player leaves early
+only when their agent goes back to work, needs attention, or ends, and an agent that goes idle
+finishes its game before dozing by the hearth.
+
+The long table at the foot of the café hosts Magic: The Gathering duels between two wizards, or
+a wizard and Biggles. Each 30-card deck takes the colour of the wizard's robe and of the agent's
+most-used tools (Bash red, reading and searching blue, editing green, delegation white). Demons
+play black, and only they summon Lord of the Pit; Biggles plays white, led by Savannah Lions.
+`static/magic.js` runs a rules subset over about thirty classic cards (mana from lands, Llanowar
+Elves, Birds of Paradise, Dark Ritual and Black Lotus; the stack, with Counterspell; combat with
+flying, vigilance, trample and Giant Growth) until a player reaches zero life. Cast cards float
+above the table, creatures stand on their cards and fight across the mat, d20s keep the life
+totals, and the duelists talk across the table. A disputed counterspell can summon Biggles as
+judge, a Shivan Dragon sometimes flies a lap of the café while Earl Grey watches, and about one
+duel in thirty opens with Black Lotus, Channel and Fireball. Hover over the table for both decks,
+the turn, and the last card played.
+
 The frontend polls `/api/state` every 1.5s.
 
 The laboratory's crystals show local and remote CPU, memory, and disk usage,

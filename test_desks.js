@@ -5,20 +5,22 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 function scene(random = Math.random) {
   const calls = [];
-  const ctx = new Proxy({}, { get: (target, key) => key in target ? target[key] : (...args) => calls.push([key, ...args]) });
+  const ctx = new Proxy({ getImageData: () => ({ data: [] }) }, { get: (target, key) => key in target ? target[key] : (...args) => calls.push([key, ...args]) });
   const element = { getContext: () => ctx, toDataURL: () => '', addEventListener() {}, style: {}, getBoundingClientRect: () => ({ left: 0, top: 0, width: 960, height: 544 }), clientLeft: 0, clientTop: 0, offsetWidth: 200, offsetHeight: 80 };
   const sandbox = { console, Math: Object.assign(Object.create(Math), { random }), ResizeObserver: class { observe() {} }, document: { querySelector: () => element, createElement: () => ({ ...element }) }, window: { addEventListener() {} } };
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync('static/sprites.js', 'utf8'), sandbox);
   sandbox.SP = sandbox.window.SP;
   vm.runInContext(fs.readFileSync('static/go-games.js', 'utf8'), sandbox);
+  vm.runInContext(fs.readFileSync('static/magic.js', 'utf8'), sandbox);
+  sandbox.MAGIC = sandbox.window.MAGIC;
   for (const name of ['drawText', 'drawEmote']) {
     const draw = sandbox.SP[name];
     sandbox.SP[name] = (...args) => { calls.push([name, ...args.slice(1)]); draw(...args); };
   }
   const source = fs.readFileSync('static/game.js', 'utf8').split('  // ---------- logo ----------')[0];
-  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, showResourceTip, RESOURCE_BALLS, ballReading, pickAt, usageProbe, castSpell, castRay, updateBattle, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawRally, drawCourt, updateTableGames, updateBoardGame, drawTableGame, playGo, gameName, BREW, updateBrew, RITUALS, SIGIL_EVENTS, SIGIL_LINKS, SUMMON_CIRCLE, CAULDRON_SIGIL, sigilEvent, sigilLink, drawFloorSigils, cat, demonCat, catThink, canUseCat, updateDemonCat, finishDragonTravel, sigilGust, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
-  return { ...sandbox.window.test, calls, element, SP: sandbox.SP, ctx };
+  vm.runInContext(source + 'window.test = { reconcile, update, wizards, desks, deskSpace, separateActors, draw, drawWorkDesk, drawTaskLabel, drawUsageProbes, showUsageTip, showResourceTip, RESOURCE_BALLS, ballReading, pickAt, usageProbe, castSpell, castRay, updateBattle, updateSpells, drawGlowingEyes, cloudAnchor, SPELLS, PARTS, COURT, TABLES, startGame, updateRally, rallyPosition, drawRally, drawCourt, updateTableGames, updateBoardGame, drawTableGame, playGo, gameName, MTG, updateMagic, updateMagicCards, drawMagic, drawMagicFront, magicTipHTML, magicEvent, statusLine, callJudge, BREW, updateBrew, RITUALS, SIGIL_EVENTS, SIGIL_LINKS, SUMMON_CIRCLE, CAULDRON_SIGIL, sigilEvent, sigilLink, drawFloorSigils, cat, demonCat, catThink, canUseCat, updateDemonCat, finishDragonTravel, sigilGust, MIMIC, HAUNTED_TODOS, startMimic, updateMimic, spawnHauntedTodo, updateHauntedTodos, startDoorStandoff, standoffMove, getDoorStandoff: () => doorStandoff, blocked, route, dragon, dragonAtBar, shrinkLab, sortAgents, layout: () => ({ labExtra, labDown, labSteps, S }), setData: data => { lastData = data; } }; })();', sandbox);
+  return { ...sandbox.window.test, calls, element, SP: sandbox.SP, MAGIC: sandbox.MAGIC, ctx };
 }
 const agent = (id, status = 'working', parent = null) => ({ id, status, parent, kind: parent ? 'sub' : 'main', title: 'Fix wizard desks', tool: 'Bash', detail: 'npm test' });
 test('cauldron sigil has reserved floor space and draws beneath its pot', () => {
@@ -97,7 +99,7 @@ test('new apprentices materialize at the circle before traveling to their desks'
   assert.equal(s.SIGIL_LINKS.length, 2);
 });
 test('desk relayout and replacement preserve a wizard still materializing', () => {
-  const s = scene(), locals = [agent('local-1'), agent('local-2'), agent('local-3')];
+  const s = scene(), locals = Array.from({ length: 6 }, (_, i) => agent(`local-${i + 1}`));
   const a = { ...agent('relayout-summon'), origin: 'remote', title: 'Short title' };
   s.reconcile({ agents: locals }); s.reconcile({ agents: [...locals, a] });
   const w = s.wizards.get(a.id), start = [w.x, w.y], steps = s.layout().labSteps, until = w.summon.until;
@@ -341,8 +343,8 @@ test('doorway standoff pauses both wizards before one yields', () => {
   const s = scene(), agents = [agent('entering'), agent('leaving')];
   s.reconcile({ agents });
   const [a, b] = agents.map(x => s.wizards.get(x.id));
-  a.x = 432; a.y = 242; a.path = [[300, 120]];
-  b.x = 440; b.y = 246; b.path = [[436, 266]];
+  a.x = 432; a.y = 302; a.path = [[300, 120]];
+  b.x = 440; b.y = 306; b.path = [[436, 326]];
   assert.equal(s.startDoorStandoff(a, b, 0), true);
   const beforePause = [[a.x, a.y], [b.x, b.y]];
   s.update(.1, .2);
@@ -700,22 +702,155 @@ test('badminton uses clear, drop, drive, and smash trajectories with shuttle dra
   assert.deepEqual(shots, ['clear', 'drop', 'drive', 'smash']);
 });
 
-for (const type of ['go', 'magic']) {
-  test(`${type} players take visible turns that change the tabletop state`, () => {
-    const s = scene(), agents = [agent(`${type}-one`, 'waiting'), agent(`${type}-two`, 'waiting')], table = s.TABLES[1];
-    s.reconcile({ agents }); table.types = [type];
-    s.startGame(table, agents.map(a => ({ kind: 'wizard', id: a.id })), -2);
-    for (const w of s.wizards.values()) { [w.x, w.y] = w.home; w.path = []; w.alpha = 1; }
-    const before = JSON.stringify(table.game.stones || table.game.pieces || table.game.cards);
-    s.updateBoardGame(table.game, 0);
-    assert.notEqual(JSON.stringify(table.game.stones || table.game.pieces || table.game.cards), before);
-    assert.equal(table.game.move.player, 0);
-    s.calls.length = 0;
-    s.drawTableGame(s.ctx, table, .3);
-    assert.ok(s.calls.some(c => c[0] === 'lineTo'), 'player reaches toward the move');
-    assert.ok(s.calls.filter(c => c[0] === 'fillRect').every(c => c.slice(1, 5).every(Number.isFinite)));
-  });
+test('go players take visible turns that change the tabletop state', () => {
+  const s = scene(), agents = [agent('go-one', 'waiting'), agent('go-two', 'waiting')], table = s.TABLES[1];
+  s.reconcile({ agents });
+  s.startGame(table, agents.map(a => ({ kind: 'wizard', id: a.id })), -2);
+  for (const w of s.wizards.values()) { [w.x, w.y] = w.home; w.path = []; w.alpha = 1; }
+  const before = JSON.stringify(table.game.stones);
+  s.updateBoardGame(table.game, 0);
+  assert.notEqual(JSON.stringify(table.game.stones), before);
+  assert.equal(table.game.move.player, 0);
+  s.calls.length = 0;
+  s.drawTableGame(s.ctx, table, .3);
+  assert.ok(s.calls.some(c => c[0] === 'lineTo'), 'player reaches toward the move');
+  assert.ok(s.calls.filter(c => c[0] === 'fillRect').every(c => c.slice(1, 5).every(Number.isFinite)));
+});
+
+function magicGame(statuses = ['waiting', 'waiting']) {
+  const s = scene(), agents = statuses.map((status, i) => agent(`duelist-${i}`, status));
+  s.reconcile({ agents });
+  s.startGame(s.MTG, agents.map(a => ({ kind: 'wizard', id: a.id })), -2);
+  for (const w of s.wizards.values()) { [w.x, w.y] = w.home; w.path = []; w.walk = false; w.alpha = 1; }
+  return { s, agents, game: s.MTG.game };
 }
+const playMagic = (s, game, until, from = 0) => {
+  const seen = new Set();
+  for (let t = from; t < until && game.finishedAt === undefined; t += .1) {
+    s.updateMagic(game, t); s.updateMagicCards(.1, t);
+    if (game.ev) seen.add(game.ev.type);
+  }
+  return seen;
+};
+test('Magic duelists face each other, deal hands, and put cards and creatures on the mat', () => {
+  const { s, game } = magicGame();
+  assert.deepEqual(game.players.map(p => p.seat), [0, 1]);
+  assert.equal(game.mtg.sides.length, 2);
+  const seen = playMagic(s, game, 90);
+  assert.ok(['shuffle', 'roll', 'draw', 'land', 'cast', 'enter'].every(type => seen.has(type)), [...seen].join());
+  assert.deepEqual(game.players.map(p => s.wizards.get(p.id).dir), [1, -1]);
+  const field = game.mtg.sides.flatMap(me => me.field);
+  assert.ok(field.length && field.every(c => [c.vx, c.vy, c.vz].every(Number.isFinite)));
+  s.calls.length = 0;
+  s.draw(90);
+  const rects = s.calls.filter(c => c[0] === 'fillRect');
+  assert.ok(rects.length > 60 && rects.every(c => c.slice(1, 5).every(Number.isFinite)));
+  const minis = field.filter(c => c.type === 'creature' && c.key !== 'sorcerer').map(c => s.SP.cardArt(c.key));
+  assert.ok(minis.length && minis.every(art => s.calls.some(c => c[0] === 'drawImage' && c[1] === art)), 'creatures stand on their cards');
+  const w = s.wizards.get(game.players[0].id);
+  const [mine, theirs] = [game.mtg.sides[0], game.mtg.sides[1]].map(me => me.life);
+  assert.equal(s.statusLine(w.a, w), `PLAYING MAGIC THE GATHERING: ${mine} LIFE VS ${theirs}`);
+});
+test('board games outlast the court timer and end only when the game does', () => {
+  const { s, game } = magicGame();
+  let t = 0;
+  for (; t < 1500 && s.MTG.game; t += .25) s.update(.25, t);
+  assert.equal(s.MTG.game, null);
+  assert.ok(t > 90, 'a duel takes minutes, not seconds');
+  assert.ok(game.mtg.winner === 0 || game.mtg.winner === 1);
+  const loser = game.mtg.sides[1 - game.mtg.winner];
+  assert.ok(loser.life <= 0 || !loser.library.length || game.mtg.turn > 40);
+  const go = scene(), pair = [agent('go-a', 'waiting'), agent('go-b', 'waiting')], table = go.TABLES[1];
+  go.reconcile({ agents: pair });
+  go.startGame(table, pair.map(a => ({ kind: 'wizard', id: a.id })), -2);
+  for (const w of go.wizards.values()) { [w.x, w.y] = w.home; w.path = []; }
+  const record = table.game.record = { black: 'A', white: 'B', date: '2000', moves: Array.from({ length: 60 }, (_, i) => [i % 19, i / 19 | 0, i % 2]) };
+  for (t = 0; t < 150; t += .5) go.updateTableGames(t);
+  assert.equal(table.game.record, record, 'the whole record replays, long past the court timer');
+  assert.equal(table.game.ply, 60);
+  assert.ok(table.game.finishedAt > 100);
+});
+test('a duelist called back to work ends the duel and frees the opponent', () => {
+  const { s, game, agents } = magicGame();
+  playMagic(s, game, 5);
+  s.reconcile({ agents: [agent('duelist-0', 'working'), agents[1]] });
+  s.update(.1, 5.1);
+  assert.equal(s.MTG.game, null);
+  assert.equal(s.wizards.get('duelist-0').station, 'work');
+  assert.equal(s.wizards.get('duelist-1').game, null);
+  assert.equal(s.wizards.get('duelist-1').station, 'cafe');
+});
+test('idle duelists finish their game before dozing by the hearth', () => {
+  const { s, game, agents } = magicGame();
+  playMagic(s, game, 5);
+  s.reconcile({ agents: [agent('duelist-0', 'idle'), agents[1]] });
+  s.update(.1, 5.1);
+  const w = s.wizards.get('duelist-0');
+  assert.equal(s.MTG.game, game);
+  assert.equal(w.game, 'mtg');
+  assert.match(s.statusLine(w.a, w), /^PLAYING MAGIC/);
+  game.finishedAt = 5;
+  s.update(.1, 14.2);
+  assert.equal(s.MTG.game, null);
+  assert.equal(w.station, 'hearth');
+});
+test('Biggles answers a judge call, rules, and wanders off again', () => {
+  const { s, game } = magicGame();
+  Object.assign(s.cat, { state: 'sit', path: [], game: null });
+  s.callJudge(game, 0);
+  assert.ok(game.players.some(p => p.judge && p.seat === 2));
+  assert.equal(s.cat.game, 'mtg');
+  Object.assign(s.cat, { state: 'game', path: [] });
+  game.nextMove = 99;
+  s.updateMagic(game, 1);
+  assert.deepEqual([game.say.who, game.say.text], ['cat', 'MRRP.']);
+  s.updateMagic(game, 19);
+  assert.ok(!game.players.some(p => p.judge));
+  assert.equal(s.cat.game, null);
+  assert.equal(s.MTG.game, game);
+  const { S, labExtra } = s.layout(), at = (x, y) => s.pickAt({ clientX: (x + labExtra) * S, clientY: y * S });
+  Object.assign(s.cat, { x: 318, y: 250 });
+  assert.equal(at(318, 246), 'cat', 'the judge stays hoverable');
+  assert.equal(at(352, 275), 'mtg');
+});
+test('Biggles blinks past a stall on his way to the table instead of freezing the duel', () => {
+  const s = scene(() => .5);
+  s.reconcile({ agents: [agent('solo', 'waiting')] });
+  Object.assign(s.cat, { x: 104, y: 130, state: 'sit', path: [], dest: null, game: null, until: 1e9 });
+  s.startGame(s.MTG, [{ kind: 'wizard', id: 'solo' }, { kind: 'cat' }], 0);
+  const game = s.MTG.game;
+  for (let t = 0; t < 120 && !game.ev; t += 1 / 30) s.update(1 / 30, t);
+  assert.equal(s.cat.state, 'game');
+  assert.ok(game.ev, 'the duel gets under way');
+});
+test('Magic decks take the colour of the robe each wizard wears, job uniforms included', () => {
+  const s = scene(), agents = [agent('white-mage', 'waiting'), agent('red-mage', 'waiting')];
+  s.reconcile({ agents });
+  const [white, red] = agents.map(a => s.wizards.get(a.id));
+  Object.assign(white.sp, { robe: '#eeeae0', hue: 225 }); Object.assign(red.sp, { robe: '#b42a2a', hue: 120 });
+  s.startGame(s.MTG, agents.map(a => ({ kind: 'wizard', id: a.id })), 0);
+  assert.deepEqual([...s.MTG.game.mtg.sides.map(me => me.colors.join(''))], ['W', 'R']);
+});
+test("a Black Lotus alarm hands back the opponent's emote unless they now need attention", () => {
+  for (const status of ['waiting', 'attention']) {
+    const { s, game } = magicGame(), foe = s.wizards.get(game.players[1].id), lotus = { ...s.MAGIC.CARDS.lotus, vx: 320, vy: 260 };
+    foe.emote = 'drink:latte';
+    s.magicEvent(game, { type: 'cast', side: 0, card: lotus, lotus, dur: 1 }, 0);
+    assert.equal(foe.emote, 'alert');
+    if (status === 'attention') { foe.a = { ...foe.a, status }; foe.emote = 'alert'; }
+    s.updateMagicCards(.1, 2.1);
+    assert.equal(foe.emote, status === 'attention' ? 'alert' : 'drink:latte');
+  }
+});
+test('the Magic table tooltip names both duelists and shows the last card as a card', () => {
+  const { s, game } = magicGame();
+  playMagic(s, game, 30);
+  const html = s.magicTipHTML(), last = game.mtg.last;
+  assert.ok(last);
+  assert.match(html, /MAGIC: THE GATHERING <span>TURN \d+<\/span>/);
+  for (const me of game.mtg.sides) assert.ok(html.includes(`${me.name} · `) && html.includes(`${me.life} LIFE`));
+  assert.ok(html.includes(`mtg-card mc-${last.color || 'C'}`) && html.includes(last.name));
+});
 
 test('Go remains a two-player game when a cat is available', () => {
   const s = scene(), agents = [agent('go-a', 'waiting'), agent('go-b', 'waiting')], table = s.TABLES[1];
@@ -782,17 +917,6 @@ test('Go turns remove captured stones and keep the placement animation', () => {
   assert.ok(s.calls.some(c => c[0] === 'lineTo'));
 });
 
-test('Magic turns keep their original chairs after a player leaves', () => {
-  const s = scene(), agents = ['a', 'b', 'c'].map(id => agent(`magic-${id}`, 'waiting')), table = s.TABLES[1];
-  s.reconcile({ agents }); table.types = ['magic'];
-  s.startGame(table, agents.map(a => ({ kind: 'wizard', id: a.id })), -2);
-  table.game.players.shift();
-  for (const w of s.wizards.values()) { [w.x, w.y] = w.home; w.path = []; }
-  s.updateBoardGame(table.game, 0);
-  assert.equal(table.game.move.seat, 1);
-  s.calls.length = 0; s.drawTableGame(s.ctx, table, .1);
-  assert.ok(s.calls.some(c => c[0] === 'moveTo' && c[1] === table.seats[1][0] && c[2] === table.seats[1][1] - 10));
-});
 
 for (const type of ['badminton', 'pingpong']) {
   test(`${type} materializes before rallying and has no court label`, () => {
@@ -921,28 +1045,28 @@ test('laboratory shrinks after removed desks fade and compacts a surviving outer
   const s = scene(), agents = Array.from({ length: 25 }, (_, i) => agent(String(i)));
   s.reconcile({ agents });
   s.update(.4, 0);
-  const survivor = s.desks.find(d => d.y > 240).w;
+  const survivor = s.desks.find(d => d.y + 24 > 300).w;
   s.reconcile({ agents: [survivor.a] });
   assert.ok(s.layout().labSteps > 0);
   s.update(.6, .6);
   assert.equal(s.desks.length, 1);
   assert.equal(s.layout().labSteps, 0);
   assert.equal(s.layout().labExtra, 0);
-  assert.equal(s.layout().labDown, 0);
-  assert.ok(survivor.desk.y + 24 <= 240);
+  assert.equal(s.layout().labDown, 60, 'the base storey stays');
+  assert.ok(survivor.desk.y + 24 <= 300);
   assert.deepEqual(Array.from(survivor.home), [survivor.desk.x, survivor.desk.y]);
   assert.ok(survivor.path.every(([x, y]) => !s.blocked(x, y, 5)));
 });
 
 test('vertical extension keeps cafe bounds and wall while allowing routes to lower desks', () => {
   const s = scene();
-  s.reconcile({ agents: Array.from({ length: 15 }, (_, i) => agent(String(i))) });
-  const d = s.desks.find(d => d.y > 272);
+  s.reconcile({ agents: Array.from({ length: 30 }, (_, i) => agent(String(i))) });
+  const d = s.desks.find(d => d.y > 332);
   assert.ok(d);
   assert.equal(s.blocked(d.x, d.y, 5), false);
   assert.equal(s.blocked(268, d.y, 5), true);
   assert.equal(s.blocked(320, d.y, 5), true);
-  const path = s.route(436, 250, d.x, d.y, 5);
+  const path = s.route(436, 310, d.x, d.y, 5);
   assert.ok(path.length > 1);
   assert.ok(path.every(([x, y]) => !s.blocked(x, y, 5)));
   assert.deepEqual(Array.from(path.at(-1)), [d.x, d.y]);

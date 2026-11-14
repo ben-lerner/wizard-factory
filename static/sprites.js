@@ -239,7 +239,7 @@ window.SP = (() => {
     const pc = document.createElement('canvas'); pc.width = 42; pc.height = 42;
     const pg = pc.getContext('2d'); pg.imageSmoothingEnabled = false;
     pg.drawImage(frames.idleA, 3, sub ? 1 : 0, 14, 14, 0, 0, 42, 42);
-    return { name, epithet, frames, portrait: pc.toDataURL(), hue, sub, demon, job: o.job && o.job + (demon ? ':demon' : ''), drink: drinkFor(id, demon) };
+    return { name, epithet, frames, portrait: pc.toDataURL(), hue, robe: o.robe, hat: o.hat, sub, demon, job: o.job && o.job + (demon ? ':demon' : ''), drink: drinkFor(id, demon) };
   }
 
   // ---------- the staff cat ----------
@@ -427,6 +427,68 @@ window.SP = (() => {
     rc(g, x - 14, y - 6, 28, 14, '#6b4932'); rc(g, x - 17, y - 3, 34, 8, '#6b4932');
     rc(g, x - 14, y - 7, 28, 12, '#a27a50'); rc(g, x - 17, y - 4, 34, 6, '#a27a50');
   };
+
+  // The long Magic table: a playmat split down the middle between the two duelists.
+  PR.magicTable = (g, x, y) => {
+    rc(g, x - 50, y, 4, 11, '#4a3220'); rc(g, x + 46, y, 4, 11, '#4a3220');
+    rc(g, x - 56, y - 39, 112, 39, '#a27a50'); rc(g, x - 56, y - 39, 112, 1, '#c49560');
+    rc(g, x - 56, y - 3, 112, 4, '#6b4932'); rc(g, x - 56, y - 3, 112, 1, '#7d5636');
+    rc(g, x - 53, y - 37, 106, 33, '#2a3446'); rc(g, x - 52, y - 36, 104, 31, '#33415a');
+    rc(g, x, y - 35, 1, 29, '#3d4d68');
+  };
+
+  // ---------- Magic card art: creature minis (facing right) and spell icons ----------
+  const ART_COLORS = { k: '#1c1430', w: '#f4f0e0', W: '#c4bca8', y: '#ffd84a', o: '#f08a2a', r: '#d0402e', R: '#7a2420',
+    g: '#5cb85a', G: '#2c6a35', l: '#b8d878', b: '#5b8fd8', B: '#2c4f8f', c: '#a8dcff', p: '#9a5fd0', P: '#4a2a6a',
+    n: '#9a6a3a', N: '#5a3a22', t: '#e0c088', s: '#e6b88e', e: '#a0a8bc', E: '#5e6478', m: '#b84a48' };
+  const ART = {
+    lions: ['.....NNN.', 'N...NNtkN', '.t..NNttt', '..ttttNN.', '..tttt...', '..t..t...'],
+    unicorn: ['.......y', '......y.', '.....ww.', 'e...wwwk', '.wwwww..', '.wwwww..', '.w..w...'],
+    serra: ['....y....', 'w..ysy..w', 'ww..w..ww', 'wwwwwwwww', '.W.www.W.', '...www...', '..wwwww..'],
+    merfolk: ['.bb..', '.bk.y', 'bbbby', '.bb.y', '.BB.y', '..BB.', '.B.B.'],
+    sorcerer: ['..h..', '.hh..', 'hhhh.', '.ss..', 'vvvvy', '.vvv.', '.vvv.', 'vvvvv'],
+    airel: ['..ccc..', '.cwwwc.', 'cwbwbwc', '.cwwwc.', '..cwc..', '.cwc...', '..cc...', '...c...'],
+    specter: ['...PP...', 'p.PPyP.p', 'ppPPPPpp', '.ppPPpp.', '..PPPP..', '..P.P.P.'],
+    zombies: ['.ll..', '.lk..', 'EEEll', '.EE..', '.EE..', '.N.N.', '.N..N'],
+    sengir: ['...sss...', 'R..rsr..R', 'RR.kkk.RR', 'RRrkkkrRR', '.RrkkkrR.', '...kkk...', '...k.k...'],
+    pit: ['R.k...k.R', 'RR.mmm.RR', 'RRRymyRRR', 'RR.mmm.RR', 'R.mmmmm.R', '..mmRmm..', '..mm.mm..', '..mm.mm..', '.kk...kk.'],
+    goblin: ['.rr.', '.gk.', 'gnng', '.nn.', '.g.g'],
+    ogre: ['..ee..', '..ek..', '.eeee.', 'eeeeen', '.eee.n', '.N.N..', '.e.e..'],
+    giant: ['..tt..', '..tk..', '.tttt.', 'tttttt', 't.tt.t', '..NN..', '..NN..', '..t.t.', '.tt.tt'],
+    shivan: ['.R.R.....', '.RRRR.ry.', '..RRR.rrr', '..rrrrr..', 'r.rrrrr..', '.rrrrr...', '..r..r...', '..k..k...'],
+    elves: ['.gG.', 'tsk.', '.gg.', 'gGGg', '.GG.', '.N.N'],
+    birds: ['....rr', '...rky', '.bbbr.', 'ybbb..', 'y..y..'],
+    bears: ['....n.n', '....nnk', 'nnnnnnn', 'nnnnnn.', 'nN..nN.'],
+    wurm: ['.......gg', '..ggg..gk', '.gGGGg.g.', 'gG...gGg.'],
+    plains: ['...y.....', '.y.yy.y..', '..yyyy...', '.y.yy.y..', '.........', 't.t.t.t.t', 'ttttttttt'],
+    island: ['.........', '....g....', '...ggg...', '..ttttt..', 'bbbbbbbbb', 'BbBBbBBbB', 'bbbbbbbbb'],
+    swamp: ['..k......', '.kk.k....', '..kk.....', '..k..p.p.', 'PPkPPPPPP', 'PkPPPpPkP', 'PPPPPPPPP'],
+    mountain: ['....w....', '...wE....', '..EEEE.E.', '.EEEnEEE.', 'EEnnnEEEE', 'nnnnnnnnn', 'NNNNNNNNN'],
+    forest: ['..g....g.', '.ggg..ggg', 'ggggg.ggg', '.GGG..GGG', '..n....n.', 'GGnGGGGnG', 'GGGGGGGGG'],
+    lotus: ['....E....', '..E.E.E..', '.EEpEpEE.', 'EEpEEEpEE', '.EEEEEEE.', '...GGG...', '....G....'],
+    bolt: ['....yy', '...yy.', '..yyyy', '....y.', '...y..', '..y...', '.y....'],
+    fireball: ['...o...', '.o.oo..', '..oyyo.', '.oyyyyo', '.oyyyyo', '..oyyo.', '...oo..'],
+    counter: ['..bbb..', '.b...b.', 'b...c.b', 'b..c..b', 'b.c...b', '.b...b.', '..bbb..'],
+    growth: ['...g...', '..ggg..', '.ggggg.', '...g...', '...g...', '.G.g.G.', 'GGGGGGG'],
+    wrath: ['wwwwwww', '.w.w.w.', '.w.w.w.', '..www..', 'y.y.y.y', '.yyyyy.', 'EEEEEEE'],
+    swords: ['......w', '.....w.', '....w..', '...w...', 'yyw....', '.n.....', 'n......'],
+    terror: ['.kkkkk.', 'kwwwwwk', 'kwkwkwk', 'kwwwwwk', '.kwkwk.', '..kkk..'],
+    ritual: ['...p...', '..ppp..', '..pyp..', '...p...', 'k..w..k', 'kk.w.kk', '.kkkkk.'],
+    recall: ['...c...', '..ccc..', '...c...', 'bwwbwwb', 'bwwbwwb', 'bbbbbbb'],
+    channel: ['.g...g.', 'g.r.r.g', '.rrrrr.', 'g.rrr.g', '...r...', '.g...g.'],
+  };
+  const ARTS = new Map();
+  // Paints a card's art once per robe and hat: Prodigal Sorcerer dresses like the wizard who cast it.
+  function cardArt(key, robe = '#3f5b9b', hat = '#2c3f6e') {
+    const id = key + robe + hat;
+    if (!ARTS.has(id)) {
+      const rows = ART[key], c = document.createElement('canvas'), g = c.getContext('2d'), colors = { ...ART_COLORS, v: robe, h: hat };
+      c.width = rows[0].length; c.height = rows.length;
+      rows.forEach((row, y) => [...row].forEach((ch, x) => { if (colors[ch]) px(g, x, y, colors[ch]); }));
+      ARTS.set(id, c);
+    }
+    return ARTS.get(id);
+  }
 
   PR.tableStillLife = (g, x, y, t) => {
     rc(g, x - 11, y - 5, 8, 5, '#e7dfc1'); rc(g, x - 10, y - 4, 6, 1, '#a84848');
@@ -1014,5 +1076,5 @@ window.SP = (() => {
     }
   }
 
-  return { hash, rng, pick, hsl, shade, drawText, textW, makeWizard, makeCat, makeDragon, PR, drawEmote, EPITHETS, DRINKS, INFERNAL_DRINKS, WARM_MILK, drinkFor };
+  return { hash, rng, pick, hsl, shade, drawText, textW, makeWizard, makeCat, makeDragon, PR, drawEmote, cardArt, EPITHETS, DRINKS, INFERNAL_DRINKS, WARM_MILK, drinkFor };
 })();

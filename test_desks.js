@@ -7,7 +7,7 @@ function scene(random = Math.random) {
   const calls = [];
   const ctx = new Proxy({}, { get: (target, key) => key in target ? target[key] : (...args) => calls.push([key, ...args]) });
   const element = { getContext: () => ctx, toDataURL: () => '', addEventListener() {}, style: {}, getBoundingClientRect: () => ({ left: 0, top: 0, width: 960, height: 544 }), clientLeft: 0, clientTop: 0, offsetWidth: 200, offsetHeight: 80 };
-  const sandbox = { console, Math: Object.assign(Object.create(Math), { random }), ResizeObserver: class { observe() {} }, document: { querySelector: () => element, createElement: () => element }, window: { addEventListener() {} } };
+  const sandbox = { console, Math: Object.assign(Object.create(Math), { random }), ResizeObserver: class { observe() {} }, document: { querySelector: () => element, createElement: () => ({ ...element }) }, window: { addEventListener() {} } };
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync('static/sprites.js', 'utf8'), sandbox);
   sandbox.SP = sandbox.window.SP;
@@ -243,8 +243,8 @@ test('task and bottle labels render after sprites and thought bubbles', () => {
   const bubble = s.calls.findIndex(c => c[0] === 'drawEmote');
   const title = s.calls.findIndex(c => c[0] === 'drawText' && c[3] === 'FIX WIZARD');
   const bottle = s.calls.findIndex(c => c[0] === 'drawText' && c[3] === 'LOC');
-  assert.ok(bubble >= 0 && title > bubble && bottle > title);
-  assert.equal(s.calls.slice(bottle).some(c => c[0] === 'drawImage'), false);
+  const sprite = s.calls.findLastIndex(c => c[0] === 'drawImage' && Object.values(w.sp.frames).includes(c[1]));
+  assert.ok(sprite >= 0 && bubble > sprite && title > bubble && bottle > title);
 });
 test('long task labels truncate at the end of the fifth line', () => {
   const s = scene(), a = { ...agent('long-label'), title: 'one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen' };
@@ -835,6 +835,22 @@ test('pixel font renders percent signs instead of question marks', () => {
     return s.calls.filter(c => c[0] === 'fillRect').map(c => c.slice(1));
   };
   assert.notDeepEqual(render('%'), render('?'));
+});
+
+test('text sprites retain glyphs across colors and scales and bound old labels', () => {
+  const s = scene(), render = (text, color = '#fff', scale = 1) => {
+    s.calls.length = 0;
+    s.SP.drawText(s.ctx, 0, 0, text, color, scale);
+    return s.calls.find(c => c[0] === 'drawImage')[1];
+  };
+  const first = render('CACHE');
+  assert.equal(render('CACHE'), first);
+  assert.equal(first.width, s.SP.textW('CACHE'));
+  assert.notEqual(render('CACHE', '#f00'), first);
+  assert.equal(render('CACHE', '#fff', 3).width, first.width * 3);
+  assert.equal(s.SP.textW('É→…'), s.SP.textW('E>…'));
+  for (let i = 0; i < 1100; i++) render(String(i));
+  assert.notEqual(render('CACHE'), first);
 });
 
 test('all resource balls have separate hit targets and capacity tooltips', () => {

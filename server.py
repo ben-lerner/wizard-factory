@@ -48,6 +48,7 @@ MIME = {'.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.pn
         '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json'}
 
 FILES = {}      # path -> FileState
+CODEX_TITLES = (None, {})
 OVERRIDES = {}  # session_id -> latest hook event {event, ts, msg}
 DEAD = {}       # session_id -> epoch of SessionEnd hook
 REMOTE_AGENTS, REMOTE_QUOTAS = [], []
@@ -572,9 +573,15 @@ def restore_claude_title(fs):
 
 
 def codex_titles():
+    global CODEX_TITLES
     titles = {}
     try:
-        with open(CODEX.parent / 'session_index.jsonl') as f:
+        path = CODEX.parent / 'session_index.jsonl'
+        st = path.stat()
+        key = (path, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+        if key == CODEX_TITLES[0]:
+            return CODEX_TITLES[1]
+        with open(path) as f:
             for line in f:
                 try:
                     entry = json.loads(line)
@@ -583,7 +590,8 @@ def codex_titles():
                 except (ValueError, TypeError):
                     continue
     except OSError:
-        pass
+        return titles
+    CODEX_TITLES = (key, titles)
     return titles
 
 

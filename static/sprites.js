@@ -32,14 +32,26 @@ window.SP = (() => {
   const normalizeText = str => String(str).normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—−]/g, '-')
     .replace(/→/g, '>').replace(/←/g, '<').toUpperCase();
+  const TEXT_IMAGES = new Map();
   const drawText = (ctx, x, y, str, color, s = 1) => {
     ctx.fillStyle = color;
-    let cx = x;
-    for (const ch of normalizeText(str)) {
-      const g = F[ch] || F['?'];
-      for (let i = 0; i < 15; i++) if (g[i] === '1') ctx.fillRect(cx + (i % 3) * s, y + ((i / 3) | 0) * s, s, s);
-      cx += 4 * s;
+    const key = JSON.stringify([String(str), ctx.fillStyle, s]);
+    let image = TEXT_IMAGES.get(key);
+    if (!image) {
+      const text = [...normalizeText(str)];
+      if (!text.length) return;
+      image = document.createElement('canvas'); image.width = (text.length * 4 - 1) * s; image.height = 5 * s;
+      const g = image.getContext('2d'); g.fillStyle = ctx.fillStyle;
+      let cx = 0;
+      for (const ch of text) {
+        const glyph = F[ch] || F['?'];
+        for (let i = 0; i < 15; i++) if (glyph[i] === '1') g.fillRect(cx + (i % 3) * s, ((i / 3) | 0) * s, s, s);
+        cx += 4 * s;
+      }
+      if (TEXT_IMAGES.size >= 1024) TEXT_IMAGES.delete(TEXT_IMAGES.keys().next().value);
+      TEXT_IMAGES.set(key, image);
     }
+    ctx.drawImage(image, x, y);
   };
   const textW = (str, s = 1) => [...normalizeText(str)].length * 4 * s - s;
 
@@ -671,17 +683,22 @@ window.SP = (() => {
 
   const SIGIL_RUNES = ['010111010', '101010101', '010101010', '111010111', '100111001', '001111100'];
   const SIGIL_RINGS = new Map();
-  const sigilRing = radius => {
-    if (!SIGIL_RINGS.has(radius)) {
+  const sigilRing = (radius, color) => {
+    const key = `${radius}:${color}`;
+    if (!SIGIL_RINGS.has(key)) {
       const pixels = new Map();
       for (let i = 0; i < radius * 12; i++) {
         const a = i / (radius * 12) * Math.PI * 2;
         const x = Math.round(Math.cos(a) * radius), y = Math.round(Math.sin(a) * radius * .48);
         pixels.set(`${x},${y}`, [x, y]);
       }
-      SIGIL_RINGS.set(radius, [...pixels.values()]);
+      const image = document.createElement('canvas'), h = Math.ceil(radius * .48);
+      image.width = radius * 2 + 1; image.height = h * 2 + 1;
+      const g = image.getContext('2d'); g.fillStyle = color;
+      for (const [x, y] of pixels.values()) g.fillRect(radius + x, h + y, 1, 1);
+      SIGIL_RINGS.set(key, image);
     }
-    return SIGIL_RINGS.get(radius);
+    return SIGIL_RINGS.get(key);
   };
 
   PR.floorSigil = (g, x, y, radius, t, color, glow, phase) => {
@@ -690,11 +707,11 @@ window.SP = (() => {
     const point = (a, r) => [x + Math.round(Math.cos(a) * r), y + Math.round(Math.sin(a) * r * .48)];
     g.save();
     for (const r of [radius, inner]) {
-      const pixels = sigilRing(r);
-      g.globalAlpha = .3; g.fillStyle = '#171322';
-      for (const [dx, dy] of pixels) g.fillRect(x + dx, y + dy + 1, 1, 1);
-      g.globalAlpha = .38 + pulse; g.fillStyle = color;
-      for (const [dx, dy] of pixels) g.fillRect(x + dx, y + dy, 1, 1);
+      const top = y - Math.ceil(r * .48);
+      g.globalAlpha = .3;
+      g.drawImage(sigilRing(r, '#171322'), x - r, top + 1);
+      g.globalAlpha = .38 + pulse;
+      g.drawImage(sigilRing(r, color), x - r, top);
     }
     if (!small) {
       g.globalAlpha = .22 + pulse;

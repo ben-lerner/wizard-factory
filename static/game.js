@@ -975,7 +975,7 @@
       if (dragonAtBar() && caster.r() < EARL_GREY_TARGET_CHANCE) targets.push(dragon);
       target = targets[caster.r() * targets.length | 0];
     }
-    castRay(caster, target, catCaster);
+    if (target) castRay(caster, target, catCaster);
   }
   function maybeCast(w, t) {
     if (w.a.status !== 'working' || cafeWait(w.a) || w.walk || w.leaving || w.blast || w.alpha < .8 || !w.home) return;

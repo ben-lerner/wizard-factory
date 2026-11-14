@@ -238,6 +238,13 @@ test('duels recruit only each fighter’s apprentices', () => {
   assert.equal(ray.source, 'wizard');
   assert.equal(ray.target, 'demon');
 });
+test('a cat with nobody to fight skips the battle while every wizard is at a game', () => {
+  const s = scene(), agents = [agent('seated-a', 'waiting'), agent('seated-b', 'waiting')];
+  s.reconcile({ agents });
+  for (const w of s.wizards.values()) w.game = 't1';
+  assert.doesNotThrow(() => s.updateBattle(1e6));
+  assert.ok(s.SPELLS.every(spell => spell.kind !== 'ray' || spell.target === 'dragon'));
+});
 test('each battle schedules one encounter', () => {
   const s = scene(), agents = [agent('wizard'), { ...agent('demon'), origin: 'remote' }];
   s.reconcile({ agents });

@@ -1,6 +1,6 @@
-"""Regenerate static/go-games.js from the professional 9x9 games in Andries Brouwer's database.
+"""Regenerate static/go-games.js from the NHK Cup games in Andries Brouwer's database.
 
-Run with python3 make_go_games.py. The Minigo and computer folders are skipped.
+Run with python3 make_go_games.py. Handicap games are skipped; COUNT games are sampled evenly.
 """
 import io
 import json
@@ -12,6 +12,7 @@ from pathlib import Path
 
 SOURCE = 'https://homepages.cwi.nl/~aeb/go/games/'
 OUT = Path(__file__).parent / 'static/go-games.js'
+COUNT = 100
 TOKEN = re.compile(r'\s*(\(|\)|;|([A-Z]+)((?:\[(?:\\.|[^\]\\])*\]\s*)+))', re.S)
 
 
@@ -29,7 +30,7 @@ def main_line(text):
 
 
 def point(v):
-    return [ord(v[0]) - 97, ord(v[1]) - 97] if len(v) == 2 and max(v) <= 'i' else [-1, -1]
+    return [ord(v[0]) - 97, ord(v[1]) - 97] if len(v) == 2 and max(v) <= 's' else [-1, -1]
 
 
 def game(nodes):
@@ -40,12 +41,14 @@ def game(nodes):
 
 
 def main():
-    with tempfile.TemporaryDirectory() as directory, urllib.request.urlopen(SOURCE + '9x9.tgz') as response:
-        tarfile.open(fileobj=io.BytesIO(response.read())).extractall(directory, filter='data')
-        records = [main_line(path.read_text(errors='replace')) for path in sorted(Path(directory).rglob('*.sgf'))
-                   if not {'Minigo', 'computer'} & set(path.parts)]
-    games = [game(nodes) for nodes in records if nodes and nodes[0].get('SZ', ['9'])[0] == '9']
-    OUT.write_text(f'// Professional 9x9 games from {SOURCE} (public domain), made by make_go_games.py.\n'
+    with tempfile.TemporaryDirectory() as directory, urllib.request.urlopen(SOURCE + 'games.tgz') as response:
+        tar = tarfile.open(fileobj=io.BytesIO(response.read()))
+        tar.extractall(directory, [m for m in tar if m.name.startswith('games/NHK/')], filter='data')
+        records = [main_line(path.read_text(errors='replace')) for path in sorted(Path(directory).rglob('*.sgf'))]
+    games = [game(nodes) for nodes in records
+             if nodes and nodes[0].get('SZ', ['19'])[0] == '19' and not {'HA', 'AB'} & nodes[0].keys()]
+    games = games[::-(-len(games) // COUNT)]
+    OUT.write_text(f'// NHK Cup games from {SOURCE} (public domain), made by make_go_games.py.\n'
                    'window.GO_GAMES = [\n' + ',\n'.join(json.dumps(g, ensure_ascii=False, separators=(',', ':'))
                                                        for g in games) + '\n];\n')
     print(f'{len(games)} games, {sum(len(g["moves"]) for g in games)} moves')

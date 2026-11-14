@@ -604,7 +604,7 @@
     const records = window.GO_GAMES || [];
     Object.assign(game, { stones: [], ply: 0, record: records[Math.random() * records.length | 0] });
   }
-  const GO = 9, goPoint = stone => stone.x + stone.y * GO;
+  const GO = 19, goPoint = stone => stone.x + stone.y * GO;
   const goNeighbors = i => [i % GO ? i - 1 : -1, i % GO < GO - 1 ? i + 1 : -1, i >= GO ? i - GO : -1, i < GO * (GO - 1) ? i + GO : -1].filter(n => n >= 0);
   function goGroup(board, start) {
     const members = new Set([start]), liberties = new Set(), stack = [start], side = board.get(start).side;
@@ -1128,19 +1128,19 @@
         }
         if (game.move) drawTableReach(gg, table, [x + 2 + game.move.to[0] * 5, y + 3 + game.move.to[1] * 6], t);
       } else {
-        const bx = table.x - 14, by = table.y - 22, at = (gx, gy) => [bx + 2 + gx * 3, by + 2 + gy * 3];
-        gg.fillStyle = '#6b4932'; gg.fillRect(bx, by + 28, 29, 1);
-        gg.fillStyle = '#d8b878'; gg.fillRect(bx, by, 29, 28);
+        const side = GO * 2 + 3, bx = table.x - 20, by = table.y + 6 - side, at = (gx, gy) => [bx + 2 + gx * 2, by + 2 + gy * 2];
+        gg.fillStyle = '#6b4932'; gg.fillRect(bx, by + side, side, 1);
+        gg.fillStyle = '#d8b878'; gg.fillRect(bx, by, side, side);
         gg.fillStyle = '#8a6242';
-        for (let i = 0; i < GO; i++) { gg.fillRect(bx + 2 + i * 3, by + 2, 1, 25); gg.fillRect(bx + 2, by + 2 + i * 3, 25, 1); }
-        for (const [gx, gy] of [[2, 2], [6, 2], [4, 4], [2, 6], [6, 6]]) gg.fillRect(...at(gx, gy).map(v => v - 1), 3, 3);
+        for (let i = 0; i < GO; i++) { gg.fillRect(bx + 2 + i * 2, by + 2, 1, GO * 2 - 1); gg.fillRect(bx + 2, by + 2 + i * 2, GO * 2 - 1, 1); }
+        for (const gx of [3, 9, 15]) for (const gy of [3, 9, 15]) gg.fillRect(...at(gx, gy).map(v => v - 1), 3, 3);
         for (const stone of game.stones) {
           let [sx, sy] = at(stone.x, stone.y);
           if (game.move && game.stones.at(-1) === stone && moveProgress(game, t) < 1) {
             const [ox, oy] = table.seats[game.move.seat], k = moveProgress(game, t); sx = mix(ox, sx, k); sy = mix(oy - 11, sy, k);
           }
-          gg.fillStyle = stone.side % 2 ? '#f7f3e8' : '#1c1430'; gg.fillRect(Math.round(sx) - 1, Math.round(sy) - 1, 3, 3);
-          gg.fillStyle = stone.side % 2 ? '#fffdf4' : '#4a4358'; gg.fillRect(Math.round(sx), Math.round(sy) - 1, 1, 1);
+          gg.fillStyle = stone.side % 2 ? '#f7f3e8' : '#1c1430'; gg.fillRect(Math.round(sx), Math.round(sy), 2, 2);
+          gg.fillStyle = stone.side % 2 ? '#fffdf4' : '#4a4358'; gg.fillRect(Math.round(sx), Math.round(sy), 1, 1);
         }
         if (game.move) drawTableReach(gg, table, at(...game.move.to), t);
       }

@@ -1131,9 +1131,10 @@
         const side = GO * 2 + 3, bx = table.x - 20, by = table.y + 6 - side, at = (gx, gy) => [bx + 2 + gx * 2, by + 2 + gy * 2];
         gg.fillStyle = '#6b4932'; gg.fillRect(bx, by + side, side, 1);
         gg.fillStyle = '#d8b878'; gg.fillRect(bx, by, side, side);
-        gg.fillStyle = '#8a6242';
+        gg.fillStyle = '#ccaa6c';
         for (let i = 0; i < GO; i++) { gg.fillRect(bx + 2 + i * 2, by + 2, 1, GO * 2 - 1); gg.fillRect(bx + 2, by + 2 + i * 2, GO * 2 - 1, 1); }
-        for (const gx of [3, 9, 15]) for (const gy of [3, 9, 15]) gg.fillRect(...at(gx, gy).map(v => v - 1), 3, 3);
+        gg.fillStyle = '#5a3a24';
+        for (const gx of [3, 9, 15]) for (const gy of [3, 9, 15]) gg.fillRect(...at(gx, gy), 1, 1);
         for (const stone of game.stones) {
           let [sx, sy] = at(stone.x, stone.y);
           if (game.move && game.stones.at(-1) === stone && moveProgress(game, t) < 1) {

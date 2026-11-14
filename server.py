@@ -17,12 +17,13 @@ import os
 import random
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import threading
 import time
-from collections import deque
+from collections import deque, namedtuple
 from datetime import datetime
 from fnmatch import fnmatchcase
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -57,11 +58,15 @@ TIMER_PROMPTS = []
 CPU_USAGE, CPU_TIMES = None, None
 LOCAL_RESOURCES, REMOTE_RESOURCES = {}, {}
 LOCK = threading.Lock()
-MACH = ctypes.CDLL('/usr/lib/libSystem.B.dylib') if sys.platform == 'darwin' else None
+MACH = ctypes.CDLL('/usr/lib/libSystem.B.dylib', use_errno=True) if sys.platform == 'darwin' else None
 if MACH:
     MACH.mach_host_self.restype = ctypes.c_uint
     MACH.host_statistics.argtypes = [ctypes.c_uint, ctypes.c_int, ctypes.POINTER(ctypes.c_uint), ctypes.POINTER(ctypes.c_uint)]
     MACH_HOST = MACH.mach_host_self()
+BULK_STAT = getattr(MACH, 'getattrlistbulk', None) if MACH else None
+if BULK_STAT:
+    BULK_STAT.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint64]
+    BULK_STAT.restype = ctypes.c_int
 
 
 def epoch(ts):
@@ -595,18 +600,85 @@ def codex_titles():
     return titles
 
 
-def transcript_entries(root, parts):
+ScanStat = namedtuple('ScanStat', 'st_ino st_size st_mtime')
+BULK_COMMON = 0x02000409  # ATTR_CMN_NAME | OBJTYPE | MODTIME | FILEID
+BULK_RECORD = struct.Struct('=I5IIiIIqqQ')
+
+
+def bulk_transcripts(root, pattern, cutoff):
+    # getattrlistbulk(2): returned attributes, error, name reference, type, mtime, inode.
+    attrs = ctypes.create_string_buffer(struct.pack('=HH5I', 5, 0, BULK_COMMON | 0xa0000000, 0, 0, 0x200, 0))
+    buf = ctypes.create_string_buffer(65536)
+    entries = []
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        while True:
+            count = BULK_STAT(fd, attrs, buf, len(buf), 8)  # FSOPT_PACK_INVAL_ATTRS
+            if count < 0:
+                raise OSError(ctypes.get_errno(), 'getattrlistbulk', root)
+            if not count:
+                return entries
+            data, offset = buf.raw, 0
+            for _ in range(count):
+                pos = offset
+                length, common, _, _, files, _, error, nameoff, nlen, kind, sec, nsec, ino = BULK_RECORD.unpack_from(data, pos)
+                start, offset = pos + 28 + nameoff, pos + length
+                if (length < BULK_RECORD.size or offset > len(data) or start < pos + BULK_RECORD.size or
+                        nlen < 1 or start + nlen > offset or data[start + nlen - 1] != 0):
+                    raise ValueError('Invalid bulk directory entry')
+                available = not error and kind == 1 and common & BULK_COMMON == BULK_COMMON and files & 0x200
+                if available:
+                    if start < pos + BULK_RECORD.size + 8 or not 0 <= nsec < 1000000000:
+                        raise ValueError('Invalid bulk file attributes')
+                    mtime = sec + nsec * 1e-9
+                    if mtime < cutoff:
+                        continue
+                name = os.fsdecode(data[start:start + nlen - 1])
+                if '/' in name or '\0' in name:
+                    raise ValueError('Invalid bulk entry name')
+                if not fnmatchcase(name, pattern):
+                    continue
+                path = os.path.join(root, name)
+                if available:
+                    size, = struct.unpack_from('=q', data, pos + BULK_RECORD.size)
+                    if size < 0:
+                        raise ValueError('Invalid bulk file size')
+                    st = ScanStat(ino, size, mtime)
+                else:
+                    try:
+                        st = os.stat(path)  # Follow symlinks and handle unavailable attributes.
+                    except OSError:
+                        continue
+                    if st.st_mtime < cutoff:
+                        continue
+                entries.append((path, st))
+    finally:
+        os.close(fd)
+
+
+def transcript_entries(root, parts, cutoff):
+    if BULK_STAT and len(parts) == 1:
+        try:
+            yield from bulk_transcripts(root, parts[0], cutoff)
+            return
+        except (OSError, ValueError, struct.error):
+            pass
     try:
         with os.scandir(root) as entries:
             for entry in entries:
                 if not fnmatchcase(entry.name, parts[0]):
                     continue
                 if len(parts) == 1:
-                    yield entry
+                    try:
+                        st = entry.stat()
+                        if st.st_mtime >= cutoff:
+                            yield entry.path, st
+                    except OSError:
+                        continue
                 else:
                     try:
                         if entry.is_dir():
-                            yield from transcript_entries(entry.path, parts[1:])
+                            yield from transcript_entries(entry.path, parts[1:], cutoff)
                     except OSError:
                         continue
     except OSError:
@@ -618,14 +690,8 @@ def scan_once(now):
     seen = set()
     patterns = [(PROJECTS, ('*', '*.jsonl')), (PROJECTS, ('*', '*', 'subagents', '*.jsonl')),
                 (CODEX, ('*', '*', '*', 'rollout-*.jsonl'))]
-    for entry in (entry for root, parts in patterns for entry in transcript_entries(root, parts)):
-        try:
-            st = entry.stat()
-        except OSError:
-            continue
-        if now - st.st_mtime > FRESH_SEC:
-            continue
-        f = Path(entry.path)
+    for path, st in (entry for root, parts in patterns for entry in transcript_entries(root, parts, now - FRESH_SEC)):
+        f = Path(path)
         seen.add(f)
         fs = FILES.get(f)
         if not fs:

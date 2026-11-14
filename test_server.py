@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import struct
 import tempfile
 import subprocess
 import sys
@@ -12,6 +13,58 @@ import server
 
 
 class TranscriptScanTest(unittest.TestCase):
+    @unittest.skipUnless(server.BULK_STAT, 'macOS bulk metadata API')
+    def test_bulk_metadata_matches_stat_across_batches_unicode_and_symlinks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for i in range(400):
+                path = root / (f'{i:04d}-' + 'x' * 120 + '.jsonl')
+                path.write_text('{}\n')
+                os.utime(path, ns=(1800000000000000000 + i, 1800000000000000000 + i))
+            regular = root / '.rúné-⟡.jsonl'
+            regular.write_text('{}\n')
+            (root / 'alias.jsonl').symlink_to(regular)
+            (root / 'missing.jsonl').symlink_to(root / 'absent')
+            (root / 'folder.jsonl').mkdir()
+            expected = {}
+            for entry in root.iterdir():
+                try:
+                    st = entry.stat()
+                except OSError:
+                    continue
+                expected[str(entry)] = (st.st_ino, st.st_size, st.st_mtime)
+            actual = {path: (st.st_ino, st.st_size, st.st_mtime) for path, st in server.bulk_transcripts(root, '*.jsonl', 0)}
+            self.assertEqual(actual, expected)
+
+    def test_unsupported_bulk_read_closes_directory_and_uses_portable_scan(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'file.jsonl'
+            path.write_text('{}\n')
+            with patch.object(server, 'BULK_STAT', side_effect=OSError('unsupported')), \
+                    patch.object(server.os, 'close', wraps=os.close) as close:
+                entries = list(server.transcript_entries(path.parent, ('*.jsonl',), 0))
+            self.assertEqual([name for name, _ in entries], [str(path)])
+            self.assertEqual(entries[0][1].st_size, 3)
+            close.assert_called_once()
+
+    def test_malformed_later_batch_discards_partial_bulk_results(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'file.jsonl'
+            path.write_text('{}\n')
+            name = b'file.jsonl\0'
+            length = (72 + len(name) + 7) // 8 * 8
+            record = struct.pack('=I5IIiIIqqQq', length, 0xa2000409, 0, 0, 0x200, 0,
+                                 0, 44, len(name), 1, 1800000000, 0, path.stat().st_ino, 999) + name
+            chunks = iter([record.ljust(length, b'\0'), b'\0' * 64])
+            def read(_fd, _attrs, buf, size, _flags):
+                buf.raw = next(chunks).ljust(size, b'\0')
+                return 1
+            with patch.object(server, 'BULK_STAT', side_effect=read):
+                entries = list(server.transcript_entries(path.parent, ('*.jsonl',), 0))
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(entries[0][0], str(path))
+            self.assertEqual(entries[0][1].st_size, 3)
+
     def test_discovers_hidden_transcripts_and_resumed_history_and_removes_stale_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root, now = Path(directory), 1800000000

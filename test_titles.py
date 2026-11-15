@@ -122,13 +122,10 @@ class TaskTitlesTest(unittest.TestCase):
             server.restore_claude_title(state)
             self.assertEqual(state.payload()['title'], 'Boundary title')
 
-    def test_missing_codex_index_is_optional(self):
-        with tempfile.TemporaryDirectory() as tmp, patch.object(server, 'CODEX', Path(tmp) / 'sessions'):
-            self.assertEqual(server.codex_titles(), {})
-
     def test_codex_title_cache_reuses_reads_and_refreshes_after_rewrites_and_replacement(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(server, 'CODEX', Path(tmp) / 'sessions'):
             path = Path(tmp) / 'session_index.jsonl'
+            self.assertEqual(server.codex_titles(), {})
             def write(target, name):
                 target.write_text(json.dumps({'id': 'test', 'thread_name': name}) + '\n')
             write(path, 'first')

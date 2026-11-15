@@ -57,8 +57,10 @@ test('personal sigils retain identity and react to observed tool activity once',
 test('questions leave an open sigil without a completion ceremony', () => {
   const s = scene(), a = agent('sigil-question');
   s.reconcile({ agents: [a] });
-  s.reconcile({ agents: [{ ...a, tool: 'request_user_input' }] });
   const w = s.wizards.get(a.id);
+  assert.ok(w.desk);
+  s.reconcile({ agents: [{ ...a, tool: 'request_user_input' }] });
+  assert.equal(w.station, 'cafe');
   assert.equal(w.desk, null);
   assert.equal(w.sigil.mode, 'ask');
   assert.equal(s.RITUALS.length, 0);
@@ -284,15 +286,6 @@ test('work keeps its seat through tool changes and renames, then dissolves', () 
   s.reconcile({ agents: [a] });
   assert.ok(w.desk);
   s.reconcile({ agents: [] });
-  assert.equal(w.desk, null);
-});
-test('questions release desks, running commands do not', () => {
-  const s = scene(), a = agent('main');
-  s.reconcile({ agents: [a] });
-  const w = s.wizards.get(a.id);
-  assert.ok(w.desk);
-  s.reconcile({ agents: [{ ...a, tool: 'request_user_input' }] });
-  assert.equal(w.station, 'cafe');
   assert.equal(w.desk, null);
 });
 test('mimic steals a desk item and retreats behind the shelf', () => {

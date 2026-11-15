@@ -835,14 +835,41 @@ test("a Black Lotus alarm hands back the opponent's emote unless they now need a
     assert.equal(foe.emote, status === 'attention' ? 'alert' : 'drink:latte');
   }
 });
-test('the Magic table tooltip names both duelists and shows the last card as a card', () => {
+test('the Magic table tooltip names both duelists without previewing an unrelated card', () => {
   const { s, game } = magicGame();
   playMagic(s, game, 30);
   const html = s.magicTipHTML(), last = game.mtg.last;
   assert.ok(last);
   assert.match(html, /MAGIC: THE GATHERING <span>TURN \d+<\/span>/);
   for (const me of game.mtg.sides) assert.ok(html.includes(`${me.name} · `) && html.includes(`${me.life} LIFE`));
-  assert.ok(html.includes(`mtg-card mc-${last.color || 'C'}`) && html.includes(last.name));
+  assert.doesNotMatch(html, /mtg-card/);
+});
+
+test('Magic hover follows visible cards, miniatures, tapped bounds and stack order', () => {
+  const { s, game } = magicGame(), state = game.mtg;
+  const card = (key, id, x, y, more = {}) => ({ ...s.MAGIC.CARDS[key], key, id, side: 0, vx: x, vy: y, vz: 0, ...more });
+  const land = card('swamp', 101, 320, 260, { tapped: true });
+  const creature = card('zombies', 102, 340, 270, { color: 'B' });
+  const buried = card('forest', 103, 302, 278), grave = card('plains', 104, 302, 278);
+  for (const me of state.sides) { me.field = []; me.grave = []; }
+  state.sides[0].field = [land, creature]; state.sides[0].grave = [buried, grave]; state.stack = [];
+  const { S, labExtra } = s.layout();
+  const at = (x, y) => s.pickAt({ clientX: (x + labExtra) * S, clientY: y * S });
+  s.drawMagic(s.ctx, 10);
+  for (const [x, y, c] of [[324.5, 262, land], [341, 268, creature], [303, 279, grave]]) {
+    const id = at(x, y);
+    assert.equal(id, `mtg:${c.id}`);
+    assert.ok(s.magicTipHTML(id).includes(c.name));
+  }
+  assert.equal(at(325, 262), 'mtg', 'tapped card ends at its rendered edge');
+  assert.equal(at(360, 280), 'mtg', 'empty table only shows the game summary');
+  assert.doesNotMatch(s.magicTipHTML(at(360, 280)), /mtg-card/);
+  const spell = card('counter', 105, 337, 253, { color: 'U', vz: 1 });
+  state.stack = [{ c: spell }]; s.drawMagic(s.ctx, 10);
+  assert.equal(at(341, 268), 'mtg:105', 'stack card covers the creature underneath');
+  state.stack = []; state.sides[0].field = []; state.sides[0].grave = [];
+  s.drawMagic(s.ctx, 11);
+  assert.equal(at(341, 268), 'mtg', 'removed cards lose their hover targets');
 });
 
 test('Go remains a two-player game when a cat is available', () => {

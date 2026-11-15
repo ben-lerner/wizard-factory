@@ -1092,11 +1092,13 @@
       }
     }
   }
+  const magicHits = [];
   function drawCardAt(gg, c, x, y, z, tapped) {
     x = Math.round(x); y = Math.round(y);
-    if (z > .9) { drawBigCard(gg, c, x, y); return; }
+    if (z > .9) { magicHits.push({ c, x: x - 1, y: y - 1, w: 20, h: 26 }); drawBigCard(gg, c, x, y); return; }
     const [fill, edge] = MANA[c ? c.color : 'back'], w = Math.round(4 + 14 * z), h = Math.round(5 + 19 * z);
     const [cw, ch] = tapped ? [h, w] : [w, h], top = y + (tapped ? 1 : 0);
+    if (c) magicHits.push({ c, x, y: top, w: cw, h: ch });
     gg.fillStyle = edge; gg.fillRect(x, top, cw, ch);
     gg.fillStyle = fill; gg.fillRect(x + 1, top + 1, cw - 2, ch - 2);
   }
@@ -1116,6 +1118,7 @@
     if (game.lap?.card === c && t >= game.lap.at && t < game.lap.until) return;
     const art = cardArtFor(game, c), z = c.pump ? 2 : 1, w = art.width * z, h = art.height * z, born = t - (c.bornAt ?? -9);
     const lift = c.fly ? 3 + Math.round(Math.sin(t * 3 + c.id)) : 0, x = Math.round(c.vx + 2 - w / 2), y = Math.round(c.vy + 4 - h - lift);
+    magicHits.push({ c, x, y, w, h });
     gg.save();
     if (born < .8) {
       gg.globalAlpha = 1 - born / .8; gg.strokeStyle = MANA[c.color][0]; gg.lineWidth = 1;
@@ -1135,6 +1138,7 @@
   }
   // The table prop: libraries, d20 life counters, lands, creatures standing on their cards, and the stack.
   function drawMagic(gg, t) {
+    magicHits.length = 0;
     PR.magicTable(gg, MTG.x, MTG.y);
     const game = MTG.game, s = game?.mtg;
     if (!s) return;
@@ -1225,11 +1229,12 @@
       <div class="mc-bar">${TYPE_LINES[c.type]}${c.sub ? ' — ' + c.sub : c.type === 'land' ? ' — ' + c.name : ''}</div>
       <div class="mc-text">${esc(c.text || '')}${c.type === 'creature' ? `<b>${c.p}/${c.t}</b>` : ''}</div></div>`;
   }
-  function magicTipHTML() {
+  function magicTipHTML(id = 'mtg') {
     const game = MTG.game, s = game.mtg;
+    const card = magicHits.find(hit => `mtg:${hit.c.id}` === id)?.c;
     return `<div class="tt-name">MAGIC: THE GATHERING <span>TURN ${Math.max(1, s.turn)}</span></div>
       ${s.sides.map(me => `<div class="tt-meta">${esc(me.name)} · ${deckName(me)} · ${me.life} LIFE · ${me.library.length} CARDS</div>`).join('')}
-      ${s.last ? cardHTML(game, s.last) : ''}`;
+      ${card ? cardHTML(game, card) : ''}`;
   }
 
   // Biggles' stray spells can still burn a court game, but board games play to their conclusion.
@@ -2638,7 +2643,11 @@
     if (mx >= dragon.x - 25 && mx <= dragon.x + 25 && my >= dragon.y - 40 && my <= dragon.y + 3) return 'barista';
     if (demonCat.active && Math.abs(mx - demonCat.x) <= 8 && Math.abs(my - demonCat.y + 4) <= 7) return 'demon-cat';
     if (Math.abs(mx - cat.x) <= 8 && Math.abs(my - cat.y + 4) <= 7) return 'cat';
-    if (MTG.game && Math.abs(mx - MTG.x) <= 56 && my >= MTG.y - 68 && my <= MTG.y + 2) return 'mtg';
+    if (MTG.game) {
+      const hit = magicHits.findLast(b => mx >= b.x && mx < b.x + b.w && my >= b.y && my < b.y + b.h);
+      if (hit) return `mtg:${hit.c.id}`;
+      if (Math.abs(mx - MTG.x) <= 56 && my >= MTG.y - 68 && my <= MTG.y + 2) return 'mtg';
+    }
     return null;
   }
   function hoverRow(id) {
@@ -2723,7 +2732,7 @@
       const book = hover && hover.startsWith('book:') && shelfBooks()[+hover.slice(5)];
       if (v) showUsageTip(v, e.clientX - sr.left + 14, e.clientY - sr.top + 10);
       else if (ball) showResourceTip(ball, e.clientX - sr.left + 14, e.clientY - sr.top + 10);
-      else if (hover === 'mtg') placeTip(magicTipHTML(), e.clientX - sr.left + 14, e.clientY - sr.top + 10);
+      else if (hover === 'mtg' || hover?.startsWith('mtg:')) placeTip(magicTipHTML(hover), e.clientX - sr.left + 14, e.clientY - sr.top + 10);
       else if (book) placeTip(bookHTML(book.book), e.clientX - sr.left + 14, e.clientY - sr.top + 10);
       else $('#tip').hidden = true;
     }

@@ -1652,7 +1652,7 @@
   // animated props, y-sorted with sprites: [sortY, drawFn]
   const props = t => [
     [174, gg => PR.cauldron(gg, 56, 150, t, BREW)],
-    [91, gg => PR.shelf(gg, 10 - labExtra, 60, 11)], [127, gg => PR.shelf(gg, 10 - labExtra, 96, 23)],
+    [91, gg => PR.shelf(gg, 10 - labExtra, 60)], [127, gg => PR.shelf(gg, 10 - labExtra, 96)],
     [91.1, gg => drawShelfBooks(gg, 0)], [127.1, gg => drawShelfBooks(gg, 1)],
     [62, gg => PR.bench(gg, 88, 42, t)],
     ...RESOURCE_BALLS.map(ball => [ball.y + 22, gg =>
@@ -2201,15 +2201,17 @@
   const SHELVES = () => [[10 - labExtra, 60], [10 - labExtra, 96]];
   const shelfBooks = () => (annals.library || []).slice(0, 48).map((book, i) => {
     const [x, y] = SHELVES()[i / 24 | 0];
-    return { book, i, x: x + 3 + (i % 6) * 3, y: y + 3 + ((i % 24) / 6 | 0) * 7 };
+    const seed = hash(book.id), h = 4 + (seed >>> 8) % 3;
+    return { book, i, seed, h, x: x + 3 + (i % 6) * 3, y: y + 8 + ((i % 24) / 6 | 0) * 7 - h };
   });
   function drawShelfBooks(gg, shelf) {
-    for (const { book, i, x, y } of shelfBooks().filter(b => (b.i / 24 | 0) === shelf)) {
-      gg.fillStyle = '#2c2014'; gg.fillRect(x, y - 1, 2, 6);
-      gg.fillStyle = `hsl(${hash(book.project || book.id) % 360} 55% ${hover === 'book:' + i ? 75 : 52}%)`; gg.fillRect(x, y, 2, 5);
-      gg.fillStyle = '#f7f3e8'; gg.fillRect(x, y + 2, 2, 1);  // a title plate sets quest books apart from the shelf's own
+    for (const { book, i, seed, h, x, y } of shelfBooks().filter(b => (b.i / 24 | 0) === shelf)) {
+      gg.fillStyle = `hsl(${seed % 360} 45% ${hover === 'book:' + i ? 75 : 42 + (seed >>> 16) % 16}%)`; gg.fillRect(x, y, 2, h);
+      gg.fillStyle = '#d8c698';
+      if (seed % 3 === 0) gg.fillRect(x, y + 1, 2, 1);
+      if (seed % 3 === 1) { gg.fillRect(x, y + 1, 2, 1); gg.fillRect(x, y + h - 2, 2, 1); }
       if ((book.prs || []).length) { gg.fillStyle = '#ffd84a'; gg.fillRect(x, y, 2, 1); }
-      if (book.engine === 'codex') { gg.fillStyle = '#f0a83c'; gg.fillRect(x, y + 3, 2, 1); }
+      if (book.engine === 'codex') { gg.fillStyle = '#f0a83c'; gg.fillRect(x, y + h - 2, 1, 1); }
     }
   }
   async function fetchAnnals() {
@@ -2631,7 +2633,7 @@
     if (ball) return ball.id;
     for (const w of [...wizards.values()].sort((a, b) => b.y - a.y))
       if (Math.abs(mx - w.x) <= 9 && my >= w.y - 26 && my <= w.y + 3) return w.a.id;
-    const book = shelfBooks().find(b => mx >= b.x - 1 && mx <= b.x + 2 && my >= b.y - 1 && my <= b.y + 5);
+    const book = shelfBooks().find(b => mx >= b.x - 1 && mx <= b.x + 2 && my >= b.y - 1 && my < b.y + b.h);
     if (book) return 'book:' + book.i;
     if (mx >= dragon.x - 25 && mx <= dragon.x + 25 && my >= dragon.y - 40 && my <= dragon.y + 3) return 'barista';
     if (demonCat.active && Math.abs(mx - demonCat.x) <= 8 && Math.abs(my - demonCat.y + 4) <= 7) return 'demon-cat';

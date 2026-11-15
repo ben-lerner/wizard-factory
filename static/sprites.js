@@ -395,20 +395,9 @@ window.SP = (() => {
     if ((t * 4 | 0) % 2) px(g, x + 7, y - 2, '#a8f0b0');
   };
 
-  PR.shelf = (g, x, y, seed) => {
-    const r = rng(seed);
+  PR.shelf = (g, x, y) => {
     rc(g, x, y, 24, 31, '#5a3c26'); rc(g, x + 2, y + 2, 20, 27, '#2c2014');
-    const cols = ['#a84848', '#4878a8', '#48a868', '#a8a848', '#8858a8', '#c87838'];
-    for (let s = 0; s < 4; s++) {
-      const sy = y + 2 + s * 7;
-      rc(g, x + 2, sy + 6, 20, 1, '#6e4a2f');
-      for (let bx = x + 3; bx < x + 20; bx += 3) {
-        if (r() < .15) continue;
-        if (r() < .06) { rc(g, bx, sy + 3, 2, 2, '#ded8c8'); px(g, bx, sy + 4, '#444'); continue; }
-        const h = 4 + (r() * 2 | 0);
-        rc(g, bx, sy + 6 - h, 2, h, pick(r, cols));
-      }
-    }
+    for (let s = 0; s < 4; s++) rc(g, x + 2, y + 8 + s * 7, 20, 1, '#6e4a2f');
   };
 
   PR.mimic = (g, x, y, t, open, loot) => {

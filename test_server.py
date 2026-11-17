@@ -396,6 +396,72 @@ class QuotaTest(unittest.TestCase):
                                  weeklyResetsAt=456, availableResets=None, error=None))
         return MagicMock(returncode=0, stdout=json.dumps({'accounts': accounts}), stderr='')
 
+    def test_running_daemon_overrides_changed_login_file(self):
+        daemon = dict(id=server.account_id(self.b), name='Running', provider='codex',
+                      origins=['local'], left=0, error=None)
+        with patch.object(server, 'CODEX_DAEMON', None), \
+                patch.object(server, 'daemon_quota', return_value=daemon), \
+                patch.object(server.subprocess, 'run', side_effect=self.cli) as run:
+            self.assertEqual(server.account_quotas(False), [daemon])
+            run.assert_not_called()
+            self.assertEqual(server.active_codex_id(), daemon['id'])
+            quotas = server.account_quotas(True)
+            self.assertEqual([(q['name'], q['origins']) for q in quotas if q['provider'] == 'codex'],
+                             [('Listed', []), ('Running', ['local'])])
+            with patch.object(server, 'LOCAL_QUOTAS', quotas), patch.object(server, 'REMOTES', {}):
+                self.assertEqual([q['origins'] for q in server.state_payload(None)['quotas']
+                                  if q['provider'] == 'codex'], [[], ['local']])
+
+    def test_daemon_failure_keeps_identity_instead_of_using_file_login(self):
+        daemon = dict(id=server.account_id(self.b), name='Running', origins=['local'], left=0)
+        with patch.object(server, 'CODEX_DAEMON', (server.active_home(), daemon)), \
+                patch.object(server, 'daemon_quota', side_effect=TimeoutError):
+            self.assertTrue(server.account_quotas(False)[0]['stale'])
+            self.assertEqual(server.active_codex_id(), daemon['id'])
+        with patch.object(server, 'CODEX_DAEMON', None), \
+                patch.object(server, 'daemon_quota', side_effect=TimeoutError):
+            self.assertEqual(server.account_quotas(False), [])
+            self.assertIsNone(server.active_codex_id())
+            with patch.object(server.subprocess, 'run', side_effect=self.cli):
+                quotas = server.account_quotas(True)
+            self.assertEqual([(q['name'], q['origins']) for q in quotas],
+                             [('Listed', []), ('Claude', ['local'])])
+
+    def test_daemon_identity_matches_configured_token_identity(self):
+        claims = base64.urlsafe_b64encode(json.dumps({
+            'sub': 'external-login', 'https://api.openai.com/auth': {'chatgpt_user_id': 'user-a'}}).encode()).decode()
+        (self.a / 'auth.json').write_text(json.dumps({'tokens': {'account_id': 'a', 'id_token': f'x.{claims}.x'}}))
+        self.assertEqual(server.account_id(self.a), server.login_key('a', 'user-a'))
+
+    def test_daemon_websocket_reads_account_and_weekly_usage(self):
+        path = self.a / 'app-server-control/app-server-control.sock'
+        path.parent.mkdir()
+        path.touch()
+        key = base64.b64encode(b'x' * 16).decode()
+        accept = base64.b64encode(server.hashlib.sha1((key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode()).digest())
+        data = bytearray(b'HTTP/1.1 101 Switching Protocols\r\nSec-WebSocket-Accept: ' + accept + b'\r\n\r\n')
+        def frame(value, opcode=0x81):
+            payload = json.dumps(value).encode()
+            return bytes([opcode, 126]) + server.struct.pack('!H', len(payload)) + payload
+        data.extend(frame({'id': 1, 'result': {}}))
+        data.extend(bytes([0x89, 1]) + b'p')  # ping between RPC responses
+        data.extend(frame({'id': 2, 'result': {'userId': 'user-a', 'account': {'email': 'running@example.com'}}}))
+        data.extend(frame({'id': 3, 'result': {'accountId': 'a', 'rateLimits': {
+            'planType': 'pro', 'primary': {'usedPercent': 100, 'windowDurationMins': 10080, 'resetsAt': 123}},
+            'rateLimitResetCredits': {'availableCount': 1, 'credits': [{'status': 'available', 'expiresAt': 456}]}}}))
+        def recv(size):
+            chunk = bytes(data[:size])
+            del data[:size]
+            return chunk
+        sock = MagicMock()
+        sock.__enter__.return_value = sock
+        sock.recv.side_effect = recv
+        with patch.object(server.socket, 'socket', return_value=sock), patch.object(server.os, 'urandom', side_effect=lambda n: b'x' * n):
+            quota = server.daemon_quota()
+        self.assertEqual((quota['id'], quota['left'], quota['resets_at'], quota['reset_expirations']),
+                         (server.login_key('a', 'user-a'), 0, 123, [456]))
+        self.assertTrue(any(call.args[0][0] == 0x8a for call in sock.sendall.call_args_list))
+
     def test_listed_accounts_use_installed_cli_and_include_claude(self):
         with patch.object(server.subprocess, 'run', side_effect=self.cli) as run:
             quotas = server.account_quotas(True)

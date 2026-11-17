@@ -21,6 +21,7 @@ import re
 import shlex
 import shutil
 import signal
+import socket
 import struct
 import subprocess
 import sys
@@ -66,6 +67,7 @@ OVERRIDES = {}  # session_id -> latest hook event {event, ts, msg}
 DEAD = {}       # session_id -> epoch of SessionEnd hook
 HOSTS, REMOTES, STREAMS = [], {}, []  # remote hosts in faction order; host -> latest snapshot; live ssh processes
 LOCAL_QUOTAS = None  # until the first usage read
+CODEX_DAEMON = None  # (home, quota) from the running server
 TIMER_PROMPTS = []
 CPU_USAGE, CPU_TIMES = None, None
 LOCAL_RESOURCES = {}
@@ -318,10 +320,107 @@ def account_id(home):
         tokens = json.loads((home / 'auth.json').read_text()).get('tokens') or {}
         token = tokens['id_token'].split('.')[1]
         claims = json.loads(base64.urlsafe_b64decode(token + '=' * (-len(token) % 4)))
-        identity = [tokens['account_id'], claims['sub']]
+        identity = [tokens['account_id'],
+                    (claims.get('https://api.openai.com/auth') or {}).get('chatgpt_user_id') or claims['sub']]
         return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
     except (OSError, ValueError, KeyError, IndexError, TypeError):
         return None
+
+
+def daemon_quota():
+    """Read the existing daemon without starting or changing its login."""
+    path = active_home() / 'app-server-control/app-server-control.sock'
+    if not path.exists():
+        return None
+    deadline = time.monotonic() + 5
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+        def read(size):
+            data = bytearray()
+            while len(data) < size:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError('Codex daemon request timed out')
+                sock.settimeout(remaining)
+                chunk = sock.recv(size - len(data))
+                if not chunk:
+                    raise ConnectionError('Codex daemon disconnected')
+                data.extend(chunk)
+            return bytes(data)
+
+        def send(opcode, data):
+            mask = os.urandom(4)
+            size = len(data)
+            header = bytes([0x80 | opcode, 0x80 | (size if size < 126 else 126)])
+            if size >= 126:
+                header += struct.pack('!H', size)
+            sock.sendall(header + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+
+        def call(request_id, method, params):
+            send(1, json.dumps({'id': request_id, 'method': method, 'params': params}).encode())
+            message = bytearray()
+            while True:
+                first, second = read(2)
+                size = second & 127
+                if size >= 126:
+                    size = struct.unpack('!H' if size == 126 else '!Q', read(2 if size == 126 else 8))[0]
+                if second & 128 or size + len(message) > 1024 * 1024:
+                    raise ValueError('Invalid Codex WebSocket frame')
+                data = read(size)
+                opcode = first & 15
+                if opcode == 8:
+                    raise ConnectionError('Codex daemon closed the connection')
+                if opcode == 9:
+                    send(10, data)
+                if opcode not in (0, 1):
+                    continue
+                message.extend(data)
+                if not first & 128:
+                    continue
+                response = json.loads(message)
+                message.clear()
+                if response.get('id') == request_id:
+                    if 'error' in response:
+                        raise ValueError('Codex daemon request failed')
+                    return response['result']
+
+        sock.settimeout(5)
+        sock.connect(str(path))
+        key = base64.b64encode(os.urandom(16)).decode()
+        sock.sendall((f'GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n'
+                      f'Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n'
+                      'Sec-WebSocket-Version: 13\r\n\r\n').encode())
+        header = bytearray()
+        while not header.endswith(b'\r\n\r\n'):
+            if len(header) >= 16384:
+                raise ValueError('Invalid Codex WebSocket handshake')
+            header.extend(read(1))
+        accept = base64.b64encode(hashlib.sha1((key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode()).digest())
+        if not header.startswith(b'HTTP/1.1 101 ') or accept.lower() not in bytes(header).lower():
+            raise ValueError('Codex WebSocket upgrade failed')
+        call(1, 'initialize', {'clientInfo': {'name': 'wizard-factory', 'version': '1.0.0'},
+                               'capabilities': {'experimentalApi': True}})
+        send(1, b'{"method":"initialized"}')
+        account = call(2, 'account/read', {'refreshToken': False})
+        usage = call(3, 'account/rateLimits/read', None)
+    identity = login_key(usage.get('accountId'), account.get('userId'))
+    if not identity:
+        raise ValueError('Codex daemon account identity unavailable')
+    bucket = (usage.get('rateLimitsByLimitId') or {}).get('codex') or usage['rateLimits']
+    weekly = next((w for key in ('primary', 'secondary') if (w := bucket.get(key)) and
+                   w.get('windowDurationMins') == 10080), {})
+    resets = usage.get('rateLimitResetCredits') or {}
+    return {'id': identity, 'name': (account.get('account') or {}).get('email') or 'In use',
+            'provider': 'codex', 'origins': ['local'], 'model': None,
+            'tier': {'pro': 20, 'prolite': 10}.get(bucket.get('planType')),
+            'period': 'weekly', 'left': max(0, min(100, 100 - weekly['usedPercent'])) if weekly else None,
+            'resets_at': weekly.get('resetsAt'), 'resets_left': resets.get('availableCount'),
+            'reset_expirations': [c.get('expiresAt') for c in resets['credits'] if c['status'] == 'available']
+                                 if resets.get('credits') is not None else None,
+            'updatedAt': time.time(), 'error': None}
+
+
+def active_codex_id():
+    return CODEX_DAEMON[1]['id'] if CODEX_DAEMON and CODEX_DAEMON[0] == active_home() else account_id(active_home())
 
 
 def claude_home():
@@ -356,6 +455,20 @@ def quota_label(name, provider):
 
 
 def account_quotas(listed):
+    global CODEX_DAEMON
+    try:
+        daemon = daemon_quota()
+        CODEX_DAEMON = (active_home(), daemon) if daemon else None
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        print('Codex daemon quota error:', repr(error), file=sys.stderr, flush=True)
+        if not CODEX_DAEMON or CODEX_DAEMON[0] != active_home() or not CODEX_DAEMON[1]['id']:
+            CODEX_DAEMON = (active_home(), {'id': None})
+            daemon = None
+        else:
+            daemon = {**CODEX_DAEMON[1], 'stale': True, 'error': 'Codex daemon unavailable'}
+            CODEX_DAEMON = (active_home(), daemon)
+    if daemon and not listed:
+        return [daemon]
     config = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config') / 'codex-quota/accounts.json'
     accounts = json.loads(config.read_text()) if listed and config.exists() else {}
     claude_accounts = {}
@@ -366,7 +479,7 @@ def account_quotas(listed):
     claude_homes = {name: (config.parent / Path(home).expanduser()).resolve()
                     for name, home in claude_accounts.items()}
     active_claude = claude_id(claude_home())
-    active = account_id(active_home())
+    active = active_codex_id()
     if not listed and not active:
         return []
     identities = {name: account_id(home) for name, home in homes.items()}
@@ -396,8 +509,7 @@ def account_quotas(listed):
     cli_accounts = json.loads(result.stdout)['accounts']
     readings = [{**r, 'id': identities[r['name']] or 'unknown:' + r['name'],
                  'provider': 'codex',
-                 'origins': ['local'] if homes[r['name']] == active_home() or
-                            (active and identities[r['name']] == active) else []}
+                 'origins': ['local'] if active and identities[r['name']] == active else []}
                 for r in cli_accounts if r.get('provider') != 'claude']
     if listed:
         for r in cli_accounts:
@@ -411,7 +523,7 @@ def account_quotas(listed):
                                    'claude:active' if r['name'] == 'Claude' else 'claude:' + r.get('id', r['name']),
                              'origins': ['local'] if home == claude_home() or
                                         (active_claude and identity == active_claude) else []})
-    return [{'id': r['id'], **quota_label(r['name'], r['provider']),
+    quotas = [{'id': r['id'], **quota_label(r['name'], r['provider']),
              'tier': r.get('planTier'), 'provider': r['provider'],
              'period': 'weekly', 'origins': r['origins'],
              'left': max(0, min(100, 100 - r['weeklyUsedPercent'])) if r['weeklyUsedPercent'] is not None else None,
@@ -420,6 +532,7 @@ def account_quotas(listed):
              'reset_expirations': r.get('resetExpirations'),
              **{key: r[key] for key in ('loginId', 'updatedAt', 'cached', 'stale', 'retryAt', 'timerPrompt', 'loginExpired') if key in r}}
             for r in readings]
+    return merge_quotas(quotas, [daemon]) if daemon else quotas
 
 
 def record_timer_prompts(quotas):
@@ -1425,7 +1538,7 @@ def stream_snapshots(out):
 
 def state_payload(demo):
     now = time.time()
-    logins = {} if demo else {'codex': account_id(active_home()), 'claude': claude_id(claude_home())}
+    logins = {} if demo else {'codex': active_codex_id(), 'claude': claude_id(claude_home())}
     with LOCK:
         if demo:
             ags = demo.payload(now)

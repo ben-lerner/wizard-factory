@@ -399,7 +399,7 @@ class QuotaTest(unittest.TestCase):
     def test_running_daemon_overrides_changed_login_file(self):
         daemon = dict(id=server.account_id(self.b), name='Running', provider='codex',
                       origins=['local'], left=0, error=None)
-        with patch.object(server, 'CODEX_DAEMON', None), \
+        with patch.object(server, 'CODEX_DAEMON_LOGIN', None), \
                 patch.object(server, 'daemon_quota', return_value=daemon), \
                 patch.object(server.subprocess, 'run', side_effect=self.cli) as run:
             self.assertEqual(server.account_quotas(False), [daemon])
@@ -412,13 +412,16 @@ class QuotaTest(unittest.TestCase):
                 self.assertEqual([q['origins'] for q in server.state_payload(None)['quotas']
                                   if q['provider'] == 'codex'], [[], ['local']])
 
-    def test_daemon_failure_keeps_identity_instead_of_using_file_login(self):
-        daemon = dict(id=server.account_id(self.b), name='Running', origins=['local'], left=0)
-        with patch.object(server, 'CODEX_DAEMON', (server.active_home(), daemon)), \
-                patch.object(server, 'daemon_quota', side_effect=TimeoutError):
-            self.assertTrue(server.account_quotas(False)[0]['stale'])
+    def test_daemon_failure_drops_quota_but_keeps_login_identity(self):
+        daemon = dict(id=server.account_id(self.b), name='Running', origins=['local'], left=0, provider='codex')
+        with patch.object(server, 'CODEX_DAEMON_LOGIN', None), \
+                patch.object(server, 'daemon_quota', side_effect=[daemon, TimeoutError, TimeoutError]), \
+                patch.object(server.subprocess, 'run', side_effect=self.cli):
+            self.assertEqual([q['name'] for q in server.account_quotas(True)], ['Listed', 'Claude', 'Running'])
+            self.assertEqual([q['name'] for q in server.account_quotas(True)], ['Listed', 'Claude'])
+            self.assertEqual(server.account_quotas(False), [])
             self.assertEqual(server.active_codex_id(), daemon['id'])
-        with patch.object(server, 'CODEX_DAEMON', None), \
+        with patch.object(server, 'CODEX_DAEMON_LOGIN', None), \
                 patch.object(server, 'daemon_quota', side_effect=TimeoutError):
             self.assertEqual(server.account_quotas(False), [])
             self.assertIsNone(server.active_codex_id())

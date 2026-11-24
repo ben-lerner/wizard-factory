@@ -67,7 +67,7 @@ OVERRIDES = {}  # session_id -> latest hook event {event, ts, msg}
 DEAD = {}       # session_id -> epoch of SessionEnd hook
 HOSTS, REMOTES, STREAMS = [], {}, []  # remote hosts in faction order; host -> latest snapshot; live ssh processes
 LOCAL_QUOTAS = None  # until the first usage read
-CODEX_DAEMON = None  # (home, quota) from the running server
+CODEX_DAEMON_LOGIN = None  # (home, login ID) from the running server
 TIMER_PROMPTS = []
 CPU_USAGE, CPU_TIMES = None, None
 LOCAL_RESOURCES = {}
@@ -420,7 +420,8 @@ def daemon_quota():
 
 
 def active_codex_id():
-    return CODEX_DAEMON[1]['id'] if CODEX_DAEMON and CODEX_DAEMON[0] == active_home() else account_id(active_home())
+    home = active_home()
+    return CODEX_DAEMON_LOGIN[1] if CODEX_DAEMON_LOGIN and CODEX_DAEMON_LOGIN[0] == home else account_id(home)
 
 
 def claude_home():
@@ -455,18 +456,18 @@ def quota_label(name, provider):
 
 
 def account_quotas(listed):
-    global CODEX_DAEMON
+    global CODEX_DAEMON_LOGIN
+    home = active_home()
     try:
         daemon = daemon_quota()
-        CODEX_DAEMON = (active_home(), daemon) if daemon else None
+        CODEX_DAEMON_LOGIN = (home, daemon['id']) if daemon else None
     except (OSError, ValueError, KeyError, TypeError) as error:
         print('Codex daemon quota error:', repr(error), file=sys.stderr, flush=True)
-        if not CODEX_DAEMON or CODEX_DAEMON[0] != active_home() or not CODEX_DAEMON[1]['id']:
-            CODEX_DAEMON = (active_home(), {'id': None})
-            daemon = None
-        else:
-            daemon = {**CODEX_DAEMON[1], 'stale': True, 'error': 'Codex daemon unavailable'}
-            CODEX_DAEMON = (active_home(), daemon)
+        if not CODEX_DAEMON_LOGIN or CODEX_DAEMON_LOGIN[0] != home:
+            CODEX_DAEMON_LOGIN = (home, None)
+        daemon = None
+        if not listed:
+            return []
     if daemon and not listed:
         return [daemon]
     config = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config') / 'codex-quota/accounts.json'

@@ -3,11 +3,14 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-function scene(random = Math.random) {
+function scene(random = Math.random, Intl = globalThis.Intl) {
   const calls = [];
-  const ctx = new Proxy({ getImageData: () => ({ data: [] }) }, { get: (target, key) => key in target ? target[key] : (...args) => calls.push([key, ...args]) });
+  const ctx = new Proxy({
+    getImageData: () => ({ data: [] }),
+    measureText: text => ({ width: [...text].reduce((width, char) => width + (/\p{Script=Han}/u.test(char) ? 12 : 6), 0) }),
+  }, { get: (target, key) => key in target ? target[key] : (...args) => calls.push([key, ...args]) });
   const element = { getContext: () => ctx, toDataURL: () => '', addEventListener() {}, style: {}, getBoundingClientRect: () => ({ left: 0, top: 0, width: 960, height: 544 }), clientLeft: 0, clientTop: 0, offsetWidth: 200, offsetHeight: 80 };
-  const sandbox = { console, Math: Object.assign(Object.create(Math), { random }), ResizeObserver: class { observe() {} }, document: { querySelector: () => element, createElement: () => ({ ...element }) }, window: { addEventListener() {} } };
+  const sandbox = { console, Intl, Math: Object.assign(Object.create(Math), { random }), ResizeObserver: class { observe() {} }, document: { querySelector: () => element, createElement: () => ({ ...element }) }, window: { addEventListener() {} } };
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync('static/sprites.js', 'utf8'), sandbox);
   sandbox.SP = sandbox.window.SP;
@@ -426,6 +429,30 @@ test('long task labels truncate at the end of the fifth line', () => {
   const lines = s.calls.filter(c => c[0] === 'drawText').map(c => c[3]);
   assert.equal(lines.length, 5);
   assert.match(lines[4], /\.\.\.$/);
+});
+test('kanji placards render mixed titles and reserve room for wrapped glyphs', () => {
+  const s = scene(), a = { ...agent('kanji-label'), title: 'Fix 𠮷田' };
+  s.reconcile({ agents: [a] });
+  const { desk } = s.wizards.get(a.id);
+  const draw = () => {
+    s.calls.length = 0;
+    s.drawTaskLabel(desk);
+    return s.calls.filter(([op]) => op === 'fillText').map(([, text]) => text);
+  };
+  assert.deepEqual(draw(), ['FIX 𠮷田']);
+  s.reconcile({ agents: [{ ...a, title: '漢字魔法𠮷'.repeat(6) }] });
+  assert.deepEqual(draw(), ['漢字魔法', '𠮷漢字魔', '法𠮷漢字', '魔法𠮷漢', '字魔法𠮷…']);
+  const space = s.deskSpace(desk.x, desk.y, desk.w);
+  for (const [, x, y, width, height] of s.calls.filter(([op]) => op === 'fillRect')) {
+    assert.ok(x >= space.x && x + width <= space.x + space.w);
+    assert.ok(y >= space.y && y + height <= space.y + space.h);
+  }
+});
+test('kanji placards render when Intl.Segmenter is unavailable', () => {
+  const s = scene(undefined, {}), a = { ...agent('kanji-label'), title: '𠮷田' };
+  s.reconcile({ agents: [a] });
+  s.drawTaskLabel(s.wizards.get(a.id).desk);
+  assert.ok(s.calls.some(([op, text]) => op === 'fillText' && text === '𠮷田'));
 });
 test('long placards relocate desks instead of overlapping', () => {
   const s = scene(), agents = Array.from({ length: 9 }, (_, i) => agent(String(i)));

@@ -276,17 +276,59 @@
     return { x, y: 30, w: 260 - x, h: 58 };
   };
   const deskBounds = (x, y) => ({ x: x - 32, y: y - 30, w: 64, h: 54 });
-  function taskLabelLines(w) {
-    if (w.sp.sub) return [];
-    const title = String(w.a.title || w.a.quest || w.a.project || w.sp.name).toUpperCase();
-    let lines = title.match(/.{1,12}(?:\s|$)|.{1,12}/g)?.map(line => line.trim()).filter(Boolean) || ['UNTITLED'];
-    if (lines.length > 5) {
-      lines = lines.slice(0, 5);
-      lines[4] = lines[4].slice(0, 9) + '...';
+  const DESK_FONT = '12px "Hiragino Sans", "Yu Gothic", "Noto Sans CJK JP", sans-serif';
+  const DESK_TEXT_WIDTH = 54, DESK_MAX_LINES = 5;
+  const deskSegmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('ja') : null;
+  const deskGraphemes = text => deskSegmenter
+    ? Array.from(deskSegmenter.segment(text), part => part.segment)
+    : text.match(/\P{Mark}\p{Mark}*|\p{Mark}+/gu) || [];
+  function kanjiLabelLines(title) {
+    const lines = [];
+    let line = '';
+    for (const grapheme of deskGraphemes(title.trim())) {
+      if (line && g.measureText(line + grapheme).width > DESK_TEXT_WIDTH) {
+        line = line.trimEnd();
+        if (lines.length === DESK_MAX_LINES - 1) {
+          const last = deskGraphemes(line);
+          while (last.length && g.measureText(last.join('') + '…').width > DESK_TEXT_WIDTH) last.pop();
+          line = last.join('').trimEnd() + '…';
+          break;
+        }
+        lines.push(line);
+        line = '';
+      }
+      if (line || grapheme.trim()) line += grapheme;
     }
+    if (line) lines.push(line);
     return lines;
   }
-  const deskSpace = (x, y, w) => ({ x: x - 32, y: y - 30, w: 64, h: Math.max(54, 36 + taskLabelLines(w).length * 8) });
+  function taskLabel(w) {
+    const title = w.sp.sub ? '' : String(w.a.title || w.a.quest || w.a.project || w.sp.name).toUpperCase();
+    if (w.taskLabel?.title === title) return w.taskLabel;
+    const kanji = /\p{Script=Han}/u.test(title);
+    let lines, widths;
+    if (kanji) {
+      g.save();
+      g.font = DESK_FONT;
+      lines = kanjiLabelLines(title);
+      widths = lines.map(line => Math.min(DESK_TEXT_WIDTH, g.measureText(line).width));
+      g.restore();
+    } else {
+      lines = title.match(/.{1,12}(?:\s|$)|.{1,12}/g)?.map(line => line.trim()).filter(Boolean) || [];
+      if (lines.length > DESK_MAX_LINES) {
+        lines.length = DESK_MAX_LINES;
+        lines[DESK_MAX_LINES - 1] = lines[DESK_MAX_LINES - 1].slice(0, 9) + '...';
+      }
+      widths = lines.map(line => textW(line));
+    }
+    return w.taskLabel = { title, lines, widths, kanji, lineHeight: kanji ? 15 : 8 };
+  }
+  const deskSpace = (x, y, w) => {
+    const bounds = deskBounds(x, y);
+    const { lines, lineHeight } = taskLabel(w);
+    bounds.h = Math.max(bounds.h, 36 + lines.length * lineHeight);
+    return bounds;
+  };
   const overlaps = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   // The tower always has one storey below the original floor plan: the cafe keeps its Magic table there.
   const labSize = steps => [Math.floor(steps / 3) * 72, (1 + steps - Math.floor(steps / 3)) * 60];
@@ -2443,15 +2485,21 @@
     g.restore();
   }
   function drawTaskLabel(d) {
-    const colors = deskColors(d.w);
-    const shown = taskLabelLines(d.w);
-    if (!shown.length) return;
-    const width = Math.max(...shown.map(line => textW(line))) + 8, left = Math.round(d.x - width / 2), top = d.y + 3;
+    const { lines, widths, lineHeight, kanji } = taskLabel(d.w);
+    if (!lines.length) return;
+    const colors = deskColors(d.w), height = lines.length * lineHeight;
+    const width = Math.ceil(Math.max(...widths)) + 8, left = Math.round(d.x - width / 2), top = d.y + 3;
     g.save(); g.globalAlpha = d.alpha;
-    g.fillStyle = colors.frame; g.fillRect(left, top, width, shown.length * 8 + 3);
-    g.fillStyle = colors.paper; g.fillRect(left + 1, top + 1, width - 2, shown.length * 8 + 1);
+    g.fillStyle = colors.frame; g.fillRect(left, top, width, height + 3);
+    g.fillStyle = colors.paper; g.fillRect(left + 1, top + 1, width - 2, height + 1);
     g.fillStyle = colors.pins; g.fillRect(left - 1, top + 1, 3, 3); g.fillRect(left + width - 2, top + 1, 3, 3);
-    shown.forEach((line, i) => drawText(g, Math.round(d.x - textW(line) / 2), top + 3 + i * 8, line, colors.text));
+    if (kanji) {
+      g.font = DESK_FONT; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillStyle = colors.text;
+      lines.forEach((line, i) => g.fillText(line, d.x, top + 2 + (i + .5) * lineHeight, DESK_TEXT_WIDTH));
+    } else {
+      lines.forEach((line, i) => drawText(g, Math.round(d.x - widths[i] / 2), top + 3 + i * lineHeight, line, colors.text));
+    }
     g.restore();
   }
   function drawFloorSigils(t) {
